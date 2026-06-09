@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/alertkube .
 
-FROM alpine:3.20
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates && \
     addgroup -g 65532 -S nonroot && \
     adduser  -u 65532 -S nonroot -G nonroot
