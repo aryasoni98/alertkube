@@ -143,11 +143,11 @@ func backoffDelay(p RetryPolicy, attempt int, lastErr error) time.Duration {
 	return d/2 + jitter
 }
 
-func capDuration(d, max time.Duration) time.Duration {
-	if max <= 0 || d <= max {
+func capDuration(d, ceiling time.Duration) time.Duration {
+	if ceiling <= 0 || d <= ceiling {
 		return d
 	}
-	return max
+	return ceiling
 }
 
 func sleepWithCtx(ctx context.Context, d time.Duration) error {

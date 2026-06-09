@@ -64,11 +64,11 @@ func orderedDetailKeys() []string {
 	return []string{"Pod Status", "Container State", "Pod Events", "Node Events", "Resource Spec", "Pod Logs Before Restart", "Deployment Status", "Job Status"}
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	return s[len(s)-max:]
+	return s[len(s)-limit:]
 }
 
 // safeRunbookURL guards the workload-supplied runbook-url annotation so a

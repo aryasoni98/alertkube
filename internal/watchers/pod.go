@@ -41,7 +41,7 @@ func (p *PodWatcher) Name() string { return "pod" }
 
 func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	inf := f.Core().V1().Pods().Informer()
-	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	register("pod", inf, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			defer recoverHandler("pod.Add")
 			newPod, ok := obj.(*v1.Pod)
@@ -52,10 +52,10 @@ func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactor
 			// restart delta exists yet so ContainerRestart is skipped.
 			p.evaluate(ctx, nil, newPod, emit)
 		},
-		UpdateFunc: func(old, new interface{}) {
+		UpdateFunc: func(oldObj, curObj interface{}) {
 			defer recoverHandler("pod.Update")
-			oldPod, _ := old.(*v1.Pod)
-			newPod, ok := new.(*v1.Pod)
+			oldPod, _ := oldObj.(*v1.Pod)
+			newPod, ok := curObj.(*v1.Pod)
 			if !ok || !p.shouldHandle(newPod) {
 				return
 			}

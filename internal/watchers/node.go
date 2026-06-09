@@ -24,7 +24,7 @@ func (*NodeWatcher) Name() string { return "node" }
 
 func (n *NodeWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	inf := f.Core().V1().Nodes().Informer()
-	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	register("node", inf, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			defer recoverHandler("node.Add")
 			newN, ok := obj.(*v1.Node)
@@ -33,10 +33,10 @@ func (n *NodeWatcher) Setup(ctx context.Context, f informers.SharedInformerFacto
 			}
 			n.evaluate(nil, newN, emit)
 		},
-		UpdateFunc: func(old, new interface{}) {
+		UpdateFunc: func(oldObj, curObj interface{}) {
 			defer recoverHandler("node.Update")
-			oldN, _ := old.(*v1.Node)
-			newN, ok := new.(*v1.Node)
+			oldN, _ := oldObj.(*v1.Node)
+			newN, ok := curObj.(*v1.Node)
 			if !ok {
 				return
 			}

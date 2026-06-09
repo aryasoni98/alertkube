@@ -32,14 +32,14 @@ func (p *PVCWatcher) Setup(_ context.Context, f informers.SharedInformerFactory,
 		}
 		p.evaluate(pvc, emit)
 	}
-	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	register("pvc", inf, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			defer recoverHandler("pvc.Add")
 			handler(obj)
 		},
-		UpdateFunc: func(_, new interface{}) {
+		UpdateFunc: func(_, cur interface{}) {
 			defer recoverHandler("pvc.Update")
-			handler(new)
+			handler(cur)
 		},
 	})
 }

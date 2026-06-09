@@ -28,14 +28,14 @@ func (j *JobWatcher) Setup(_ context.Context, f informers.SharedInformerFactory,
 		}
 		j.evaluate(job, emit)
 	}
-	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	register("job", inf, cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			defer recoverHandler("job.Add")
 			handler(obj)
 		},
-		UpdateFunc: func(_, new interface{}) {
+		UpdateFunc: func(_, cur interface{}) {
 			defer recoverHandler("job.Update")
-			handler(new)
+			handler(cur)
 		},
 	})
 }
