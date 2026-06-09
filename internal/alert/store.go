@@ -5,15 +5,20 @@ import (
 	"time"
 )
 
+// minHistoryRetention bounds the floor of the lastSent cutoff so tiny
+// muteWindow values do not cause immediate eviction.
+const minHistoryRetention = 10 * time.Minute
+
 // Store tracks active alerts so we can detect dedupes, grouping windows,
 // and emit synthetic resolved events when a fingerprint stops firing.
 type Store struct {
-	mu          sync.Mutex
-	active      map[string]*Alert
-	lastSent    map[string]time.Time
-	muteWindow  time.Duration
-	resolveTTL  time.Duration
-	onResolved  func(*Alert)
+	mu         sync.Mutex
+	active     map[string]*Alert
+	lastSent   map[string]time.Time
+	muteWindow time.Duration
+	resolveTTL time.Duration
+	onResolved func(*Alert)
+	onChange   func(active int)
 }
 
 func NewStore(muteWindow, resolveTTL time.Duration, onResolved func(*Alert)) *Store {
@@ -26,17 +31,32 @@ func NewStore(muteWindow, resolveTTL time.Duration, onResolved func(*Alert)) *St
 	}
 }
 
+// SetOnChange registers a callback invoked with the current size of the
+// active alert set whenever it changes. Used to drive the active-alerts gauge.
+func (s *Store) SetOnChange(fn func(active int)) {
+	s.mu.Lock()
+	s.onChange = fn
+	s.mu.Unlock()
+}
+
 // ShouldSend reports whether the alert is fresh enough to forward (mute window).
 func (s *Store) ShouldSend(a *Alert) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if last, ok := s.lastSent[a.Fingerprint]; ok {
 		if time.Since(last) < s.muteWindow {
+			s.mu.Unlock()
 			return false
 		}
 	}
-	s.lastSent[a.Fingerprint] = time.Now()
+	now := time.Now()
+	s.lastSent[a.Fingerprint] = now
+	a.EndsAt = now.Add(s.resolveTTL)
 	s.active[a.Fingerprint] = a
+	size, fn := len(s.active), s.onChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(size)
+	}
 	return true
 }
 
@@ -59,9 +79,14 @@ func (s *Store) SweepResolved() {
 			a.Resolved = true
 			expired = append(expired, a)
 			delete(s.active, fp)
+			delete(s.lastSent, fp)
 		}
 	}
+	size, fn := len(s.active), s.onChange
 	s.mu.Unlock()
+	if fn != nil && len(expired) > 0 {
+		fn(size)
+	}
 	for _, a := range expired {
 		if s.onResolved != nil {
 			s.onResolved(a)
@@ -69,14 +94,26 @@ func (s *Store) SweepResolved() {
 	}
 }
 
-// CleanOldHistory drops mute records older than the window.
+// CleanOldHistory drops mute records older than 2 * muteWindow (or the
+// configured floor, whichever is larger).
 func (s *Store) CleanOldHistory() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cutoff := time.Now().Add(-1 * time.Hour)
+	retention := 2 * s.muteWindow
+	if retention < minHistoryRetention {
+		retention = minHistoryRetention
+	}
+	cutoff := time.Now().Add(-retention)
 	for fp, t := range s.lastSent {
 		if t.Before(cutoff) {
 			delete(s.lastSent, fp)
 		}
 	}
+}
+
+// ActiveCount returns the number of currently active alerts.
+func (s *Store) ActiveCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.active)
 }

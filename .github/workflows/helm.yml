@@ -1,0 +1,54 @@
+name: Helm
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "helm/**"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "helm/**"
+      - ".github/workflows/helm.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Helm lint
+        run: helm lint helm
+
+      - name: Helm template (default values)
+        run: |
+          helm template alertkube helm \
+            --set cluster=ci-test \
+            --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
+            > /tmp/render.yaml
+          test -s /tmp/render.yaml
+
+      - name: Helm template (servicemonitor on)
+        run: |
+          helm template alertkube helm \
+            --set cluster=ci-test \
+            --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
+            --set metrics.serviceMonitor.enabled=true \
+            > /tmp/render-sm.yaml
+          test -s /tmp/render-sm.yaml
+
+      - name: kubeconform validation
+        uses: instrumenta/kubeval-action@master
+        continue-on-error: true
+        with:
+          files: /tmp/render.yaml

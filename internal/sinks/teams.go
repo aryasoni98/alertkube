@@ -1,30 +1,26 @@
 package sinks
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/httpx"
 )
 
 // TeamsSink posts MessageCards to a Microsoft Teams incoming webhook.
-type TeamsSink struct {
-	webhookURL string
-}
+// Webhook URL is read on each Send so Secret rotation is honored.
+type TeamsSink struct{}
 
-func NewTeams() *TeamsSink {
-	return &TeamsSink{webhookURL: os.Getenv("TEAMS_WEBHOOK_URL")}
-}
+func NewTeams() *TeamsSink { return &TeamsSink{} }
 
-func (t *TeamsSink) Name() string                       { return "teams" }
-func (t *TeamsSink) Supports(_ alert.Severity) bool     { return true }
+func (*TeamsSink) Name() string                   { return "teams" }
+func (*TeamsSink) Supports(_ alert.Severity) bool { return true }
 
 func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
-	if t.webhookURL == "" {
+	url := os.Getenv("TEAMS_WEBHOOK_URL")
+	if url == "" {
 		return nil
 	}
 	card := map[string]any{
@@ -35,22 +31,5 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 		"title":      fmt.Sprintf("[%s] %s %s/%s: %s", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason),
 		"text":       a.Summary,
 	}
-	body, err := json.Marshal(card)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("teams webhook returned %d", resp.StatusCode)
-	}
-	return nil
+	return httpx.PostJSON(ctx, url, card)
 }

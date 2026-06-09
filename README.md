@@ -1,8 +1,8 @@
 # alertkube
 
-> Successor to `k8s-pod-restart-info-collector`. Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, grouping, inhibitions, silences, and Prometheus metrics.
+> Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, grouping, inhibitions, silences, and Prometheus metrics.
 
-alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks — Slack (Block Kit), PagerDuty (Events API v2), Microsoft Teams, generic webhooks, or stdout for local dev.
+alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit), PagerDuty (Events API v2), Microsoft Teams, generic webhooks, or stdout for local dev.
 
 ## Features
 
@@ -125,18 +125,6 @@ silences:
 | `alert-silence-until: 2026-06-15T00:00:00Z` | Silence alerts until RFC3339 timestamp |
 | `runbook-url: https://wiki/runbooks/foo` | Renders a Runbook button in Slack |
 
-## Migration from v1 (`k8s-pod-restart-info-collector`)
-
-Breaking changes:
-
-- Module renamed to `alertkube`
-- Binary renamed to `alertkube`
-- Helm chart renamed to `alertkube`; image renamed to `airwallex/alertkube`
-- Config now YAML-first (env vars still honored as fallback)
-- Slack channel single-value (`SLACK_CHANNEL`) replaced by per-severity channels
-
-Run `helm uninstall k8s-pod-restart-info-collector` then install fresh.
-
 ## License
 
-Apache-2.0 — see `LICENSE-2.0.txt`.
+Apache-2.0 - see `LICENSE-2.0.txt`.

@@ -50,7 +50,7 @@ func Build(a *alert.Alert) []slack.Block {
 	}
 	blocks = append(blocks, slack.NewContextBlock("", context...))
 
-	if runbook := a.Annotations["runbook-url"]; runbook != "" {
+	if runbook := a.Annotations["runbook-url"]; safeRunbookURL(runbook) {
 		blocks = append(blocks, slack.NewActionBlock("",
 			slack.NewButtonBlockElement("runbook", "open",
 				slack.NewTextBlockObject(slack.PlainTextType, "📖 Runbook", false, false)).WithURL(runbook),
@@ -69,4 +69,17 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[len(s)-max:]
+}
+
+// safeRunbookURL guards the workload-supplied runbook-url annotation so a
+// tenant cannot inject javascript: / data: / file: targets into the Slack
+// Block Kit button. Only well-formed https URLs are accepted.
+func safeRunbookURL(raw string) bool {
+	if raw == "" || len(raw) > 2048 {
+		return false
+	}
+	if !strings.HasPrefix(raw, "https://") {
+		return false
+	}
+	return !strings.ContainsAny(raw, " \t\r\n\"'<>")
 }

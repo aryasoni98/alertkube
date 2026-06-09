@@ -2,12 +2,12 @@ apiVersion: v2
 name: alertkube
 description: Kubernetes multi-resource alerting controller with severity tiers and multi-sink routing.
 type: application
-version: 2.0.0
-appVersion: "2.0.0"
+version: 0.0.1
+appVersion: "0.0.1"
 keywords:
   - alerting
   - kubernetes
   - slack
   - pagerduty
   - monitoring
-home: https://github.com/airwallex/alertkube
+home: https://github.com/aryasoni98/alertkube

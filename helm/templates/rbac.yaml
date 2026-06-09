@@ -1,3 +1,4 @@
+{{- $clusterScope := eq (.Values.rbac.scope | default "cluster") "cluster" -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -5,6 +6,7 @@ metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 ---
+{{- if $clusterScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -37,3 +39,70 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "alertkube.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
+{{- else }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "events", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "alertkube.fullname" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- if .Values.leaderElection.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "alertkube.fullname" . }}-leader-election
+  namespace: {{ .Values.leaderElection.namespace | default .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "alertkube.fullname" . }}-leader-election
+  namespace: {{ .Values.leaderElection.namespace | default .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "alertkube.fullname" . }}-leader-election
+subjects:
+- kind: ServiceAccount
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+{{- end }}

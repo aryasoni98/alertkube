@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,36 +17,36 @@ func PodEvents(ctx context.Context, c kubernetes.Interface, ns, name string) (st
 	if err != nil {
 		return "", fmt.Errorf("list pod events: %w", err)
 	}
-	items := events.Items
-	if len(items) > 1 {
-		sort.Sort(byLastTimestamp(items))
-	}
-	out := ""
-	for _, e := range items {
-		if e.InvolvedObject.Name == name {
-			out += fmt.Sprintf("%s, %s, %s\n", e.LastTimestamp, e.Reason, e.Message)
-		}
-	}
-	return out, nil
+	return formatEvents(events.Items, name), nil
 }
 
-// NodeEvents returns events for a given node.
+// NodeEvents returns events for a given node from across all namespaces
+// (kubelet typically writes Node-scoped events into `default`, but some
+// distributions route them to `kube-system` or the involved object's
+// namespace — list cluster-wide and filter server-side).
 func NodeEvents(ctx context.Context, c kubernetes.Interface, nodeName string) (string, error) {
-	events, err := c.CoreV1().Events(metav1.NamespaceDefault).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.kind=Node"})
+	events, err := c.CoreV1().Events(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.kind=Node,involvedObject.name=%s", nodeName),
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("list node events: %w", err)
 	}
-	items := events.Items
+	return formatEvents(events.Items, nodeName), nil
+}
+
+// formatEvents sorts items by timestamp and renders entries matching involvedObject.Name.
+func formatEvents(items []v1.Event, name string) string {
 	if len(items) > 1 {
 		sort.Sort(byLastTimestamp(items))
 	}
-	out := ""
+	var b strings.Builder
 	for _, e := range items {
-		if e.InvolvedObject.Name == nodeName {
-			out += fmt.Sprintf("%s, %s, %s\n", e.LastTimestamp, e.Reason, e.Message)
+		if e.InvolvedObject.Name != name {
+			continue
 		}
+		fmt.Fprintf(&b, "%s, %s, %s\n", e.LastTimestamp, e.Reason, e.Message)
 	}
-	return out, nil
+	return b.String()
 }
 
 type byLastTimestamp []v1.Event

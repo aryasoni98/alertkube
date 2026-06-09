@@ -116,16 +116,6 @@ func PrintPod(pod *v1.Pod) (string, error) {
 	})
 }
 
-func PrintContainerLastStateReason(status v1.ContainerStatus) string {
-	var lastStateReason string
-	var lastExitCode int32
-	if status.LastTerminationState.Terminated != nil {
-		lastStateReason = status.LastTerminationState.Terminated.Reason
-		lastExitCode = status.LastTerminationState.Terminated.ExitCode
-	}
-	return fmt.Sprintf("%s (ExitCode %d)", lastStateReason, lastExitCode)
-}
-
 func PrintNode(obj *v1.Node) (string, error) {
 	conditionMap := make(map[v1.NodeConditionType]*v1.NodeCondition)
 	for i := range obj.Status.Conditions {

@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+/alertkube
+/dist/
+/out/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.local

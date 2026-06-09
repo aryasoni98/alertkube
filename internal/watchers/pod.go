@@ -18,12 +18,12 @@ import (
 
 // PodWatcher reacts to restart, crashloop, oom, imagepull, pending events.
 type PodWatcher struct {
-	clientset      kubernetes.Interface
-	cfg            *config.Config
-	watchedNS      *filter.Set
-	ignoredNS      *filter.Set
-	watchedPrefix  *filter.Set
-	ignoredPrefix  *filter.Set
+	clientset     kubernetes.Interface
+	cfg           *config.Config
+	watchedNS     *filter.Set
+	ignoredNS     *filter.Set
+	watchedPrefix *filter.Set
+	ignoredPrefix *filter.Set
 }
 
 func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
@@ -42,24 +42,37 @@ func (p *PodWatcher) Name() string { return "pod" }
 func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	inf := f.Core().V1().Pods().Informer()
 	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			defer recoverHandler("pod.Add")
+			newPod, ok := obj.(*v1.Pod)
+			if !ok || !p.shouldHandle(newPod) {
+				return
+			}
+			// Initial-sync: only emit on terminal/waiting conditions; no
+			// restart delta exists yet so ContainerRestart is skipped.
+			p.evaluate(ctx, nil, newPod, emit)
+		},
 		UpdateFunc: func(old, new interface{}) {
-			oldPod, ok := old.(*v1.Pod)
-			if !ok {
-				return
-			}
+			defer recoverHandler("pod.Update")
+			oldPod, _ := old.(*v1.Pod)
 			newPod, ok := new.(*v1.Pod)
-			if !ok {
-				return
-			}
-			if !p.watchedNS.Matches(newPod.Namespace) || (p.ignoredNS != nil && !p.ignoredNS.Empty() && p.ignoredNS.Matches(newPod.Namespace)) {
-				return
-			}
-			if !p.watchedPrefix.Matches(newPod.Name) || (p.ignoredPrefix != nil && !p.ignoredPrefix.Empty() && p.ignoredPrefix.Matches(newPod.Name)) {
+			if !ok || !p.shouldHandle(newPod) {
 				return
 			}
 			p.evaluate(ctx, oldPod, newPod, emit)
 		},
 	})
+}
+
+// shouldHandle returns true when a pod passes namespace + name include/exclude filters.
+func (p *PodWatcher) shouldHandle(pod *v1.Pod) bool {
+	if !p.watchedNS.Matches(pod.Namespace) || p.ignoredNS.Blocks(pod.Namespace) {
+		return false
+	}
+	if !p.watchedPrefix.Matches(pod.Name) || p.ignoredPrefix.Blocks(pod.Name) {
+		return false
+	}
+	return true
 }
 
 func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit Emit) {
@@ -144,6 +157,9 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 }
 
 func totalRestarts(pod *v1.Pod) int {
+	if pod == nil {
+		return 0
+	}
 	r := 0
 	for _, s := range pod.Status.ContainerStatuses {
 		r += int(s.RestartCount)

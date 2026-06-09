@@ -52,12 +52,8 @@ func (s *Set) Matches(val string) bool {
 	return false
 }
 
-// MatchesAny returns true if any include set matches the value.
-func MatchesAny(val string, sets ...*Set) bool {
-	for _, s := range sets {
-		if s.Matches(val) {
-			return true
-		}
-	}
-	return false
+// Blocks reports whether val is matched by an exclusion set.
+// Empty set never blocks (caller treats empty as "no exclusions").
+func (s *Set) Blocks(val string) bool {
+	return !s.Empty() && s.Matches(val)
 }

@@ -25,7 +25,16 @@ func (*NodeWatcher) Name() string { return "node" }
 func (n *NodeWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	inf := f.Core().V1().Nodes().Informer()
 	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			defer recoverHandler("node.Add")
+			newN, ok := obj.(*v1.Node)
+			if !ok {
+				return
+			}
+			n.evaluate(nil, newN, emit)
+		},
 		UpdateFunc: func(old, new interface{}) {
+			defer recoverHandler("node.Update")
 			oldN, _ := old.(*v1.Node)
 			newN, ok := new.(*v1.Node)
 			if !ok {
@@ -62,7 +71,7 @@ func (n *NodeWatcher) evaluate(oldN, newN *v1.Node, emit Emit) {
 func (n *NodeWatcher) emit(node *v1.Node, reason string, sev alert.Severity, msg string, emit Emit) {
 	a := alert.New(alert.KindNode, "", node.Name, reason, sev)
 	a.NodeName = node.Name
-	a.Summary = fmt.Sprintf("node %s: %s — %s", node.Name, reason, msg)
+	a.Summary = fmt.Sprintf("node %s: %s - %s", node.Name, reason, msg)
 	if desc, err := collectors.PrintNode(node); err == nil {
 		a.Details["Node Status"] = desc
 	}

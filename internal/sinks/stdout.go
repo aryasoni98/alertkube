@@ -8,7 +8,7 @@ import (
 	"alertkube/internal/alert"
 )
 
-// StdoutSink prints alerts to klog — useful for local development.
+// StdoutSink prints alerts to klog - useful for local development.
 type StdoutSink struct{}
 
 func NewStdout() *StdoutSink { return &StdoutSink{} }

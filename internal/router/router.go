@@ -1,6 +1,7 @@
 package router
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,7 @@ func (r *Router) inhibited(a *alert.Alert) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
+	r.pruneExpiredLocked(now)
 	for _, inh := range r.inhibitions {
 		if !a.MatchLabels(inh.Target) {
 			continue
@@ -83,6 +85,15 @@ func (r *Router) inhibited(a *alert.Alert) bool {
 		}
 	}
 	return false
+}
+
+// pruneExpiredLocked drops inhibition keys past their expiry. Caller holds r.mu.
+func (r *Router) pruneExpiredLocked(now time.Time) {
+	for key, exp := range r.activeInhibits {
+		if !now.Before(exp) {
+			delete(r.activeInhibits, key)
+		}
+	}
 }
 
 func (r *Router) maybeArmInhibition(a *alert.Alert) {
@@ -97,18 +108,12 @@ func (r *Router) maybeArmInhibition(a *alert.Alert) {
 }
 
 func inhibitKey(inh config.Inhibition, a *alert.Alert) string {
-	key := ""
+	var b strings.Builder
 	for _, k := range inh.Equal {
-		switch k {
-		case "namespace":
-			key += "ns:" + a.Namespace + "|"
-		case "node":
-			key += "node:" + a.NodeName + "|"
-		case "kind":
-			key += "kind:" + string(a.Kind) + "|"
-		default:
-			key += k + ":" + a.Labels[k] + "|"
-		}
+		b.WriteString(k)
+		b.WriteByte(':')
+		b.WriteString(a.FieldValue(k))
+		b.WriteByte('|')
 	}
-	return key
+	return b.String()
 }

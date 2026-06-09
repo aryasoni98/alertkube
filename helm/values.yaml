@@ -2,12 +2,31 @@
 
 cluster: "Change-Me"
 
+# replicaCount > 1 requires leaderElection.enabled=true. The Recreate
+# strategy is used when leader election is off so two instances never
+# overlap and re-fire each other's alerts after a restart.
+replicaCount: 1
+
+leaderElection:
+  enabled: false
+  # Namespace holding the Lease object. Defaults to the release namespace
+  # if empty. kube-system or a shared "system" namespace is typical so
+  # the release can be reinstalled without losing the lease.
+  namespace: ""
+
+# Pass-through arguments appended to the controller command line.
+extraArgs: []
+
+# Optional Helm-managed Role limited to the release namespace.
+rbac:
+  scope: cluster   # cluster | namespace
+
 image:
-  repository: airwallex/alertkube
-  tag: "2.0.0"
+  repository: aryasoni98/alertkube
+  tag: "0.0.1"
   pullPolicy: IfNotPresent
 
-# Slack — per-severity channels. slackWebhookUrl can come from a Secret.
+# Slack - per-severity channels. slackWebhookUrl can come from a Secret.
 slack:
   webhookUrl: ""
   username: "alertkube"
@@ -21,13 +40,28 @@ slack:
     # name: alertkube
 
 pagerduty:
-  routingKey: ""           # PagerDuty Events API v2 routing key
+  routingKey: ""           # PagerDuty Events API v2 routing key (inline -> Secret)
+  # External Secret reference (set routingKey to "" to use it).
+  routingKeySecretKeyRef: {}
+    # key: pagerdutyRoutingKey
+    # name: alertkube-pagerduty
 
 teams:
-  webhookUrl: ""           # Microsoft Teams incoming webhook
+  webhookUrl: ""           # Microsoft Teams incoming webhook (inline -> Secret)
+  webhookUrlSecretKeyRef: {}
+    # key: teamsWebhookUrl
+    # name: alertkube-teams
 
 genericWebhook:
   url: ""                  # POST JSON Alert struct to any endpoint
+  urlSecretKeyRef: {}
+    # key: genericWebhookUrl
+    # name: alertkube-webhook
+  # Optional HMAC-SHA256 signing key. When set, every POST carries
+  # `X-Alertkube-Signature: sha256=<hex(hmac(secret, timestamp.body))>`
+  # and `X-Alertkube-Timestamp: <RFC3339>` so receivers can verify
+  # authenticity and reject replay.
+  signingSecret: ""
 
 filters:
   watchedNamespaces: ""
@@ -79,7 +113,37 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 podAnnotations: {}
-podSecurityContext: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop: ["ALL"]
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+  # Restrict who can scrape /metrics. Defaults to allow-all when empty.
+  ingressFrom: []
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: monitoring
+  # Extra egress rules appended verbatim to the egress list.
+  extraEgress: []

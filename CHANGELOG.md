@@ -1,66 +1,83 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v2.0.0] - 2026-06-09 — alertkube
+## [Unreleased]
 
-Major rewrite. Renamed from `k8s-pod-restart-info-collector` to `alertkube`.
+### Security
 
-### Added
-- Severity model (`critical` / `warning` / `info`) with distinct colors + emoji.
-- Slack Block Kit message templates (header, fields, summary, contextual logs, runbook button).
-- Multi-resource watchers: Node (NotReady, MemoryPressure, DiskPressure, PIDPressure, cordon), Deployment (unavailable, progress deadline), PersistentVolumeClaim (Lost, Pending), Job (Failed).
-- Pod reasons broadened: CrashLoopBackOff, OOMKilled, ImagePullBackOff, ErrImagePull (in addition to restartCount).
-- Multi-sink support: PagerDuty (Events API v2), Microsoft Teams (MessageCard), generic JSON webhook, stdout.
-- Per-severity Slack channel routing.
-- YAML config with routing rules, inhibitions, silences.
-- Fingerprint-based dedupe and resolve detection.
-- Inhibitions (e.g., NodeNotReady silences pod alerts on that node).
-- Time-bounded silences via config or `alert-silence-until` annotation.
-- Prometheus metrics endpoint (`/metrics`).
-- Health endpoints (`/healthz`, `/readyz`).
-- Helm ServiceMonitor template for Prometheus Operator integration.
+- Slack channel-override annotation now validated against `^#?[a-z0-9._-]{1,80}$`; invalid values logged and ignored (`internal/sinks/slack.go`).
+- `runbook-url` annotation requires `https://` and rejects whitespace / quote characters; non-conforming URLs are dropped from the Slack Block Kit button (`internal/templates/blockkit.go`).
+- PagerDuty, Teams, and generic webhook credentials are now sourced via `secretKeyRef` (inline values land in a managed Secret, or use an external `*.SecretKeyRef`). No credential is rendered as plaintext `env.value` (`helm/templates/{deployment,secret}.yaml`, `helm/templates/_helpers.tpl`).
+- Container `securityContext` defaults to `runAsNonRoot`, `runAsUser: 65532`, `readOnlyRootFilesystem: true`, `capabilities.drop: [ALL]`, plus matching `podSecurityContext` (`helm/values.yaml`, `helm/templates/deployment.yaml`).
+- Dockerfile final stage now creates and runs as the `nonroot:65532` user, builds with `-trimpath -ldflags="-s -w"`, and uses `golang:1.23-alpine` + `alpine:3.20`.
+- Pod logs streamed into `Details["Pod Logs Before Restart"]` now pass through `collectors.RedactSecrets` — AWS keys, GitHub / Slack / OpenAI tokens, Bearer headers, common `password|secret|token=` key-value pairs, and URL query-string credentials are masked before reaching sinks (`internal/collectors/logs.go`).
 
-### Changed
-- Module path is now `alertkube`.
-- Binary name is now `alertkube`.
-- Helm chart name is now `alertkube`; default image is `airwallex/alertkube:2.0.0`.
-- RBAC widened to cover Nodes, Deployments, PVCs, Jobs, HPAs.
-- Mute, restart-count, and namespace filters now live under `config.yaml`'s `behavior` and `filters` blocks. Legacy env vars (`SLACK_CHANNEL`, `MUTE_SECONDS`, `IGNORE_RESTART_COUNT`, `WATCHED_NAMESPACES`, ...) remain honored as fallbacks.
-
-### Removed
-- Per-pod `alert-slack-channel` label fallback (annotation still supported).
-- Old monolithic `controller.go`/`helpers.go`/`slack.go` — replaced by `internal/` packages.
-
-## [v1.5.0] - 2023-09-20
-### Added
-- Add regex option for `ignoredNamespaces`, `ignoredPodNamePrefixes`, `watchedNamespaces` and `watchedPodNamePrefixes`
-
-## [v1.4.0] - 2023-05-12
-### Added
-- Add support for `watchedNamespaces` and `watchedPodNamePrefixes` [#14](https://github.com/airwallex/k8s-pod-restart-info-collector/issues/14)
-
-## [v1.3.0] - 2023-05-11
-### Added
-- Add `ignoreRestartsWithExitCodeZero` flag to ignore restart events with an exit code of 0 [#22](https://github.com/airwallex/k8s-pod-restart-info-collector/issues/22)
-
-## [v1.2.1] - 2023-04-27
 ### Fixed
-- Container resource specs showing wrong values [#26](https://github.com/airwallex/k8s-pod-restart-info-collector/issues/26)
 
-### Improved
-- Add backticks to format slack message nicely [#25](https://github.com/airwallex/k8s-pod-restart-info-collector/issues/25)
+- `DeploymentWatcher` no longer panics on a `nil` `spec.replicas` pointer (`internal/watchers/deployment.go`).
+- `Slack` sink honors the caller `context.Context` and uses a 10 s-bound `http.Client` instead of `http.DefaultClient` (`internal/sinks/slack.go`).
+- `Router.activeInhibits` no longer grows unbounded; expired keys are pruned on every lookup (`internal/router/router.go`).
+- `Store.ShouldSend` now sets `EndsAt` on first store so single-fire alerts are eligible for the resolve sweep (`internal/alert/store.go`).
+- `Store.SweepResolved` deletes the resolved fingerprint from `lastSent` so a recurring incident is not silenced by the stale mute entry (`internal/alert/store.go`).
+- `Store.CleanOldHistory` cutoff is now `max(2 * muteWindow, 10 m)` instead of the hardcoded `1 h` so non-default mute windows behave predictably (`internal/alert/store.go`).
+- `/readyz` returns `503` until informer caches finish syncing; on partial sync the controller fails fast (`internal/metrics/metrics.go`, `main.go`).
+- Metrics HTTP server now uses an explicit `*http.Server` with `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and graceful `Shutdown` on SIGTERM (`internal/metrics/metrics.go`, `main.go`).
+- `Registry.Dispatch` fans out per sink concurrently with a 15 s per-sink timeout and `defer recover()`; a slow Slack endpoint no longer head-of-lines PagerDuty or the informer worker (`internal/sinks/sink.go`).
+- `alert.MatchLabels` now uses anchored regex (`^pattern$`) instead of the substring shim, so `namespace: prod-.*` no longer matches `dev-prod-tools`. Invalid patterns fall back to literal equality (`internal/alert/alert.go`).
+- `collectors.NodeEvents` lists events from all namespaces with a `involvedObject.kind=Node,involvedObject.name=<name>` server-side selector instead of only `default` (`internal/collectors/events.go`).
+- `PVCWatcher` now honors the documented 5-minute Pending threshold (`internal/watchers/pvc.go`).
+- `JobWatcher` compares `cond.Status` against `corev1.ConditionTrue` instead of the literal string (`internal/watchers/job.go`).
+- `PreviousContainerLogs` migrated to `k8s.io/utils/ptr.To` (deprecated `pointer.Int64Ptr` removed) (`internal/collectors/logs.go`).
 
-## [v1.2.0] - 2023-01-03
 ### Added
-- Parameterize pod restart count
 
-## [v1.1.0] - 2022-09-19
-### Added
-- Support ignoring specific namespaces and pods
+- `alertkube_active_alerts` gauge is now updated from `Store` whenever the active set changes (`internal/alert/store.go`, `main.go`).
+- Optional `PodDisruptionBudget` template gated behind `podDisruptionBudget.enabled` (`helm/templates/pdb.yaml`, `helm/values.yaml`).
+- Optional `NetworkPolicy` template gated behind `networkPolicy.enabled` with configurable `ingressFrom` and `extraEgress` (`helm/templates/networkpolicy.yaml`, `helm/values.yaml`).
+- Every watcher now registers `AddFunc` in addition to `UpdateFunc`, so initial-sync state (pods already in CrashLoopBackOff, Failed Jobs, Lost PVCs, NotReady Nodes) emits an alert immediately after cache sync (`internal/watchers/*.go`).
+- Shared `watchers.recoverHandler` wraps every informer handler with `defer recover()` so a nil-deref or panic in collector code does not crash the controller (`internal/watchers/watcher.go`, all watchers).
+- `httpx.PostJSON` now retries transient failures (408 / 425 / 429 / 5xx + network errors) with exponential backoff and full jitter; honors `Retry-After`; redacts the URL path/query in error strings via `sanitizeURL` (`internal/httpx/httpx.go`).
+- Optional HMAC-SHA256 signing on the generic webhook sink. When `GENERIC_WEBHOOK_SECRET` is set, every POST carries `X-Alertkube-Signature: sha256=<hex>` and `X-Alertkube-Timestamp` so receivers can authenticate and reject replay (`internal/sinks/webhook.go`).
+- Sink credentials (`SLACK_WEBHOOK_URL`, `PAGERDUTY_ROUTING_KEY`, `TEAMS_WEBHOOK_URL`, `GENERIC_WEBHOOK_URL`, `GENERIC_WEBHOOK_SECRET`) are now read on every `Send` instead of at constructor time, so Secret rotation propagates without a pod restart (`internal/sinks/{slack,pagerduty,teams,webhook}.go`).
+- PagerDuty sink severity now maps from `alert.Severity` (`critical` / `warning` / `info`) instead of being hardcoded `critical`, so a non-critical routing rule that opts into PagerDuty no longer mis-tiers the page (`internal/sinks/pagerduty.go`).
+- Leader election via `coordination.k8s.io/v1` Lease (15 s lease / 10 s renew / 2 s retry). Disabled by default; enable with `leaderElection.enabled=true`. The follower keeps `/metrics` and `/healthz` serving but `/readyz` returns 503 until it acquires the lease (`main.go`, `internal/metrics/metrics.go`).
+- Helm `replicaCount` is now configurable. With leader election off, `strategy: Recreate` is used to avoid duplicate dispatches across rollout. With it on, `strategy: RollingUpdate maxSurge:1 maxUnavailable:0` so leadership transfers without an alert gap (`helm/templates/deployment.yaml`, `helm/values.yaml`).
+- Helm `rbac.scope: cluster | namespace`. `namespace` mode ships a namespace-scoped `Role`/`RoleBinding` instead of the cluster-wide pair, dropping `nodes`/`persistentvolumes` (`helm/templates/rbac.yaml`, `helm/values.yaml`).
+- Lease RBAC (`coordination.k8s.io/leases` get/list/watch/create/update/patch/delete + `events` create/patch) is added in `leaderElection.namespace` only when leader election is enabled (`helm/templates/rbac.yaml`).
+- Per-sink token-bucket rate limiter (`golang.org/x/time/rate`, default 1 rps with burst 5) in `Registry.Dispatch`; rate-limited drops are accounted as `alertkube_alerts_suppressed_total{reason="ratelimited"}` (`internal/sinks/sink.go`).
+- `buildClient` retries kube-client initialization with exponential backoff up to 30 s instead of `klog.Fatalf` on first transient failure (`main.go`).
+- Unit tests for `internal/alert`, `internal/filter`, `internal/router`, `internal/collectors`, `internal/httpx`, and `internal/sinks` (table-driven, race-enabled).
+- `docs/OPERATIONS.md` (SLOs, PrometheusRule, dashboards, runbooks, capacity planning, upgrade procedure).
+- `docs/TROUBLESHOOTING.md` (symptom → cause → fix table).
+- `docs/MIGRATION-FROM-V1.md` (env-var mapping + step-by-step upgrade from `k8s-pod-restart-info-collector`).
+- `.github/PULL_REQUEST_TEMPLATE.md`, `.github/CODEOWNERS`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
+- `CONTRIBUTING.md` (renamed from `CONTRIBUTION.md`) with DCO-based contribution workflow.
 
-## [v1.0.0] - 2022-08-29
+## [v0.0.1] - 2026-06-09
+
+Initial release.
+
 ### Added
-- Initial release as Open-Source under the Apache License v2.0
+
+- Multi-resource watchers: Pod, Node, Deployment, PersistentVolumeClaim, Job.
+- Severity model (`critical` / `warning` / `info`) with distinct colors and emoji.
+- Slack sink with Block Kit message templates (header, fields, summary, contextual logs, runbook button).
+- PagerDuty sink (Events API v2) for critical-only paging with fingerprint dedupKey.
+- Microsoft Teams sink with MessageCard payload.
+- Generic JSON webhook sink for custom integrations.
+- Stdout sink for local development.
+- Per-severity Slack channel routing.
+- YAML-first config: routing rules, inhibitions, silences, filters.
+- Fingerprint-based dedupe and mute window.
+- Resolve detection: synthetic resolved alert when fingerprint stops firing past TTL.
+- Cross-kind inhibitions (e.g. `NodeNotReady` silences pod alerts on that node).
+- Time-bounded silences via config or `alert-silence-until: RFC3339` annotation.
+- Prometheus metrics endpoint (`/metrics`) with counters, histograms, and gauges.
+- Health endpoints (`/healthz`, `/readyz`).
+- Helm chart with optional ServiceMonitor template for Prometheus Operator.
+- Pod-level annotations: `alert-slack-channel`, `alert-silence-until`, `runbook-url`.
+- Namespace and pod-name-prefix filters (literal or regex).

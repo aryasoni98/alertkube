@@ -4,8 +4,10 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -92,60 +94,95 @@ func New(kind Kind, ns, name, reason string, sev Severity) *Alert {
 	}
 }
 
+// FieldValue resolves a label-style key against the alert's well-known fields,
+// falling back to Labels[key]. Shared by MatchLabels, GroupKey, and routing keys.
+func (a *Alert) FieldValue(key string) string {
+	switch key {
+	case "severity":
+		return string(a.Severity)
+	case "kind":
+		return string(a.Kind)
+	case "namespace":
+		return a.Namespace
+	case "node":
+		return a.NodeName
+	case "reason":
+		return a.Reason
+	case "name":
+		return a.Name
+	default:
+		return a.Labels[key]
+	}
+}
+
 // MatchLabels reports whether a label-equality map matches.
+// `namespace` and `reason` accept a regular expression (anchored automatically
+// at both ends so `prod-.*` does not match `dev-prod-tools`). All other keys
+// use exact-string equality.
 func (a *Alert) MatchLabels(want map[string]string) bool {
 	for k, v := range want {
-		switch k {
-		case "severity":
-			if string(a.Severity) != v {
+		got := a.FieldValue(k)
+		if k == "namespace" || k == "reason" {
+			if !matchOrRegex(got, v) {
 				return false
 			}
-		case "kind":
-			if string(a.Kind) != v {
-				return false
-			}
-		case "namespace":
-			if !matchOrRegex(a.Namespace, v) {
-				return false
-			}
-		case "reason":
-			if !matchOrRegex(a.Reason, v) {
-				return false
-			}
-		default:
-			if a.Labels[k] != v {
-				return false
-			}
+			continue
+		}
+		if got != v {
+			return false
 		}
 	}
 	return true
 }
 
+var (
+	regexCacheMu sync.RWMutex
+	regexCache   = map[string]*regexp.Regexp{}
+)
+
+// matchOrRegex returns true when s exactly equals pattern OR when pattern
+// compiles as a regex and fully matches s. Patterns are anchored with ^…$
+// when absent so substring matches do not leak. Invalid regexes fall back
+// to literal equality (never substring).
 func matchOrRegex(s, pattern string) bool {
 	if s == pattern {
 		return true
 	}
-	return strings.Contains(s, strings.TrimSuffix(strings.TrimPrefix(pattern, ".*"), ".*"))
+	regexCacheMu.RLock()
+	re, ok := regexCache[pattern]
+	regexCacheMu.RUnlock()
+	if !ok {
+		anchored := pattern
+		if !strings.HasPrefix(anchored, "^") {
+			anchored = "^" + anchored
+		}
+		if !strings.HasSuffix(anchored, "$") {
+			anchored = anchored + "$"
+		}
+		compiled, err := regexp.Compile(anchored)
+		if err != nil {
+			// Cache a sentinel so we don't recompile on every call.
+			regexCacheMu.Lock()
+			regexCache[pattern] = nil
+			regexCacheMu.Unlock()
+			return false
+		}
+		regexCacheMu.Lock()
+		regexCache[pattern] = compiled
+		regexCacheMu.Unlock()
+		re = compiled
+	}
+	if re == nil {
+		return false
+	}
+	return re.MatchString(s)
 }
 
 // GroupKey builds a stable key for grouping alerts together.
 func (a *Alert) GroupKey(by []string) string {
-	parts := []string{}
+	parts := make([]string, 0, len(by))
 	for _, k := range by {
-		switch k {
-		case "severity":
-			parts = append(parts, string(a.Severity))
-		case "kind":
-			parts = append(parts, string(a.Kind))
-		case "namespace":
-			parts = append(parts, a.Namespace)
-		case "node":
-			parts = append(parts, a.NodeName)
-		case "reason":
-			parts = append(parts, a.Reason)
-		default:
-			parts = append(parts, a.Labels[k])
-		}
+		parts = append(parts, a.FieldValue(k))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")

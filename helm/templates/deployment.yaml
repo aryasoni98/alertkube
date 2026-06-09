@@ -4,7 +4,16 @@ metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
+  strategy:
+    {{- if .Values.leaderElection.enabled }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
+    type: Recreate
+    {{- end }}
   selector:
     matchLabels: {{- include "alertkube.selectorLabels" . | nindent 6 }}
   template:
@@ -22,19 +31,42 @@ spec:
         - name: alertkube
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["--config=/etc/alertkube/config.yaml"]
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - "--config=/etc/alertkube/config.yaml"
+            {{- if .Values.leaderElection.enabled }}
+            - "--leader-elect=true"
+            - "--leader-election-namespace={{ .Values.leaderElection.namespace | default .Release.Namespace }}"
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           env:
             - name: CLUSTER_NAME
               value: {{ required "cluster is required" .Values.cluster | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if .Values.genericWebhook.signingSecret }}
+            - name: GENERIC_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: genericWebhookSecret
+                  name: {{ include "alertkube.fullname" . }}
+            {{- end }}
             - name: SLACK_WEBHOOK_URL
               valueFrom:
               {{- include "alertkube.slackWebhookSecret" . | indent 14 }}
             - name: PAGERDUTY_ROUTING_KEY
-              value: {{ .Values.pagerduty.routingKey | quote }}
+              valueFrom:
+              {{- include "alertkube.pagerdutyRoutingKey" . | indent 14 }}
             - name: TEAMS_WEBHOOK_URL
-              value: {{ .Values.teams.webhookUrl | quote }}
+              valueFrom:
+              {{- include "alertkube.teamsWebhookUrl" . | indent 14 }}
             - name: GENERIC_WEBHOOK_URL
-              value: {{ .Values.genericWebhook.url | quote }}
+              valueFrom:
+              {{- include "alertkube.genericWebhookUrl" . | indent 14 }}
             - name: METRICS_ADDR
               value: ":{{ .Values.metrics.port }}"
           ports:

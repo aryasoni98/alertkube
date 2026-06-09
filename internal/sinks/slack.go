@@ -3,7 +3,10 @@ package sinks
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"regexp"
+	"time"
 
 	"github.com/slack-go/slack"
 	"k8s.io/klog/v2"
@@ -12,33 +15,48 @@ import (
 	"alertkube/internal/templates"
 )
 
+// channelOverridePattern restricts annotation-supplied channel names to the
+// Slack-allowed character set so a workload owner cannot redirect alerts to
+// arbitrary DMs or user mentions via the `alert-slack-channel` annotation.
+var channelOverridePattern = regexp.MustCompile(`^#?[a-z0-9._-]{1,80}$`)
+
 type SlackSink struct {
-	webhookURL string
 	username   string
 	cluster    string
 	channels   map[alert.Severity]string
+	httpClient *http.Client
 }
 
 func NewSlack(cluster, username string, channels map[alert.Severity]string) *SlackSink {
-	url := os.Getenv("SLACK_WEBHOOK_URL")
-	if url == "" {
+	if os.Getenv("SLACK_WEBHOOK_URL") == "" {
 		klog.Warning("SLACK_WEBHOOK_URL unset; Slack sink will no-op")
 	}
-	return &SlackSink{webhookURL: url, username: username, cluster: cluster, channels: channels}
+	return &SlackSink{
+		username:   username,
+		cluster:    cluster,
+		channels:   channels,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
 }
 
 func (s *SlackSink) Name() string { return "slack" }
 
 func (s *SlackSink) Supports(_ alert.Severity) bool { return true }
 
-func (s *SlackSink) Send(_ context.Context, a *alert.Alert) error {
-	if s.webhookURL == "" {
+func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
+	// Read URL per send so Secret rotation is honored without a restart.
+	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	if webhookURL == "" {
 		return nil
 	}
 	a.Cluster = s.cluster
 	channel := s.routeChannel(a)
 	if override, ok := a.Annotations["alert-slack-channel"]; ok && override != "" {
-		channel = override
+		if channelOverridePattern.MatchString(override) {
+			channel = override
+		} else {
+			klog.Warningf("ignoring invalid alert-slack-channel override for %s", a.Fingerprint)
+		}
 	}
 	blocks := templates.Build(a)
 	msg := &slack.WebhookMessage{
@@ -51,7 +69,7 @@ func (s *SlackSink) Send(_ context.Context, a *alert.Alert) error {
 			Footer: fmt.Sprintf("%s | %s | fp=%s", s.cluster, a.Kind, a.Fingerprint),
 		}},
 	}
-	return slack.PostWebhook(s.webhookURL, msg)
+	return slack.PostWebhookCustomHTTPContext(ctx, webhookURL, s.httpClient, msg)
 }
 
 func (s *SlackSink) routeChannel(a *alert.Alert) string {
