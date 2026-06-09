@@ -1,0 +1,85 @@
+# alertkube default values.
+
+cluster: "Change-Me"
+
+image:
+  repository: airwallex/alertkube
+  tag: "2.0.0"
+  pullPolicy: IfNotPresent
+
+# Slack — per-severity channels. slackWebhookUrl can come from a Secret.
+slack:
+  webhookUrl: ""
+  username: "alertkube"
+  channels:
+    critical: "alerts-critical"
+    warning:  "alerts-warning"
+    info:     "alerts-info"
+  # External Secret reference (set webhookUrl to "" to use it).
+  webhookUrlSecretKeyRef: {}
+    # key: slackWebhookUrl
+    # name: alertkube
+
+pagerduty:
+  routingKey: ""           # PagerDuty Events API v2 routing key
+
+teams:
+  webhookUrl: ""           # Microsoft Teams incoming webhook
+
+genericWebhook:
+  url: ""                  # POST JSON Alert struct to any endpoint
+
+filters:
+  watchedNamespaces: ""
+  ignoredNamespaces: ""
+  watchedPodNamePrefixes: ""
+  ignoredPodNamePrefixes: ""
+
+behavior:
+  muteSeconds: 600
+  ignoreRestartCount: 30
+  ignoreRestartsWithExitCodeZero: false
+  groupWaitSeconds: 30
+  resolveTTLSeconds: 600
+
+metrics:
+  enabled: true
+  port: 9090
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# Free-form routing/inhibition/silence rules rendered into ConfigMap.
+routing:
+  - match: {severity: critical}
+    sinks: [slack, pagerduty]
+  - match: {severity: warning}
+    sinks: [slack]
+  - match: {severity: info}
+    sinks: [slack]
+
+inhibitions:
+  - source: {kind: Node, reason: NodeNotReady}
+    target: {kind: Pod}
+    equal: [node]
+    duration: 10m
+
+silences: []
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+podAnnotations: {}
+podSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

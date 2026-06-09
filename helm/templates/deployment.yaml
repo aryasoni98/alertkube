@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alertkube.fullname" . }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "alertkube.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+      labels: {{- include "alertkube.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "alertkube.fullname" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: alertkube
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config=/etc/alertkube/config.yaml"]
+          env:
+            - name: CLUSTER_NAME
+              value: {{ required "cluster is required" .Values.cluster | quote }}
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+              {{- include "alertkube.slackWebhookSecret" . | indent 14 }}
+            - name: PAGERDUTY_ROUTING_KEY
+              value: {{ .Values.pagerduty.routingKey | quote }}
+            - name: TEAMS_WEBHOOK_URL
+              value: {{ .Values.teams.webhookUrl | quote }}
+            - name: GENERIC_WEBHOOK_URL
+              value: {{ .Values.genericWebhook.url | quote }}
+            - name: METRICS_ADDR
+              value: ":{{ .Values.metrics.port }}"
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: metrics}
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertkube
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "alertkube.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}

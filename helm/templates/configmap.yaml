@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alertkube.fullname" . }}-config
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    cluster: {{ .Values.cluster | quote }}
+    metricsAddr: ":{{ .Values.metrics.port }}"
+    filters:
+      watchedNamespaces: {{ .Values.filters.watchedNamespaces | quote }}
+      ignoredNamespaces: {{ .Values.filters.ignoredNamespaces | quote }}
+      watchedPodNamePrefixes: {{ .Values.filters.watchedPodNamePrefixes | quote }}
+      ignoredPodNamePrefixes: {{ .Values.filters.ignoredPodNamePrefixes | quote }}
+    behavior:
+      muteSeconds: {{ .Values.behavior.muteSeconds }}
+      ignoreRestartCount: {{ .Values.behavior.ignoreRestartCount }}
+      ignoreRestartsWithExitCodeZero: {{ .Values.behavior.ignoreRestartsWithExitCodeZero }}
+      groupWaitSeconds: {{ .Values.behavior.groupWaitSeconds }}
+      resolveTTLSeconds: {{ .Values.behavior.resolveTTLSeconds }}
+    channels:
+      critical: {{ .Values.slack.channels.critical | quote }}
+      warning:  {{ .Values.slack.channels.warning | quote }}
+      info:     {{ .Values.slack.channels.info | quote }}
+    routing:
+{{ toYaml .Values.routing | indent 6 }}
+    inhibitions:
+{{ toYaml .Values.inhibitions | indent 6 }}
+    silences:
+{{ toYaml .Values.silences | indent 6 }}
