@@ -16,12 +16,16 @@ data:
       muteSeconds: {{ .Values.behavior.muteSeconds }}
       ignoreRestartCount: {{ .Values.behavior.ignoreRestartCount }}
       ignoreRestartsWithExitCodeZero: {{ .Values.behavior.ignoreRestartsWithExitCodeZero }}
-      groupWaitSeconds: {{ .Values.behavior.groupWaitSeconds }}
       resolveTTLSeconds: {{ .Values.behavior.resolveTTLSeconds }}
+      startupGraceSeconds: {{ .Values.behavior.startupGraceSeconds }}
     channels:
       critical: {{ .Values.slack.channels.critical | quote }}
       warning:  {{ .Values.slack.channels.warning | quote }}
       info:     {{ .Values.slack.channels.info | quote }}
+    {{- with .Values.sinkRates }}
+    sinkRates:
+{{ toYaml . | indent 6 }}
+    {{- end }}
     routing:
 {{ toYaml .Values.routing | indent 6 }}
     inhibitions:

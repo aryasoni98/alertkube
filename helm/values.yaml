@@ -17,13 +17,17 @@ leaderElection:
 # Pass-through arguments appended to the controller command line.
 extraArgs: []
 
-# Optional Helm-managed Role limited to the release namespace.
+# cluster: ClusterRole, watches all namespaces + nodes.
+# namespace: Role limited to the release namespace; informers are scoped
+# via WATCH_NAMESPACE and node alerts are disabled (nodes are
+# cluster-scoped resources).
 rbac:
   scope: cluster   # cluster | namespace
 
 image:
-  repository: aryasoni98/alertkube
-  tag: "0.0.1"
+  repository: ghcr.io/aryasoni98/alertkube
+  # Defaults to the chart appVersion when empty.
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Slack - per-severity channels. slackWebhookUrl can come from a Secret.
@@ -73,8 +77,13 @@ behavior:
   muteSeconds: 600
   ignoreRestartCount: 30
   ignoreRestartsWithExitCodeZero: false
-  groupWaitSeconds: 30
   resolveTTLSeconds: 600
+  # Suppress alerts fired during the first N seconds after start. The
+  # informer initial sync re-fires every standing condition (e.g.
+  # CrashLoopBackOff pods) on each controller restart; the grace window
+  # mutes those re-fires. Conditions still firing after the window alert
+  # normally once the mute window expires. 0 disables.
+  startupGraceSeconds: 30
 
 metrics:
   enabled: true
@@ -83,6 +92,16 @@ metrics:
     enabled: false
     interval: 30s
     labels: {}
+
+# Per-sink send rate overrides (token bucket). Unlisted sinks default to
+# 1 msg/sec with burst 5 (Slack's published webhook limit).
+sinkRates: {}
+  # slack:
+  #   perSecond: 1
+  #   burst: 5
+  # pagerduty:
+  #   perSecond: 10
+  #   burst: 20
 
 # Free-form routing/inhibition/silence rules rendered into ConfigMap.
 routing:
@@ -140,6 +159,13 @@ podDisruptionBudget:
 
 networkPolicy:
   enabled: false
+  # Kubernetes API server endpoints. Required when enabled: NetworkPolicy
+  # sees post-DNAT endpoint IPs, which the private-range exclusions below
+  # would otherwise block, cutting the controller off from the API.
+  # Find them with: kubectl get endpoints kubernetes
+  apiServer:
+    cidrs: []     # e.g. ["10.0.0.2/32"] or your control-plane subnet
+    port: 443     # endpoint target port; often 6443 on self-managed clusters
   # Restrict who can scrape /metrics. Defaults to allow-all when empty.
   ingressFrom: []
     # - namespaceSelector:

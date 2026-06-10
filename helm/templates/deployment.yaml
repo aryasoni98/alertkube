@@ -4,6 +4,9 @@ metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 spec:
+  {{- if and (gt (int .Values.replicaCount) 1) (not .Values.leaderElection.enabled) }}
+  {{- fail "replicaCount > 1 requires leaderElection.enabled=true, otherwise every replica fires duplicate alerts" }}
+  {{- end }}
   replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
     {{- if .Values.leaderElection.enabled }}
@@ -19,7 +22,11 @@ spec:
   template:
     metadata:
       annotations:
-        {{- toYaml .Values.podAnnotations | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels: {{- include "alertkube.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
@@ -44,6 +51,10 @@ spec:
           env:
             - name: CLUSTER_NAME
               value: {{ required "cluster is required" .Values.cluster | quote }}
+            {{- if eq (.Values.rbac.scope | default "cluster") "namespace" }}
+            - name: WATCH_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
