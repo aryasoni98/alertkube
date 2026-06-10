@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.0] - 2026-06-10
+
+### Fixed (this release)
+
+- **Inverted restart-count gate**: pods past `ignoreRestartCount` had *all* detection (CrashLoopBackOff / OOMKilled / ImagePull) suppressed — the noisiest workloads never alerted. The gate now applies only to per-restart delta alerts (`internal/watchers/pod.go`).
+- **Sink retries**: Slack, PagerDuty, and the generic webhook now retry transient failures (429 / 5xx / network) with jittered exponential backoff honoring `Retry-After`; previously a single blip dropped the alert permanently (`internal/httpx`, `internal/sinks/{slack,pagerduty,webhook}.go`).
+- **Mute only on delivery**: dedupe state is rolled back when every sink fails, so the next firing retries instead of being silenced for the full mute window (`internal/alert/store.go`, `internal/sinks/sink.go`, `main.go`).
+- **Data race on shared alerts**: sinks now receive copies; the resolve sweeper and `Touch` no longer mutate structs concurrently read by sink goroutines (`internal/alert/store.go`, `main.go`).
+- **Resolve delivery**: resolved alerts bypass the `Supports` severity gate, silences, and inhibitions — resolves always follow their trigger (no more dangling PagerDuty incidents), never arm inhibitions, and no longer pollute suppression metrics (`internal/router/router.go`, `internal/sinks/sink.go`).
+- **Namespace filters** now apply to Deployment / PVC / Job watchers, not just Pods (`internal/watchers/`).
+- **Config fails fast**: unreadable `--config` path is a hard error (was silently ignored); load-time validation rejects unknown sink names, bad silence timestamps, bad inhibition durations, and non-positive windows (`internal/config/config.go`).
+- **UTF-8-safe Slack truncation**: log truncation no longer splits multi-byte runes, which produced invalid payloads Slack rejects wholesale (`internal/templates/blockkit.go`).
+- **Leader election rollout deadlock**: followers now report Ready (standby is healthy), unblocking `RollingUpdate maxUnavailable: 0` (`main.go`).
+- **`rbac.scope=namespace` crashloop**: namespace mode now scopes informers via `WATCH_NAMESPACE` and disables the node watcher instead of failing cache sync (`main.go`, `helm/`).
+- **Helm**: ConfigMap/Secret checksum annotations trigger rollouts on config change; template fails when `replicaCount > 1` without leader election; NetworkPolicy requires explicit `apiServer.cidrs` (the old rule cut the controller off from the API); image points at `ghcr.io` with tag defaulting to the chart `appVersion`.
+- **Release pipeline**: Helm chart actually publishes to `oci://ghcr.io/<owner>/charts` with versions derived from the tag; GHCR auth uses `GITHUB_TOKEN`; `:latest` publishes on tags; GitHub release gated on Trivy + Helm jobs; `build.sh` multi-arch push fixed.
+
+### Added (this release)
+
+- `behavior.startupGraceSeconds`: mutes informer initial-sync re-fires of standing conditions after a controller restart (`main.go`, `internal/config`).
+- `severityOverrides`: remap alert severities before dedupe/routing with routing-rule match semantics, first match wins (`internal/config`, `main.go`).
+- `sinkRates`: per-sink token-bucket overrides, wired to the previously-orphaned `Registry.SetRate` (`internal/config`, `main.go`).
+- `behavior.pvcPendingSeconds`: configurable PVC Pending threshold (was a 5-minute constant) (`internal/watchers/pvc.go`).
+- `SECURITY.md` with private vulnerability reporting policy.
+- Tests: watchers 0 → 58 %, sinks 18 → 48 %, config 0 → 81 %, templates 91 % coverage; CI pins golangci-lint v1.64.8, validates charts with kubeconform, smoke-builds the Docker image on PRs.
+- Runtime image switched from `alpine` to `gcr.io/distroless/static:nonroot`.
+
+### Removed (this release)
+
+- Dead `behavior.groupWaitSeconds` config key (parsed, documented, never implemented). Alert grouping is future work; the README no longer claims it.
+
 ### Security
 
 - Slack channel-override annotation now validated against `^#?[a-z0-9._-]{1,80}$`; invalid values logged and ignored (`internal/sinks/slack.go`).
