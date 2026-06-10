@@ -13,17 +13,21 @@ import (
 	"alertkube/internal/config"
 )
 
-// pvcPendingThreshold matches the documented behavior: only alert once a
-// claim has stayed Pending for at least this long.
-const pvcPendingThreshold = 5 * time.Minute
-
-// PVCWatcher fires on Pending (after pvcPendingThreshold) and Lost.
+// PVCWatcher fires on Pending (after behavior.pvcPendingSeconds) and Lost.
 type PVCWatcher struct {
-	ns nsFilter
+	ns               nsFilter
+	pendingThreshold time.Duration
 }
 
 func NewPVC(cfg *config.Config) *PVCWatcher {
-	return &PVCWatcher{ns: newNSFilter(cfg)}
+	threshold := time.Duration(cfg.Behavior.PVCPendingSeconds) * time.Second
+	if threshold <= 0 {
+		threshold = 5 * time.Minute
+	}
+	return &PVCWatcher{
+		ns:               newNSFilter(cfg),
+		pendingThreshold: threshold,
+	}
 }
 
 func (*PVCWatcher) Name() string { return "pvc" }
@@ -59,11 +63,11 @@ func (p *PVCWatcher) evaluate(pvc *v1.PersistentVolumeClaim, emit Emit) {
 		if pvc.CreationTimestamp.Time.IsZero() {
 			return
 		}
-		if time.Since(pvc.CreationTimestamp.Time) < pvcPendingThreshold {
+		if time.Since(pvc.CreationTimestamp.Time) < p.pendingThreshold {
 			return
 		}
 		a := alert.New(alert.KindPVC, pvc.Namespace, pvc.Name, "PVCPending", alert.SeverityWarning)
-		a.Summary = fmt.Sprintf("PVC %s/%s pending for over %s", pvc.Namespace, pvc.Name, pvcPendingThreshold)
+		a.Summary = fmt.Sprintf("PVC %s/%s pending for over %s", pvc.Namespace, pvc.Name, p.pendingThreshold)
 		emit(a)
 	}
 }

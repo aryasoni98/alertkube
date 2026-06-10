@@ -84,6 +84,9 @@ behavior:
   # mutes those re-fires. Conditions still firing after the window alert
   # normally once the mute window expires. 0 disables.
   startupGraceSeconds: 30
+  # How long a PVC may stay Pending before alerting (provisioners
+  # legitimately take a while).
+  pvcPendingSeconds: 300
 
 metrics:
   enabled: true
@@ -92,6 +95,15 @@ metrics:
     enabled: false
     interval: 30s
     labels: {}
+
+# Remap alert severities before dedupe/routing. First match wins.
+# match semantics are the same as routing rules (namespace/reason accept
+# anchored regexes, other keys are exact).
+severityOverrides: []
+  # - match: {kind: Pod, reason: ImagePullBackOff, namespace: dev-.*}
+  #   severity: info
+  # - match: {kind: Job, reason: JobFailed, namespace: batch-noncritical}
+  #   severity: warning
 
 # Per-sink send rate overrides (token bucket). Unlisted sinks default to
 # 1 msg/sec with burst 5 (Slack's published webhook limit).

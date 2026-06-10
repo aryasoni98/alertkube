@@ -56,9 +56,17 @@ inhibitions:
 silences:
   - matchers: {namespace: kube-system}
     until: "2030-01-01T00:00:00Z"
+severityOverrides:
+  - match: {kind: Pod, reason: ImagePullBackOff, namespace: dev-.*}
+    severity: info
+sinkRates:
+  slack:
+    perSecond: 2
+    burst: 10
 behavior:
   muteSeconds: 300
   startupGraceSeconds: 45
+  pvcPendingSeconds: 120
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -69,6 +77,12 @@ behavior:
 	}
 	if c.Behavior.StartupGraceSeconds != 45 {
 		t.Errorf("startupGraceSeconds = %d, want 45", c.Behavior.StartupGraceSeconds)
+	}
+	if c.Behavior.PVCPendingSeconds != 120 {
+		t.Errorf("pvcPendingSeconds = %d, want 120", c.Behavior.PVCPendingSeconds)
+	}
+	if len(c.SeverityOverrides) != 1 || c.SeverityOverrides[0].Severity != "info" {
+		t.Errorf("severityOverrides not parsed: %+v", c.SeverityOverrides)
 	}
 }
 
@@ -107,6 +121,31 @@ func TestValidateRejects(t *testing.T) {
 			name:    "negative startupGraceSeconds",
 			yaml:    "behavior:\n  startupGraceSeconds: -1\n",
 			errPart: "startupGraceSeconds",
+		},
+		{
+			name:    "negative pvcPendingSeconds",
+			yaml:    "behavior:\n  pvcPendingSeconds: -1\n",
+			errPart: "pvcPendingSeconds",
+		},
+		{
+			name:    "severity override bad severity",
+			yaml:    "severityOverrides:\n  - match: {kind: Pod}\n    severity: urgent\n",
+			errPart: `got "urgent"`,
+		},
+		{
+			name:    "severity override empty match",
+			yaml:    "severityOverrides:\n  - severity: info\n",
+			errPart: "match is empty",
+		},
+		{
+			name:    "sinkRates unknown sink",
+			yaml:    "sinkRates:\n  slak:\n    perSecond: 1\n    burst: 5\n",
+			errPart: `unknown sink "slak"`,
+		},
+		{
+			name:    "sinkRates zero perSecond",
+			yaml:    "sinkRates:\n  slack:\n    perSecond: 0\n    burst: 5\n",
+			errPart: "perSecond",
 		},
 	}
 	for _, tc := range cases {

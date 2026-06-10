@@ -29,6 +29,9 @@ type Config struct {
 		// seconds after start (informer initial sync re-fires standing
 		// conditions on every restart). 0 disables the window.
 		StartupGraceSeconds int `yaml:"startupGraceSeconds"`
+		// PVCPendingSeconds is how long a claim may stay Pending before
+		// alerting (provisioners legitimately take a while).
+		PVCPendingSeconds int `yaml:"pvcPendingSeconds"`
 	} `yaml:"behavior"`
 
 	Channels struct {
@@ -38,6 +41,12 @@ type Config struct {
 	} `yaml:"channels"`
 
 	Routing []Route `yaml:"routing"`
+
+	// SeverityOverrides remap an alert's severity before dedupe and
+	// routing. First match wins. Watchers hardcode sensible defaults
+	// (ImagePullBackOff=warning, JobFailed=critical, ...) but every org
+	// disagrees somewhere — this is the escape hatch.
+	SeverityOverrides []SeverityOverride `yaml:"severityOverrides"`
 
 	// SinkRates overrides the per-sink send rate limiter. Unlisted sinks
 	// keep the conservative default (1/sec, burst 5 — Slack's published
@@ -60,6 +69,14 @@ type Route struct {
 type SinkRate struct {
 	PerSecond float64 `yaml:"perSecond"`
 	Burst     int     `yaml:"burst"`
+}
+
+// SeverityOverride remaps matching alerts to a different severity.
+// Match uses the same semantics as routing rules: exact equality on all
+// keys except namespace/reason, which accept anchored regexes.
+type SeverityOverride struct {
+	Match    map[string]string `yaml:"match"`
+	Severity string            `yaml:"severity"`
 }
 
 type Inhibition struct {
@@ -129,6 +146,16 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	for i, ov := range c.SeverityOverrides {
+		if len(ov.Match) == 0 {
+			return fmt.Errorf("severityOverrides[%d]: match is empty (would remap every alert)", i)
+		}
+		switch ov.Severity {
+		case "critical", "warning", "info":
+		default:
+			return fmt.Errorf("severityOverrides[%d]: severity must be critical|warning|info, got %q", i, ov.Severity)
+		}
+	}
 	for name, sr := range c.SinkRates {
 		if !KnownSinks[name] {
 			return fmt.Errorf("sinkRates: unknown sink %q", name)
@@ -165,6 +192,9 @@ func (c *Config) Validate() error {
 	if c.Behavior.StartupGraceSeconds < 0 {
 		return fmt.Errorf("behavior.startupGraceSeconds must be >= 0, got %d", c.Behavior.StartupGraceSeconds)
 	}
+	if c.Behavior.PVCPendingSeconds <= 0 {
+		return fmt.Errorf("behavior.pvcPendingSeconds must be positive, got %d", c.Behavior.PVCPendingSeconds)
+	}
 	return nil
 }
 
@@ -198,6 +228,9 @@ func (c *Config) applyEnvDefaults() {
 	}
 	if c.Behavior.StartupGraceSeconds == 0 {
 		c.Behavior.StartupGraceSeconds = atoiOr("STARTUP_GRACE_SECONDS", 0)
+	}
+	if c.Behavior.PVCPendingSeconds == 0 {
+		c.Behavior.PVCPendingSeconds = atoiOr("PVC_PENDING_SECONDS", 300)
 	}
 	if c.Channels.Critical == "" {
 		c.Channels.Critical = envOr("SLACK_CHANNEL_CRITICAL", "alerts-critical")

@@ -18,10 +18,15 @@ data:
       ignoreRestartsWithExitCodeZero: {{ .Values.behavior.ignoreRestartsWithExitCodeZero }}
       resolveTTLSeconds: {{ .Values.behavior.resolveTTLSeconds }}
       startupGraceSeconds: {{ .Values.behavior.startupGraceSeconds }}
+      pvcPendingSeconds: {{ .Values.behavior.pvcPendingSeconds }}
     channels:
       critical: {{ .Values.slack.channels.critical | quote }}
       warning:  {{ .Values.slack.channels.warning | quote }}
       info:     {{ .Values.slack.channels.info | quote }}
+    {{- with .Values.severityOverrides }}
+    severityOverrides:
+{{ toYaml . | indent 6 }}
+    {{- end }}
     {{- with .Values.sinkRates }}
     sinkRates:
 {{ toYaml . | indent 6 }}

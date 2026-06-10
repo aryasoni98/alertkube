@@ -248,6 +248,14 @@ func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg 
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
 		a.Cluster = cfg.Cluster
+		// Severity overrides run before metrics, dedupe, and routing so
+		// every downstream decision sees the remapped severity.
+		for _, ov := range cfg.SeverityOverrides {
+			if a.MatchLabels(ov.Match) {
+				a.Severity = alert.Severity(ov.Severity)
+				break
+			}
+		}
 		metrics.AlertsTotal.WithLabelValues(string(a.Kind), string(a.Severity), a.Reason).Inc()
 		// Startup grace: conditions that pre-date this process (informer
 		// initial sync re-fires every standing CrashLoop on restart) are

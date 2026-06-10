@@ -92,6 +92,7 @@ behavior:
   ignoreRestartsWithExitCodeZero: false
   resolveTTLSeconds: 600
   startupGraceSeconds: 30         # mute re-fires of standing conditions after a controller restart; 0 = off
+  pvcPendingSeconds: 300          # how long a PVC may stay Pending before alerting
 
 channels:
   critical: alerts-critical
@@ -105,6 +106,12 @@ routing:
     sinks: [slack]
   - match: {severity: info}
     sinks: [slack]
+
+# Remap severities before dedupe/routing (first match wins). Same match
+# semantics as routing: namespace/reason accept anchored regexes.
+severityOverrides:
+  - match: {kind: Pod, reason: ImagePullBackOff, namespace: dev-.*}
+    severity: info
 
 inhibitions:
   - source: {kind: Node, reason: NodeNotReady}
