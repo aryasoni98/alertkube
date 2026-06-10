@@ -49,17 +49,7 @@ func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy Ret
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	if policy.MaxAttempts < 1 {
-		policy.MaxAttempts = 1
-	}
-
-	var lastErr error
-	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
-		if attempt > 0 {
-			if err := sleepWithCtx(ctx, backoffDelay(policy, attempt, lastErr)); err != nil {
-				return err
-			}
-		}
+	return Retry(ctx, policy, func(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, dest, bytes.NewReader(body))
 		if err != nil {
 			return err
@@ -67,11 +57,7 @@ func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy Ret
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := defaultClient.Do(req)
 		if err != nil {
-			lastErr = err
-			if !isRetriableErr(err) {
-				return err
-			}
-			continue
+			return err
 		}
 		// Drain + close so the connection can be reused.
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -79,13 +65,58 @@ func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy Ret
 		if resp.StatusCode < 400 {
 			return nil
 		}
-		statusErr := &statusError{status: resp.StatusCode, url: sanitizeURL(dest), retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
-		lastErr = statusErr
-		if !isRetriableStatus(resp.StatusCode) {
-			return statusErr
+		return NewStatusError(resp.StatusCode, dest, resp.Header.Get("Retry-After"))
+	})
+}
+
+// Retry runs fn under the policy's exponential backoff until it succeeds,
+// returns a non-retriable error, or attempts are exhausted. fn owns request
+// construction so bodies are rebuilt per attempt. Sinks whose HTTP calls go
+// through third-party clients (Slack, PagerDuty) wrap their sends with this.
+func Retry(ctx context.Context, policy RetryPolicy, fn func(ctx context.Context) error) error {
+	if policy.MaxAttempts < 1 {
+		policy.MaxAttempts = 1
+	}
+	var lastErr error
+	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
+		if attempt > 0 {
+			if err := sleepWithCtx(ctx, backoffDelay(policy, attempt, lastErr)); err != nil {
+				return err
+			}
+		}
+		err := fn(ctx)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !Retriable(err) {
+			return err
 		}
 	}
 	return fmt.Errorf("after %d attempts: %w", policy.MaxAttempts, lastErr)
+}
+
+// NewStatusError builds an HTTP-status failure carrying an optional
+// Retry-After hint; Retry honors both when scheduling the next attempt.
+// rawURL is sanitized so webhook secrets never reach logs.
+func NewStatusError(status int, rawURL, retryAfterHeader string) error {
+	return &statusError{status: status, url: sanitizeURL(rawURL), retryAfter: parseRetryAfter(retryAfterHeader)}
+}
+
+// Retriable reports whether err is worth retrying: retriable HTTP statuses
+// (via statusError or any error exposing HTTPStatusCode, e.g. slack-go's
+// StatusCodeError) and transport errors qualify; context cancellation and
+// fatal 4xx do not.
+func Retriable(err error) bool {
+	var se *statusError
+	if errors.As(err, &se) {
+		return isRetriableStatus(se.status)
+	}
+	var sc interface{ HTTPStatusCode() int }
+	if errors.As(err, &sc) {
+		return isRetriableStatus(sc.HTTPStatusCode())
+	}
+	return isRetriableErr(err)
 }
 
 // statusError surfaces the HTTP status separately from the URL so callers

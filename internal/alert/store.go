@@ -9,7 +9,7 @@ import (
 // muteWindow values do not cause immediate eviction.
 const minHistoryRetention = 10 * time.Minute
 
-// Store tracks active alerts so we can detect dedupes, grouping windows,
+// Store tracks active alerts so we can detect dedupes
 // and emit synthetic resolved events when a fingerprint stops firing.
 type Store struct {
 	mu         sync.Mutex
@@ -60,6 +60,30 @@ func (s *Store) ShouldSend(a *Alert) bool {
 	return true
 }
 
+// MarkFailed forgets dedupe state for a fingerprint after a total delivery
+// failure so the next firing retries instead of being muted for the whole
+// mute window.
+func (s *Store) MarkFailed(fp string) {
+	s.mu.Lock()
+	delete(s.lastSent, fp)
+	delete(s.active, fp)
+	size, fn := len(s.active), s.onChange
+	s.mu.Unlock()
+	if fn != nil {
+		fn(size)
+	}
+}
+
+// Seed records a send timestamp without marking the alert active. Used by
+// the startup grace window: re-fires of pre-existing conditions are muted
+// without ever entering the active set, so no synthetic resolve is emitted
+// for an alert nobody received.
+func (s *Store) Seed(fp string) {
+	s.mu.Lock()
+	s.lastSent[fp] = time.Now()
+	s.mu.Unlock()
+}
+
 // Touch records that a fingerprint is still firing (resets resolve TTL).
 func (s *Store) Touch(fp string) {
 	s.mu.Lock()
@@ -76,8 +100,12 @@ func (s *Store) SweepResolved() {
 	expired := []*Alert{}
 	for fp, a := range s.active {
 		if !a.EndsAt.IsZero() && now.After(a.EndsAt) {
-			a.Resolved = true
-			expired = append(expired, a)
+			// Hand a copy to onResolved: the stored pointer may still be
+			// referenced by in-flight sink goroutines, and mutating it here
+			// would race with their reads.
+			cp := *a
+			cp.Resolved = true
+			expired = append(expired, &cp)
 			delete(s.active, fp)
 			delete(s.lastSent, fp)
 		}

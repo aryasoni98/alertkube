@@ -8,6 +8,7 @@ import (
 	pd "github.com/PagerDuty/go-pagerduty"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/httpx"
 )
 
 // PagerDutySink sends critical alerts to PagerDuty Events API v2.
@@ -60,6 +61,10 @@ func (p *PagerDutySink) Send(ctx context.Context, a *alert.Alert) error {
 			Details:   a.Details,
 		},
 	}
-	_, err := pd.ManageEventWithContext(ctx, event)
-	return err
+	// Events API calls get backoff on transient failures so a network blip
+	// does not drop a page.
+	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
+		_, err := pd.ManageEventWithContext(ctx, event)
+		return err
+	})
 }

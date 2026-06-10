@@ -1,6 +1,6 @@
 module alertkube
 
-go 1.21
+go 1.23
 
 require (
 	github.com/PagerDuty/go-pagerduty v1.8.0

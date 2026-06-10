@@ -9,12 +9,17 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/config"
 )
 
 // DeploymentWatcher fires when unavailableReplicas > 0 or progress fails.
-type DeploymentWatcher struct{}
+type DeploymentWatcher struct {
+	ns nsFilter
+}
 
-func NewDeployment() *DeploymentWatcher { return &DeploymentWatcher{} }
+func NewDeployment(cfg *config.Config) *DeploymentWatcher {
+	return &DeploymentWatcher{ns: newNSFilter(cfg)}
+}
 
 func (*DeploymentWatcher) Name() string { return "deployment" }
 
@@ -22,7 +27,7 @@ func (d *DeploymentWatcher) Setup(_ context.Context, f informers.SharedInformerF
 	inf := f.Apps().V1().Deployments().Informer()
 	handler := func(obj interface{}) {
 		dep, ok := obj.(*appsv1.Deployment)
-		if !ok {
+		if !ok || !d.ns.allows(dep.Namespace) {
 			return
 		}
 		d.evaluate(dep, emit)

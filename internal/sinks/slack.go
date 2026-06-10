@@ -12,6 +12,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
 )
 
@@ -49,7 +50,6 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	if webhookURL == "" {
 		return nil
 	}
-	a.Cluster = s.cluster
 	channel := s.routeChannel(a)
 	if override, ok := a.Annotations["alert-slack-channel"]; ok && override != "" {
 		if channelOverridePattern.MatchString(override) {
@@ -69,7 +69,12 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 			Footer: fmt.Sprintf("%s | %s | fp=%s", s.cluster, a.Kind, a.Fingerprint),
 		}},
 	}
-	return slack.PostWebhookCustomHTTPContext(ctx, webhookURL, s.httpClient, msg)
+	// slack-go does one attempt per call; wrap with backoff so a transient
+	// 429/5xx does not drop the alert (its StatusCodeError exposes
+	// HTTPStatusCode, which httpx.Retriable understands).
+	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
+		return slack.PostWebhookCustomHTTPContext(ctx, webhookURL, s.httpClient, msg)
+	})
 }
 
 func (s *SlackSink) routeChannel(a *alert.Alert) string {

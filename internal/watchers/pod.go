@@ -79,10 +79,6 @@ func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit 
 	newCount := totalRestarts(newPod)
 	oldCount := totalRestarts(oldPod)
 
-	if newCount > p.cfg.Behavior.IgnoreRestartCount {
-		return
-	}
-
 	// Detect crashloop/oom/imagepull waiting reasons regardless of restart count.
 	for _, st := range newPod.Status.ContainerStatuses {
 		if st.State.Waiting != nil {
@@ -102,7 +98,9 @@ func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit 
 		}
 	}
 
-	if newCount > oldCount {
+	// Per-restart alerts stop once a pod is chronically restarting
+	// (ignoreRestartCount); CrashLoopBackOff detection above still covers it.
+	if newCount > oldCount && newCount <= p.cfg.Behavior.IgnoreRestartCount {
 		for _, st := range newPod.Status.ContainerStatuses {
 			if st.RestartCount == 0 {
 				continue

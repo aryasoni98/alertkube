@@ -10,12 +10,17 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/config"
 )
 
 // JobWatcher fires on Failed jobs (backoffLimit hit).
-type JobWatcher struct{}
+type JobWatcher struct {
+	ns nsFilter
+}
 
-func NewJob() *JobWatcher { return &JobWatcher{} }
+func NewJob(cfg *config.Config) *JobWatcher {
+	return &JobWatcher{ns: newNSFilter(cfg)}
+}
 
 func (*JobWatcher) Name() string { return "job" }
 
@@ -23,7 +28,7 @@ func (j *JobWatcher) Setup(_ context.Context, f informers.SharedInformerFactory,
 	inf := f.Batch().V1().Jobs().Informer()
 	handler := func(obj interface{}) {
 		job, ok := obj.(*batchv1.Job)
-		if !ok {
+		if !ok || !j.ns.allows(job.Namespace) {
 			return
 		}
 		j.evaluate(job, emit)

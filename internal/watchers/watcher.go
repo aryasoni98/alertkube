@@ -9,6 +9,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/config"
+	"alertkube/internal/filter"
 )
 
 // Emit is the callback watchers use to publish alerts.
@@ -18,6 +20,25 @@ type Emit func(*alert.Alert)
 type Watcher interface {
 	Name() string
 	Setup(ctx context.Context, factory informers.SharedInformerFactory, emit Emit)
+}
+
+// nsFilter applies the watchedNamespaces/ignoredNamespaces config to
+// namespace-scoped watchers so the documented filter contract holds for
+// every kind, not just Pods.
+type nsFilter struct {
+	watched *filter.Set
+	ignored *filter.Set
+}
+
+func newNSFilter(cfg *config.Config) nsFilter {
+	return nsFilter{
+		watched: filter.New(cfg.Filters.WatchedNamespaces),
+		ignored: filter.New(cfg.Filters.IgnoredNamespaces),
+	}
+}
+
+func (f nsFilter) allows(ns string) bool {
+	return f.watched.Matches(ns) && !f.ignored.Blocks(ns)
 }
 
 // recoverHandler is the panic-safety net wrapped around every informer

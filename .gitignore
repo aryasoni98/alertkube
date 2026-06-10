@@ -1,16 +1,46 @@
-# macOS
+# OS
 .DS_Store
+Thumbs.db
 
-# Build artifacts
+# Go binaries
 /alertkube
+/dumppayload
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go build & test output
 /dist/
 /out/
+/coverage.out
+*.out
+vendor/
+go.work
+go.work.sum
 
-# Editor
+# Helm
+*.tgz
+helm/charts/
+
+# Security scan artifacts
+trivy-results.sarif
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Editor & IDE
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
-# Env
-.env
-.env.local
+# Local tooling
+.cache/
+.claude/

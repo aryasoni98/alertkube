@@ -1,6 +1,6 @@
 # alertkube
 
-> Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, grouping, inhibitions, silences, and Prometheus metrics.
+> Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.
 
 alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit), PagerDuty (Events API v2), Microsoft Teams, generic webhooks, or stdout for local dev.
 
@@ -88,10 +88,10 @@ filters:
 
 behavior:
   muteSeconds: 600
-  ignoreRestartCount: 30
+  ignoreRestartCount: 30          # stop per-restart alerts past this count (crashloop alerts still fire)
   ignoreRestartsWithExitCodeZero: false
-  groupWaitSeconds: 30
   resolveTTLSeconds: 600
+  startupGraceSeconds: 30         # mute re-fires of standing conditions after a controller restart; 0 = off
 
 channels:
   critical: alerts-critical
@@ -124,6 +124,14 @@ silences:
 | `alert-slack-channel: my-channel` | Override Slack channel for this resource |
 | `alert-silence-until: 2026-06-15T00:00:00Z` | Silence alerts until RFC3339 timestamp |
 | `runbook-url: https://wiki/runbooks/foo` | Renders a Runbook button in Slack |
+
+> **Slack channel routing caveat:** per-severity channels and the
+> `alert-slack-channel` override set the `channel` field on the webhook
+> message. Slack honors that field only for **legacy** incoming webhooks;
+> webhooks created through a modern Slack app post to the channel chosen at
+> install time and ignore the field. To route severities to different
+> channels with a modern app, create one webhook per channel (or open an
+> issue — a bot-token `chat.postMessage` mode is on the roadmap).
 
 ## License
 

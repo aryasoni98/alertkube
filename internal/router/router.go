@@ -32,16 +32,21 @@ func New(routes []config.Route, inhibitions []config.Inhibition, silences []conf
 }
 
 // Route returns the sinks an alert should fan out to (nil = drop).
+// Resolved alerts skip silences and inhibitions entirely: a resolve must
+// reach the sinks that saw the trigger (else PagerDuty incidents dangle),
+// must not arm inhibitions, and must not count as suppressed.
 func (r *Router) Route(a *alert.Alert) []string {
-	if r.silenced(a) {
-		metrics.AlertsSuppressed.WithLabelValues("silenced").Inc()
-		return nil
+	if !a.Resolved {
+		if r.silenced(a) {
+			metrics.AlertsSuppressed.WithLabelValues("silenced").Inc()
+			return nil
+		}
+		if r.inhibited(a) {
+			metrics.AlertsSuppressed.WithLabelValues("inhibited").Inc()
+			return nil
+		}
+		r.maybeArmInhibition(a)
 	}
-	if r.inhibited(a) {
-		metrics.AlertsSuppressed.WithLabelValues("inhibited").Inc()
-		return nil
-	}
-	r.maybeArmInhibition(a)
 
 	for _, route := range r.routes {
 		if a.MatchLabels(route.Match) {

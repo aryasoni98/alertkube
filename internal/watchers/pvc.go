@@ -10,6 +10,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/config"
 )
 
 // pvcPendingThreshold matches the documented behavior: only alert once a
@@ -17,9 +18,13 @@ import (
 const pvcPendingThreshold = 5 * time.Minute
 
 // PVCWatcher fires on Pending (after pvcPendingThreshold) and Lost.
-type PVCWatcher struct{}
+type PVCWatcher struct {
+	ns nsFilter
+}
 
-func NewPVC() *PVCWatcher { return &PVCWatcher{} }
+func NewPVC(cfg *config.Config) *PVCWatcher {
+	return &PVCWatcher{ns: newNSFilter(cfg)}
+}
 
 func (*PVCWatcher) Name() string { return "pvc" }
 
@@ -27,7 +32,7 @@ func (p *PVCWatcher) Setup(_ context.Context, f informers.SharedInformerFactory,
 	inf := f.Core().V1().PersistentVolumeClaims().Informer()
 	handler := func(obj interface{}) {
 		pvc, ok := obj.(*v1.PersistentVolumeClaim)
-		if !ok {
+		if !ok || !p.ns.allows(pvc.Namespace) {
 			return
 		}
 		p.evaluate(pvc, emit)

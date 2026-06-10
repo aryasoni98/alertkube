@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -80,17 +81,27 @@ func (r *Registry) Names() []string {
 }
 
 // Dispatch fans an alert to the named sinks concurrently with a
-// per-sink timeout, rate limiter, and panic safety.
-func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string) {
-	var wg sync.WaitGroup
+// per-sink timeout, rate limiter, and panic safety. Resolved alerts skip
+// the Supports severity gate so a resolve always follows its trigger
+// (PagerDuty drops resolves for unknown dedup keys, so extras are harmless).
+// Returns false only when at least one sink was attempted and every
+// attempt failed — callers use that to roll back dedupe state so the next
+// firing retries delivery.
+func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string) bool {
+	var (
+		wg        sync.WaitGroup
+		succeeded atomic.Int32
+		attempted int
+	)
 	for _, name := range names {
 		r.mu.RLock()
 		s, ok := r.sinks[name]
 		limiter := r.limiters[name]
 		r.mu.RUnlock()
-		if !ok || !s.Supports(a.Severity) {
+		if !ok || (!a.Resolved && !s.Supports(a.Severity)) {
 			continue
 		}
+		attempted++
 		wg.Add(1)
 		go func(name string, s Sink, limiter *rate.Limiter) {
 			defer wg.Done()
@@ -118,9 +129,12 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 				result = "error"
 				metrics.SinkErrors.WithLabelValues(name).Inc()
 				klog.Warningf("sink %q send failed: %v", name, err)
+			} else {
+				succeeded.Add(1)
 			}
 			metrics.SinkSendDuration.WithLabelValues(name, result).Observe(time.Since(start).Seconds())
 		}(name, s, limiter)
 	}
 	wg.Wait()
+	return attempted == 0 || succeeded.Load() > 0
 }

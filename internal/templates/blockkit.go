@@ -3,6 +3,7 @@ package templates
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/slack-go/slack"
 
@@ -64,11 +65,21 @@ func orderedDetailKeys() []string {
 	return []string{"Pod Status", "Container State", "Pod Events", "Node Events", "Resource Spec", "Pod Logs Before Restart", "Deployment Status", "Job Status"}
 }
 
+// truncate keeps the tail of s (most recent log lines) within limit bytes.
+// The byte cut can land mid-rune; leading continuation bytes are dropped so
+// the result stays valid UTF-8 — Slack rejects payloads containing invalid
+// UTF-8, which would otherwise fail the whole alert for non-ASCII logs.
 func truncate(s string, limit int) string {
 	if len(s) <= limit {
 		return s
 	}
-	return s[len(s)-limit:]
+	cut := s[len(s)-limit:]
+	for i := 0; i < len(cut) && i < utf8.UTFMax; i++ {
+		if utf8.RuneStart(cut[i]) {
+			return cut[i:]
+		}
+	}
+	return cut
 }
 
 // safeRunbookURL guards the workload-supplied runbook-url annotation so a

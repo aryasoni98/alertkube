@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/time/rate"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ const (
 type runtimeFlags struct {
 	kubeconfig            string
 	configPath            string
+	watchNamespace        string
 	leaderElect           bool
 	leaderElectionNS      string
 	leaderElectionLeaseID string
@@ -69,7 +71,7 @@ func main() {
 	if flags.leaderElect {
 		runWithLeaderElection(ctx, clientset, cfg, flags)
 	} else {
-		runController(ctx, clientset, cfg)
+		runController(ctx, clientset, cfg, flags.watchNamespace)
 	}
 
 	if srv != nil {
@@ -83,7 +85,10 @@ func main() {
 
 // runController wires the watchers, sweeper, and dispatch path.
 // Returns when ctx is cancelled (signal received OR leader election lost).
-func runController(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config) {
+// A non-empty watchNamespace scopes every informer to that namespace and
+// disables the node watcher (nodes are cluster-scoped), so the controller
+// runs under a namespace Role instead of a ClusterRole.
+func runController(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string) {
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 
@@ -94,10 +99,15 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	)
 	store.SetOnChange(func(n int) { metrics.ActiveAlerts.Set(float64(n)) })
 
-	emit := makeEmitter(ctx, store, r, reg)
+	emit := makeEmitter(ctx, store, r, reg, cfg)
 
-	factory := informers.NewSharedInformerFactory(clientset, 0)
-	for _, w := range buildWatchers(clientset, cfg) {
+	var factoryOpts []informers.SharedInformerOption
+	if watchNamespace != "" {
+		klog.Infof("watching single namespace %q (node alerts disabled)", watchNamespace)
+		factoryOpts = append(factoryOpts, informers.WithNamespace(watchNamespace))
+	}
+	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 0, factoryOpts...)
+	for _, w := range buildWatchers(clientset, cfg, watchNamespace) {
 		w.Setup(ctx, factory, emit)
 	}
 
@@ -128,6 +138,12 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 	if flags.leaderElectionLeaseID != "" {
 		id = flags.leaderElectionLeaseID
 	}
+	// A hot-standby follower is a healthy, ready pod: it serves /metrics
+	// and is one lease transition away from leading. Without this, a
+	// RollingUpdate with maxUnavailable: 0 deadlocks — the new pod starts
+	// as a follower, never reports Ready, and the old leader is never
+	// terminated.
+	metrics.MarkReady()
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metav1.ObjectMeta{
 			Name:      appName,
@@ -147,7 +163,7 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadCtx context.Context) {
 				klog.Infof("%s acquired leadership (id=%s)", appName, id)
-				runController(leadCtx, clientset, cfg)
+				runController(leadCtx, clientset, cfg, flags.watchNamespace)
 			},
 			OnStoppedLeading: func() {
 				klog.Warningf("%s lost leadership (id=%s)", appName, id)
@@ -170,6 +186,7 @@ func parseFlags() runtimeFlags {
 		flag.StringVar(&f.kubeconfig, "kubeconfig", "", "kubeconfig path")
 	}
 	flag.StringVar(&f.configPath, "config", os.Getenv("ALERTKUBE_CONFIG"), "YAML config path")
+	flag.StringVar(&f.watchNamespace, "watch-namespace", os.Getenv("WATCH_NAMESPACE"), "restrict informers to one namespace (disables node alerts; required for namespace-scoped RBAC)")
 	flag.BoolVar(&f.leaderElect, "leader-elect", envBool("LEADER_ELECT", false), "enable leader election via a Lease (required when replicas > 1)")
 	flag.StringVar(&f.leaderElectionNS, "leader-election-namespace", envOr("LEADER_ELECTION_NAMESPACE", "kube-system"), "namespace holding the Lease object")
 	flag.StringVar(&f.leaderElectionLeaseID, "leader-election-id", os.Getenv("POD_NAME"), "lease holder identity (defaults to POD_NAME or hostname)")
@@ -205,22 +222,41 @@ func buildSinks(cfg *config.Config) *sinks.Registry {
 	reg.Add(sinks.NewTeams())
 	reg.Add(sinks.NewWebhook())
 	reg.Add(sinks.NewStdout())
+	for name, sr := range cfg.SinkRates {
+		reg.SetRate(name, rate.Limit(sr.PerSecond), sr.Burst)
+	}
 	return reg
 }
 
-func buildWatchers(c kubernetes.Interface, cfg *config.Config) []watchers.Watcher {
-	return []watchers.Watcher{
+func buildWatchers(c kubernetes.Interface, cfg *config.Config, watchNamespace string) []watchers.Watcher {
+	ws := []watchers.Watcher{
 		watchers.NewPod(c, cfg),
-		watchers.NewNode(c),
-		watchers.NewDeployment(),
-		watchers.NewPVC(),
-		watchers.NewJob(),
+		watchers.NewDeployment(cfg),
+		watchers.NewPVC(cfg),
+		watchers.NewJob(cfg),
 	}
+	// Nodes are cluster-scoped: a namespace-scoped factory cannot sync a
+	// node informer and a namespace Role cannot grant it.
+	if watchNamespace == "" {
+		ws = append(ws, watchers.NewNode(c))
+	}
+	return ws
 }
 
-func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg *sinks.Registry) watchers.Emit {
+func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config) watchers.Emit {
+	controllerStart := time.Now()
+	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
+		a.Cluster = cfg.Cluster
 		metrics.AlertsTotal.WithLabelValues(string(a.Kind), string(a.Severity), a.Reason).Inc()
+		// Startup grace: conditions that pre-date this process (informer
+		// initial sync re-fires every standing CrashLoop on restart) are
+		// seeded into the mute window instead of re-paging.
+		if grace > 0 && time.Since(controllerStart) < grace {
+			store.Seed(a.Fingerprint)
+			metrics.AlertsSuppressed.WithLabelValues("startup").Inc()
+			return
+		}
 		if !store.ShouldSend(a) {
 			metrics.AlertsSuppressed.WithLabelValues("muted").Inc()
 			store.Touch(a.Fingerprint)
@@ -230,7 +266,12 @@ func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg 
 		if route == nil {
 			return
 		}
-		reg.Dispatch(ctx, a, route)
+		// Dispatch a copy: the original is retained in the store and its
+		// EndsAt is mutated by Touch while sink goroutines read the alert.
+		cp := *a
+		if !reg.Dispatch(ctx, &cp, route) {
+			store.MarkFailed(a.Fingerprint)
+		}
 	}
 }
 
