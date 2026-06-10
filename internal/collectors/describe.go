@@ -164,7 +164,7 @@ func describeStatus(stateName string, state v1.ContainerState, w describe.Prefix
 	switch {
 	case state.Running != nil:
 		w.Write(describe.LEVEL_1, "%s:\tRunning\n", stateName)
-		w.Write(describe.LEVEL_2, "Started:\t%v\n", state.Running.StartedAt.Time.Format(time.RFC1123Z))
+		w.Write(describe.LEVEL_2, "Started:\t%v\n", state.Running.StartedAt.Format(time.RFC1123Z))
 	case state.Waiting != nil:
 		w.Write(describe.LEVEL_1, "%s:\tWaiting\n", stateName)
 		if state.Waiting.Reason != "" {
@@ -182,8 +182,8 @@ func describeStatus(stateName string, state v1.ContainerState, w describe.Prefix
 		if state.Terminated.Signal > 0 {
 			w.Write(describe.LEVEL_2, "Signal:\t%d\n", state.Terminated.Signal)
 		}
-		w.Write(describe.LEVEL_2, "Started:\t%s\n", state.Terminated.StartedAt.Time.Format(time.RFC1123Z))
-		w.Write(describe.LEVEL_2, "Finished:\t%s\n", state.Terminated.FinishedAt.Time.Format(time.RFC1123Z))
+		w.Write(describe.LEVEL_2, "Started:\t%s\n", state.Terminated.StartedAt.Format(time.RFC1123Z))
+		w.Write(describe.LEVEL_2, "Finished:\t%s\n", state.Terminated.FinishedAt.Format(time.RFC1123Z))
 	default:
 		w.Write(describe.LEVEL_1, "%s:\tWaiting\n", stateName)
 	}

@@ -27,9 +27,7 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          # Pinned: .golangci.yml is v1-format; `latest` resolves to
-          # golangci-lint v2.x which rejects it.
-          version: v1.64.8
-          args: --timeout=5m
+          # Pinned for deterministic lint; config is v2-format.
+          version: v2.12.2

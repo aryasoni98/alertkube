@@ -7,6 +7,7 @@ import (
 
 	"alertkube/internal/alert"
 	"alertkube/internal/templates"
+
 	"github.com/slack-go/slack"
 )
 
