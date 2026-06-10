@@ -18,6 +18,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   docker:
@@ -40,7 +41,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PAGE }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
@@ -51,7 +52,7 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
 
       - name: Build & push
         id: build
@@ -79,15 +80,15 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PAGE }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy scan
         uses: aquasecurity/trivy-action@master
         env:
           TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GH_PAGE }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
@@ -99,20 +100,49 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+  helm:
+    name: Push Helm chart (OCI)
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR (Helm)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Package & push chart
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p dist
+          helm package helm -d dist --version "${VERSION}" --app-version "${VERSION}"
+          helm push "dist/alertkube-${VERSION}.tgz" "oci://${REGISTRY}/${{ github.repository_owner }}/charts"
+
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: dist/*.tgz
+
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: docker
+    needs: [docker, trivy, helm]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Package Helm chart
-        run: |
-          mkdir -p dist
-          helm package helm -d dist
-          ls -la dist
+      - name: Download chart artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: dist
+
+      - name: Compute chart version
+        id: ver
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -121,16 +151,16 @@ jobs:
           files: |
             dist/*.tgz
           body: |
-            ## alertkube ${{ github.ref_name }}
+            ## alertkube ${{ env.TAG }}
 
             ### Container image
             ```
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
             ```
 
             ### Helm
             ```
-            helm install alertkube oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/alertkube --version ${{ github.ref_name }}
+            helm install alertkube oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/alertkube --version ${{ steps.ver.outputs.version }}
             ```
 
             See `CHANGELOG.md` for full details.

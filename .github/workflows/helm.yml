@@ -47,8 +47,18 @@ jobs:
             > /tmp/render-sm.yaml
           test -s /tmp/render-sm.yaml
 
+      - name: Helm template (namespace scope + leader election)
+        run: |
+          helm template alertkube helm \
+            --set cluster=ci-test \
+            --set rbac.scope=namespace \
+            --set replicaCount=2 \
+            --set leaderElection.enabled=true \
+            > /tmp/render-ns.yaml
+          test -s /tmp/render-ns.yaml
+
       - name: kubeconform validation
-        uses: instrumenta/kubeval-action@master
-        continue-on-error: true
-        with:
-          files: /tmp/render.yaml
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          ./kubeconform -strict -ignore-missing-schemas -summary \
+            /tmp/render.yaml /tmp/render-sm.yaml /tmp/render-ns.yaml

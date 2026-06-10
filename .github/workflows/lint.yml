@@ -23,11 +23,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version-file: go.mod
           cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pinned: .golangci.yml is v1-format; `latest` resolves to
+          # golangci-lint v2.x which rejects it.
+          version: v1.64.8
           args: --timeout=5m
