@@ -7,7 +7,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -25,24 +24,8 @@ func NewJob(cfg *config.Config) *JobWatcher {
 func (*JobWatcher) Name() string { return "job" }
 
 func (j *JobWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Batch().V1().Jobs().Informer()
-	handler := func(obj interface{}) {
-		job, ok := obj.(*batchv1.Job)
-		if !ok || !j.ns.allows(job.Namespace) {
-			return
-		}
-		j.evaluate(job, emit)
-	}
-	register("job", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("job.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("job.Update")
-			handler(cur)
-		},
-	})
+	register("job", f.Batch().V1().Jobs().Informer(),
+		handleCurrent("job", j.ns, func(job *batchv1.Job) { j.evaluate(job, emit) }))
 }
 
 func (j *JobWatcher) evaluate(job *batchv1.Job, emit Emit) {

@@ -75,7 +75,7 @@ func (o *OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 			"reason":    a.Reason,
 		}
 		payload = map[string]any{
-			"message":     truncate(fmt.Sprintf("[%s] %s %s/%s: %s", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason), 130),
+			"message":     truncate(alertTitle(a), 130),
 			"alias":       a.Fingerprint,
 			"description": truncate(a.Summary, 15000),
 			"priority":    ogPriority(a.Severity),

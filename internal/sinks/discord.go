@@ -41,18 +41,13 @@ func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
 		return nil
 	}
 
-	title := fmt.Sprintf("[%s] %s %s/%s: %s", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason)
-	if a.Resolved {
-		title = "[resolved] " + title
-	}
-
 	fields := []map[string]any{
 		{"name": "Cluster", "value": orDash(a.Cluster), "inline": true},
 		{"name": "Namespace", "value": orDash(a.Namespace), "inline": true},
 		{"name": "Reason", "value": orDash(a.Reason), "inline": true},
 	}
 	embed := map[string]any{
-		"title":       truncate(title, 256),
+		"title":       truncate(alertTitle(a), 256),
 		"description": truncate(a.Summary, 4096),
 		"color":       discordColor(a),
 		"fields":      fields,
@@ -68,25 +63,4 @@ func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
 		"embeds":   []map[string]any{embed},
 	}
 	return httpx.PostJSON(ctx, url, payload)
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
-
-// truncate bounds s to max bytes on a rune boundary (Discord rejects
-// over-length fields wholesale).
-func truncate(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	for i := limit; i > 0; i-- {
-		if (s[i] & 0xC0) != 0x80 { // not a UTF-8 continuation byte
-			return s[:i]
-		}
-	}
-	return ""
 }

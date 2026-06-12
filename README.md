@@ -65,13 +65,13 @@ go run .
 Container image (multi-arch, cosign-signed):
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v0.2.0
+docker pull ghcr.io/aryasoni98/alertkube:v0.2.1
 ```
 
 Helm from the published OCI chart:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.1 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \
@@ -199,6 +199,17 @@ silences:
 > channel routing, use **bot-token mode**: set `slack.botToken` (scope
 > `chat:write`, bot invited to each channel). When `SLACK_BOT_TOKEN` is
 > set it takes precedence over the webhook URL.
+
+## Documentation
+
+| Doc | Description |
+| --- | --- |
+| [AUDIT-REPORT.md](docs/AUDIT-REPORT.md) | Security audit findings and v0.2.0 launch sign-off |
+| [OPERATIONS.md](docs/OPERATIONS.md) | SLOs, dashboards, PrometheusRule, upgrades, HA |
+| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix |
+| [MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md) | Upgrade from k8s-pod-restart-info-collector |
+| [grafana-dashboard.json](docs/grafana-dashboard.json) | Importable Grafana dashboard |
+| [Landing page](docs/index.html) | GitHub Pages site (deployed from `docs/`) |
 
 ## License
 

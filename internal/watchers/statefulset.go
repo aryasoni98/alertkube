@@ -6,7 +6,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -24,24 +23,8 @@ func NewStatefulSet(cfg *config.Config) *StatefulSetWatcher {
 func (*StatefulSetWatcher) Name() string { return "statefulset" }
 
 func (s *StatefulSetWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Apps().V1().StatefulSets().Informer()
-	handler := func(obj interface{}) {
-		sts, ok := obj.(*appsv1.StatefulSet)
-		if !ok || !s.ns.allows(sts.Namespace) {
-			return
-		}
-		s.evaluate(sts, emit)
-	}
-	register("statefulset", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("statefulset.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("statefulset.Update")
-			handler(cur)
-		},
-	})
+	register("statefulset", f.Apps().V1().StatefulSets().Informer(),
+		handleCurrent("statefulset", s.ns, func(sts *appsv1.StatefulSet) { s.evaluate(sts, emit) }))
 }
 
 func (s *StatefulSetWatcher) evaluate(sts *appsv1.StatefulSet, emit Emit) {

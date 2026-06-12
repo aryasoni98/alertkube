@@ -63,23 +63,6 @@ func (r *Registry) SetRate(name string, limit rate.Limit, burst int) {
 	r.limiters[name] = rate.NewLimiter(limit, burst)
 }
 
-func (r *Registry) Get(name string) (Sink, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	s, ok := r.sinks[name]
-	return s, ok
-}
-
-func (r *Registry) Names() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]string, 0, len(r.sinks))
-	for n := range r.sinks {
-		out = append(out, n)
-	}
-	return out
-}
-
 // Dispatch fans an alert to the named sinks concurrently with a
 // per-sink timeout, rate limiter, and panic safety. Resolved alerts skip
 // the Supports severity gate so a resolve always follows its trigger

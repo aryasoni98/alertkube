@@ -1,100 +1,113 @@
-# Migration — `k8s-pod-restart-info-collector` → `alertkube`
+# Migration from k8s-pod-restart-info-collector
 
-> If you're already running the v1 `k8s-pod-restart-info-collector` Helm chart, this guide walks through the breaking changes and a low-downtime upgrade.
+Guide for upgrading from the single-purpose pod-restart collector to alertkube.
 
----
+## What changes
 
-## TL;DR
+| v1 (collector) | alertkube |
+|----------------|-----------|
+| Pod restarts only | Pod, Node, Deployment, PVC, Job, DaemonSet, StatefulSet, CronJob, HPA |
+| Slack webhook only | Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, webhook, stdout |
+| Env-var config | YAML-first with env fallback |
+| No dedupe | Fingerprint mute window + resolve detection |
+| No severity | critical / warning / info tiers |
+| No metrics | Prometheus `/metrics` + Grafana dashboard |
+
+## Environment variable mapping
+
+| v1 env var | alertkube equivalent |
+|------------|---------------------|
+| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` in Helm or `SLACK_WEBHOOK_URL` env |
+| `SLACK_USERNAME` | `slack.username` |
+| `SLACK_CHANNEL` | `channels.critical/warning/info` or per-severity routing |
+| `CLUSTER_NAME` | `cluster` in config |
+| `IGNORE_RESTART_COUNT` | `behavior.ignoreRestartCount` |
+| `IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO` | `behavior.ignoreRestartsWithExitCodeZero` |
+| `WATCHED_NAMESPACES` | `filters.watchedNamespaces` (regex) |
+| `IGNORED_POD_NAME_PREFIXES` | `filters.ignoredPodNamePrefixes` |
+
+## Step-by-step upgrade
+
+### 1. Deploy alertkube alongside (optional canary)
 
 ```bash
-helm uninstall k8s-pod-restart-info-collector
 helm upgrade --install alertkube ./helm \
-  --set cluster=<cluster> \
-  --set slack.webhookUrl=<your-slack-url> \
-  --set slack.channels.critical=alerts-critical \
-  --set slack.channels.warning=alerts-warning \
-  --set slack.channels.info=alerts-info
+  --namespace monitoring --create-namespace \
+  --set cluster=my-cluster \
+  --set slack.webhookUrl=$SLACK_WEBHOOK_URL \
+  --set filters.watchedNamespaces="^staging-.*"
 ```
 
-There is no in-place upgrade — the release name, chart name, image repository, and selector labels all changed.
+Route staging traffic first via namespace filter before cutting over production.
 
-## Breaking changes
+### 2. Match v1 restart behavior
 
-| Area | v1 (`k8s-pod-restart-info-collector`) | v2 (`alertkube`) |
-| --- | --- | --- |
-| Helm release | `k8s-pod-restart-info-collector` | `alertkube` |
-| Image | `airwallex/k8s-pod-restart-info-collector` | `aryasoni98/alertkube` |
-| Watched resources | Pods only | Pods, Nodes, Deployments, PVCs, Jobs |
-| Slack channels | single `SLACK_CHANNEL` env | per-severity (`channels.critical|warning|info`) |
-| Severities | none (all alerts equal) | `critical` / `warning` / `info` |
-| Sink | Slack only | Slack, PagerDuty, Teams, generic webhook, stdout |
-| Routing | hardcoded | YAML `routing:` rules |
-| Dedupe | per-pod restart counter | fingerprint `sha1(kind|ns|name|reason)[:12]` |
-| Resolve | none | synthetic resolved event after `resolveTTLSeconds` |
-| Inhibitions / silences | none | first-class config |
-| Metrics | none | full Prometheus surface |
-| Health endpoints | none | `/healthz`, `/readyz` |
-| Config | env vars only | YAML + env-var fallback |
+To approximate v1 behavior (restart alerts only, no node/deployment noise):
 
-## Environment variable compatibility
+```yaml
+routing:
+  - match: {kind: Pod}
+    sinks: [slack]
 
-The v1 environment variables still work as fallbacks when the corresponding YAML field is empty. This is intentional so existing helm `--set` overrides keep working:
+filters:
+  watchedNamespaces: "^(prod|staging)-.*"
+  ignoredPodNamePrefixes: "debug-"
 
-| v1 env var | v2 YAML | Notes |
-| --- | --- | --- |
-| `CLUSTER_NAME` | `cluster` | identical |
-| `WATCHED_NAMESPACES` | `filters.watchedNamespaces` | comma-list, regex or literal |
-| `IGNORED_NAMESPACES` | `filters.ignoredNamespaces` | identical |
-| `WATCHED_POD_NAME_PREFIXES` | `filters.watchedPodNamePrefixes` | identical |
-| `IGNORED_POD_NAME_PREFIXES` | `filters.ignoredPodNamePrefixes` | identical |
-| `MUTE_SECONDS` | `behavior.muteSeconds` | default 600 |
-| `IGNORE_RESTART_COUNT` | `behavior.ignoreRestartCount` | default 30 |
-| `IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO` | `behavior.ignoreRestartsWithExitCodeZero` | bool |
-| `RESOLVE_TTL_SECONDS` | `behavior.resolveTTLSeconds` | new — default 600 |
-| `SLACK_CHANNEL` | `channels.warning` (fallback) | use per-severity in v2 |
-| `SLACK_CHANNEL_CRITICAL` | `channels.critical` | new |
-| `SLACK_CHANNEL_WARNING` | `channels.warning` | new |
-| `SLACK_CHANNEL_INFO` | `channels.info` | new |
-| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` | now via Secret |
-| `METRICS_ADDR` | `metricsAddr` | new in v2; default `:9090` |
+behavior:
+  ignoreRestartCount: 30
+  muteSeconds: 600
+```
 
-## Migration steps
+Disable watchers you do not need by not granting RBAC — or accept the broader coverage (recommended).
 
-1. **Capture v1 settings.**
-   ```bash
-   helm get values k8s-pod-restart-info-collector > /tmp/v1-values.yaml
-   ```
-2. **Sketch v2 values.**
-   - Copy `cluster`, filter, and behavior values over verbatim.
-   - Split `SLACK_CHANNEL` into the three `channels.*` keys.
-   - If you want PagerDuty / Teams: see the README for value paths.
-3. **Drop the v1 release.**
-   ```bash
-   helm uninstall k8s-pod-restart-info-collector
-   ```
-4. **Install v2.**
-   ```bash
-   helm install alertkube ./helm -f /tmp/v2-values.yaml
-   ```
-5. **Verify.**
-   ```bash
-   kubectl get pods -l app.kubernetes.io/name=alertkube
-   kubectl port-forward svc/alertkube-metrics 9090:9090
-   curl -s localhost:9090/metrics | grep alertkube_alerts_total
-   ```
+### 3. Add annotations (optional)
 
-## What you gain
+Pods can still override behavior:
 
-- Routing per severity / namespace / reason, with fallback to default sinks.
-- Cross-kind inhibitions (e.g. `NodeNotReady` silences pod alerts on that node for 10 m).
-- Time-bounded silences via config or `alert-silence-until` annotation.
-- Per-resource Slack channel override via `alert-slack-channel` annotation (regex-validated).
-- Per-alert Runbook button via `runbook-url` annotation (https-only).
-- Prometheus metrics for total volume, suppressions, sink latency, sink errors, active alerts.
-- Pod-log redaction for credential-shaped substrings.
+```yaml
+metadata:
+  annotations:
+    alert-slack-channel: team-oncall
+    runbook-url: https://wiki.example.com/runbooks/crashloop
+```
 
-## What you trade
+### 4. Cut over
 
-- Memory grows with cluster size (multi-kind informers).
-- Stateless — restart re-fires within the mute window. Mitigate via `behavior.muteSeconds` tuning.
-- New RBAC verbs required: `nodes`, `events`, `persistentvolumeclaims`, `persistentvolumes`, `deployments`, `statefulsets`, `daemonsets`, `jobs`, `cronjobs`, `horizontalpodautoscalers`. See `helm/templates/rbac.yaml`.
+1. Scale down or uninstall the v1 collector.
+2. Remove v1 namespace filter canary; widen `watchedNamespaces` to production.
+3. Enable PagerDuty for critical routes:
+
+```yaml
+routing:
+  - match: {severity: critical}
+    sinks: [slack, pagerduty]
+```
+
+### 5. Verify
+
+- Trigger a test CrashLoopBackOff in a staging namespace.
+- Confirm Block Kit message in Slack with severity header.
+- Resolve the pod; confirm a synthetic resolved message (info severity).
+- Check `alertkube_alerts_total` increments in Prometheus.
+
+## Rollback
+
+Re-install the v1 collector and uninstall alertkube:
+
+```bash
+helm uninstall alertkube -n monitoring
+```
+
+State persistence (ConfigMap snapshot) can be deleted if not returning to alertkube:
+
+```bash
+kubectl delete configmap alertkube-state -n monitoring
+```
+
+## FAQ
+
+**Will I get more alerts?** Yes — node, deployment, and PVC issues now surface. Use routing rules and silences to tune.
+
+**Do fingerprints match v1?** No. alertkube uses `sha256(kind|ns|name|reason)`. PagerDuty dedup keys will differ.
+
+**Can I keep env-only config?** Partially. Sink credentials and cluster name work via env; routing/inhibitions require YAML (mounted ConfigMap in Helm).

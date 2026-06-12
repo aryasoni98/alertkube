@@ -7,7 +7,6 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -27,24 +26,8 @@ func NewHPA(cfg *config.Config) *HPAWatcher {
 func (*HPAWatcher) Name() string { return "hpa" }
 
 func (h *HPAWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
-	handler := func(obj interface{}) {
-		hpa, ok := obj.(*autoscalingv2.HorizontalPodAutoscaler)
-		if !ok || !h.ns.allows(hpa.Namespace) {
-			return
-		}
-		h.evaluate(hpa, emit)
-	}
-	register("hpa", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("hpa.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("hpa.Update")
-			handler(cur)
-		},
-	})
+	register("hpa", f.Autoscaling().V2().HorizontalPodAutoscalers().Informer(),
+		handleCurrent("hpa", h.ns, func(hpa *autoscalingv2.HorizontalPodAutoscaler) { h.evaluate(hpa, emit) }))
 }
 
 func (h *HPAWatcher) evaluate(hpa *autoscalingv2.HorizontalPodAutoscaler, emit Emit) {

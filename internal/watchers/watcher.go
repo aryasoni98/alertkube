@@ -58,3 +58,22 @@ func register(name string, inf cache.SharedIndexInformer, h cache.ResourceEventH
 		klog.Errorf("watcher %s: register event handler: %v", name, err)
 	}
 }
+
+// handleCurrent builds Add/Update handlers that type-assert to T, apply
+// the namespace filter, recover panics, and call eval with the current
+// object. Watchers whose evaluation needs only the latest state use it;
+// watchers that diff old vs new (pod, node, cronjob) register manually.
+func handleCurrent[T interface{ GetNamespace() string }](name string, ns nsFilter, eval func(T)) cache.ResourceEventHandlerFuncs {
+	handle := func(obj interface{}, where string) {
+		defer recoverHandler(where)
+		o, ok := obj.(T)
+		if !ok || !ns.allows(o.GetNamespace()) {
+			return
+		}
+		eval(o)
+	}
+	return cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { handle(obj, name+".Add") },
+		UpdateFunc: func(_, cur interface{}) { handle(cur, name+".Update") },
+	}
+}

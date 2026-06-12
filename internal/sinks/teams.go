@@ -2,7 +2,6 @@ package sinks
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"alertkube/internal/alert"
@@ -45,11 +44,6 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 		return nil
 	}
 
-	title := fmt.Sprintf("[%s] %s %s/%s: %s", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason)
-	if a.Resolved {
-		title = "[resolved] " + title
-	}
-
 	facts := []map[string]string{
 		{"title": "Cluster", "value": a.Cluster},
 		{"title": "Kind", "value": string(a.Kind)},
@@ -66,7 +60,7 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 			"weight": "Bolder",
 			"color":  teamsColor(a),
 			"wrap":   true,
-			"text":   title,
+			"text":   alertTitle(a),
 		},
 		{
 			"type": "TextBlock",

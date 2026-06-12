@@ -6,7 +6,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -25,24 +24,8 @@ func NewDaemonSet(cfg *config.Config) *DaemonSetWatcher {
 func (*DaemonSetWatcher) Name() string { return "daemonset" }
 
 func (d *DaemonSetWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Apps().V1().DaemonSets().Informer()
-	handler := func(obj interface{}) {
-		ds, ok := obj.(*appsv1.DaemonSet)
-		if !ok || !d.ns.allows(ds.Namespace) {
-			return
-		}
-		d.evaluate(ds, emit)
-	}
-	register("daemonset", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("daemonset.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("daemonset.Update")
-			handler(cur)
-		},
-	})
+	register("daemonset", f.Apps().V1().DaemonSets().Informer(),
+		handleCurrent("daemonset", d.ns, func(ds *appsv1.DaemonSet) { d.evaluate(ds, emit) }))
 }
 
 func (d *DaemonSetWatcher) evaluate(ds *appsv1.DaemonSet, emit Emit) {

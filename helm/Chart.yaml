@@ -2,8 +2,8 @@ apiVersion: v2
 name: alertkube
 description: Kubernetes multi-resource alerting controller with severity tiers and multi-sink routing.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1
+appVersion: "0.2.1"
 keywords:
   - alerting
   - kubernetes

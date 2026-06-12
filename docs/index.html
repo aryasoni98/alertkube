@@ -161,8 +161,9 @@
           <a href="#sinks" class="hover:text-white transition-colors">Sinks</a>
           <a href="#install" class="hover:text-white transition-colors">Install</a>
           <a href="#changelog" class="hover:text-white transition-colors">Changelog</a>
+          <a href="AUDIT-REPORT.md" class="hover:text-white transition-colors">Audit</a>
         </div>
-        <span class="text-xs font-mono px-2.5 py-1 rounded-md border border-edge text-slate-400">v0.0.1</span>
+        <span class="text-xs font-mono px-2.5 py-1 rounded-md border border-edge text-slate-400">v0.2.1</span>
       </div>
     </nav>
 
@@ -170,16 +171,16 @@
     <section id="top" class="relative grid-bg border-b border-edge overflow-hidden">
       <div class="max-w-6xl mx-auto px-6 pt-20 pb-24 relative">
         <span data-anim="fade-up" class="badge bg-edge text-slate-300">
-          <span class="dot bg-critical pulse-dot"></span> v0.0.1 · Severity-aware
+          <span class="dot bg-critical pulse-dot"></span> v0.2.1 · Severity-aware
         </span>
         <h1 data-anim="fade-up" class="mt-5 text-4xl md:text-6xl font-extrabold tracking-tight leading-[1.05]">
           Kubernetes alerts that
           <span class="gradient-text">know what matters</span>
         </h1>
         <p data-anim="fade-up" class="mt-6 max-w-2xl text-lg text-slate-400">
-          alertkube watches Pods, Nodes, Deployments, PVCs, and Jobs - classifies each event by
-          severity, dedupes, inhibits the noise, and routes to the sink that should actually wake
-          someone up.
+          alertkube watches nine Kubernetes resource kinds - classifies each event by severity,
+          dedupes, groups storms, inhibits the noise, persists state across restarts, and routes
+          to the sink that should actually wake someone up.
         </p>
         <div data-anim="fade-up" class="mt-8 flex flex-wrap gap-3">
           <a
@@ -198,11 +199,11 @@
         <!-- Stat strip -->
         <div class="mt-14 grid grid-cols-2 md:grid-cols-5 gap-3">
           <div data-anim="fade-up-stagger" class="card p-4">
-            <div class="text-3xl font-bold" data-count="5">0</div>
+            <div class="text-3xl font-bold" data-count="9">0</div>
             <div class="text-xs text-slate-400 mt-1">Resource watchers</div>
           </div>
           <div data-anim="fade-up-stagger" class="card p-4">
-            <div class="text-3xl font-bold" data-count="5">0</div>
+            <div class="text-3xl font-bold" data-count="8">0</div>
             <div class="text-xs text-slate-400 mt-1">Built-in sinks</div>
           </div>
           <div data-anim="fade-up-stagger" class="card p-4">
@@ -210,7 +211,7 @@
             <div class="text-xs text-slate-400 mt-1">Severity tiers</div>
           </div>
           <div data-anim="fade-up-stagger" class="card p-4">
-            <div class="text-3xl font-bold" data-count="5">0</div>
+            <div class="text-3xl font-bold" data-count="8">0</div>
             <div class="text-xs text-slate-400 mt-1">Prometheus metrics</div>
           </div>
           <div data-anim="fade-up-stagger" class="card p-4">
@@ -253,15 +254,15 @@
             <div class="text-warning text-xs font-semibold uppercase tracking-wider">Watchers</div>
             <div class="mt-2 font-semibold">Resource-kind specialists</div>
             <p class="mt-2 text-sm text-slate-400">
-              One watcher per kind - Pod, Node, Deployment, PVC, Job. Each owns its own
-              reason taxonomy and emits a canonical <code class="text-slate-300">Alert</code>.
+              One watcher per kind - nine specialists covering workloads, storage, batch, and
+              autoscaling. Each owns its reason taxonomy and emits a canonical <code class="text-slate-300">Alert</code>.
             </p>
           </div>
           <div data-anim="fade-up-stagger" class="card p-5">
             <div class="text-info text-xs font-semibold uppercase tracking-wider">Store</div>
             <div class="mt-2 font-semibold">Dedupe, mute, resolve</div>
             <p class="mt-2 text-sm text-slate-400">
-              SHA-1 fingerprint of <code class="text-slate-300">(kind, ns, name, reason)</code>.
+              SHA-256 fingerprint of <code class="text-slate-300">(kind, ns, name, reason)</code>.
               Mute window suppresses re-firing. Resolve TTL emits a synthetic resolution when the
               alert stops.
             </p>
@@ -339,7 +340,7 @@
     <section id="watchers" class="border-b border-edge">
       <div class="max-w-6xl mx-auto px-6 py-20">
         <span data-anim="fade-up" class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> Watchers</span>
-        <h2 data-anim="fade-up" class="mt-3 text-3xl md:text-4xl font-bold">Five resource kinds. One alert shape.</h2>
+        <h2 data-anim="fade-up" class="mt-3 text-3xl md:text-4xl font-bold">Nine resource kinds. One alert shape.</h2>
 
         <div class="mt-10 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div data-anim="fade-up-stagger" class="card p-5">
@@ -415,6 +416,55 @@
               <span class="badge bg-edge text-slate-300">JobFailed</span>
             </div>
           </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">DaemonSet</div>
+              <span class="text-xs text-mute font-mono">watchers/daemonset.go</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400">
+              Unavailable pods on scheduled nodes. Details carry desired/ready/updated counts.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <span class="badge bg-edge text-slate-300">Unavailable</span>
+            </div>
+          </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">StatefulSet</div>
+              <span class="text-xs text-mute font-mono">watchers/statefulset.go</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400">
+              Ready replicas below desired, generation-guarded to avoid stale fires.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <span class="badge bg-edge text-slate-300">ReplicaShortfall</span>
+            </div>
+          </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">CronJob</div>
+              <span class="text-xs text-mute font-mono">watchers/cronjob.go</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400">
+              Missing success after a full schedule interval; suspend transitions as info.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <span class="badge bg-edge text-slate-300">MissingSuccess</span>
+              <span class="badge bg-edge text-slate-300">Suspended</span>
+            </div>
+          </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">HPA</div>
+              <span class="text-xs text-mute font-mono">watchers/hpa.go</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400">
+              Maxed out at maxReplicas while ScalingLimited — capacity ceiling hit.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <span class="badge bg-edge text-slate-300">MaxedOut</span>
+            </div>
+          </div>
           <div data-anim="fade-up-stagger" class="card p-5 border-dashed">
             <div class="flex items-center justify-between">
               <div class="font-semibold">Your watcher</div>
@@ -442,7 +492,7 @@
             <div>
               <div class="font-semibold">Fingerprint</div>
               <p class="mt-1 text-sm text-slate-400">
-                <code class="text-slate-300">sha1(kind|ns|name|reason)</code> truncated to 12 chars.
+                <code class="text-slate-300">sha256(kind|ns|name|reason)</code> truncated to 12 chars.
                 Same fingerprint = same alert = dedupe.
               </p>
             </div>
@@ -505,7 +555,7 @@
     <section id="sinks" class="border-b border-edge">
       <div class="max-w-6xl mx-auto px-6 py-20">
         <span data-anim="fade-up" class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> Sinks</span>
-        <h2 data-anim="fade-up" class="mt-3 text-3xl md:text-4xl font-bold">Five sinks. One interface.</h2>
+        <h2 data-anim="fade-up" class="mt-3 text-3xl md:text-4xl font-bold">Eight sinks. One interface.</h2>
         <p data-anim="fade-up" class="mt-3 max-w-2xl text-slate-400">
           Every sink implements <code class="text-slate-300">Name / Send / Supports</code>. Add a
           new one in ~30 lines; register it at boot.
@@ -526,9 +576,9 @@
               <tr>
                 <td class="py-3 pr-3 font-semibold">Slack</td>
                 <td class="py-3 pr-3"><span class="badge bg-edge"><span class="dot bg-critical"></span>all</span></td>
-                <td class="py-3 pr-3">Incoming webhook</td>
+                <td class="py-3 pr-3">Webhook or bot token</td>
                 <td class="py-3 pr-3">Block Kit (header · fields · summary · context · runbook)</td>
-                <td class="py-3 font-mono text-xs text-slate-400">SLACK_WEBHOOK_URL</td>
+                <td class="py-3 font-mono text-xs text-slate-400">SLACK_WEBHOOK_URL / SLACK_BOT_TOKEN</td>
               </tr>
               <tr>
                 <td class="py-3 pr-3 font-semibold">PagerDuty</td>
@@ -540,9 +590,30 @@
               <tr>
                 <td class="py-3 pr-3 font-semibold">Microsoft Teams</td>
                 <td class="py-3 pr-3"><span class="badge bg-edge"><span class="dot bg-info"></span>all</span></td>
-                <td class="py-3 pr-3">Incoming webhook</td>
-                <td class="py-3 pr-3">MessageCard with severity themeColor</td>
+                <td class="py-3 pr-3">Power Automate webhook</td>
+                <td class="py-3 pr-3">Adaptive Card with FactSet + runbook button</td>
                 <td class="py-3 font-mono text-xs text-slate-400">TEAMS_WEBHOOK_URL</td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-3 font-semibold">Opsgenie</td>
+                <td class="py-3 pr-3"><span class="badge bg-edge"><span class="dot bg-critical"></span>all</span></td>
+                <td class="py-3 pr-3">Alert API v2</td>
+                <td class="py-3 pr-3">Create/close with alias = fingerprint</td>
+                <td class="py-3 font-mono text-xs text-slate-400">OPSGENIE_API_KEY</td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-3 font-semibold">Discord</td>
+                <td class="py-3 pr-3"><span class="badge bg-edge"><span class="dot bg-info"></span>all</span></td>
+                <td class="py-3 pr-3">Channel webhook</td>
+                <td class="py-3 pr-3">Embed with severity color + runbook</td>
+                <td class="py-3 font-mono text-xs text-slate-400">DISCORD_WEBHOOK_URL</td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-3 font-semibold">Telegram</td>
+                <td class="py-3 pr-3"><span class="badge bg-edge"><span class="dot bg-info"></span>all</span></td>
+                <td class="py-3 pr-3">Bot API</td>
+                <td class="py-3 pr-3">HTML-escaped message</td>
+                <td class="py-3 font-mono text-xs text-slate-400">TELEGRAM_BOT_TOKEN</td>
               </tr>
               <tr>
                 <td class="py-3 pr-3 font-semibold">Generic webhook</td>
@@ -580,6 +651,10 @@
               <li>· <code class="text-slate-300">inhibitions</code> - source → target with equal-keys window</li>
               <li>· <code class="text-slate-300">silences</code> - matchers + RFC3339 until</li>
               <li>· <code class="text-slate-300">filters</code> - comma/regex namespace + pod-name lists</li>
+              <li>· <code class="text-slate-300">grouping</code> - storm folding by kind/ns/reason</li>
+              <li>· <code class="text-slate-300">escalations</code> - re-dispatch unresolved alerts</li>
+              <li>· <code class="text-slate-300">persistence</code> - ConfigMap state snapshot</li>
+              <li>· <code class="text-slate-300">receiver</code> - Alertmanager webhook intake</li>
             </ul>
           </div>
           <div data-anim="fade-up" class="card p-5">
@@ -592,31 +667,31 @@ metricsAddr: ":9090"
 
 behavior:
   muteSeconds: 600
-  ignoreRestartCount: 30
   resolveTTLSeconds: 600
 
-channels:
-  critical: alerts-critical
-  warning:  alerts-warning
-  info:     alerts-info
+persistence:
+  enabled: true
+
+grouping:
+  enabled: false
+  windowSeconds: 30
+
+escalations:
+  - match: {severity: critical}
+    afterMinutes: 15
+    sinks: [pagerduty]
 
 routing:
   - match: {severity: critical}
     sinks: [slack, pagerduty]
   - match: {severity: warning}
     sinks: [slack]
-  - match: {kind: Job}
-    sinks: [slack, webhook]
 
 inhibitions:
   - source: {kind: Node, reason: NodeNotReady}
     target: {kind: Pod}
     equal:  [node]
     duration: 10m
-
-silences:
-  - matchers: {namespace: staging, severity: warning}
-    until: 2026-06-30T00:00:00Z
 </code></pre>
           </div>
         </div>
@@ -660,9 +735,19 @@ silences:
             <p class="text-sm text-slate-400 mt-3">Open alert count.</p>
           </div>
           <div data-anim="fade-up-stagger" class="card p-5">
-            <div class="font-mono text-sm text-info">/healthz · /readyz</div>
-            <div class="text-xs text-mute mt-1">probes</div>
-            <p class="text-sm text-slate-400 mt-3">For liveness + readiness.</p>
+            <div class="font-mono text-sm text-warning">alertkube_dispatch_inflight</div>
+            <div class="text-xs text-mute mt-1">gauge · sink</div>
+            <p class="text-sm text-slate-400 mt-3">Storm indicator — queue depth per sink.</p>
+          </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="font-mono text-sm text-warning">alertkube_escalations_total</div>
+            <div class="text-xs text-mute mt-1">counter</div>
+            <p class="text-sm text-slate-400 mt-3">Escalation rule re-dispatches.</p>
+          </div>
+          <div data-anim="fade-up-stagger" class="card p-5">
+            <div class="font-mono text-sm text-info">/api/alerts · /api/v1/alerts</div>
+            <div class="text-xs text-mute mt-1">REST</div>
+            <p class="text-sm text-slate-400 mt-3">Active set + Alertmanager receiver.</p>
           </div>
         </div>
       </div>
@@ -677,7 +762,8 @@ silences:
         <div class="mt-10 grid md:grid-cols-2 gap-5">
           <div data-anim="fade-up-stagger" class="card p-5">
             <div class="text-xs text-mute font-mono mb-3">helm</div>
-<pre class="overflow-x-auto"><code class="text-slate-200">helm upgrade --install alertkube ./helm \
+<pre class="overflow-x-auto"><code class="text-slate-200">helm upgrade --install alertkube \
+  oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.1 \
   --namespace monitoring --create-namespace \
   --set cluster=prod-eu-west-1 \
   --set slack.webhookUrl=$SLACK_WEBHOOK_URL \
@@ -685,11 +771,12 @@ silences:
           </div>
           <div data-anim="fade-up-stagger" class="card p-5">
             <div class="text-xs text-mute font-mono mb-3">docker</div>
-<pre class="overflow-x-auto"><code class="text-slate-200">docker run --rm \
+<pre class="overflow-x-auto"><code class="text-slate-200">docker pull ghcr.io/aryasoni98/alertkube:v0.2.1
+docker run --rm \
   -e SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL \
   -e CLUSTER_NAME=local-dev \
   -v $HOME/.kube/config:/root/.kube/config \
-  alertkube:0.0.1</code></pre>
+  ghcr.io/aryasoni98/alertkube:v0.2.1</code></pre>
           </div>
         </div>
       </div>
@@ -710,9 +797,67 @@ silences:
             <span class="timeline-dot"></span>
             <div class="card p-6">
               <div class="flex flex-wrap items-baseline gap-3">
-                <span class="text-xl font-bold" style="color:#ECB22E;">v0.0.1</span>
+                <span class="text-xl font-bold" style="color:#E01E5A;">v0.2.1</span>
+                <span class="text-xs font-mono text-mute">2026-06-12</span>
+                <span class="badge bg-edge text-slate-300"><span class="dot bg-critical"></span> Launch</span>
+              </div>
+              <div class="mt-5">
+                <div class="text-xs uppercase tracking-wider text-mute mb-3">Highlights</div>
+                <ul class="grid md:grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-300">
+                  <li>· Security audit report published (AUDIT-REPORT.md)</li>
+                  <li>· Operations, troubleshooting, and migration docs</li>
+                  <li>· Landing page and README aligned to v0.2.1</li>
+                  <li>· Watcher and sink code cleanup</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div data-anim="fade-up" class="relative pb-6">
+            <span class="timeline-dot"></span>
+            <div class="card p-6">
+              <div class="flex flex-wrap items-baseline gap-3">
+                <span class="text-xl font-bold" style="color:#ECB22E;">v0.2.0</span>
+                <span class="text-xs font-mono text-mute">2026-06-12</span>
+                <span class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> Security hardening</span>
+              </div>
+              <div class="mt-5">
+                <div class="text-xs uppercase tracking-wider text-mute mb-3">Highlights</div>
+                <ul class="grid md:grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-300">
+                  <li>· Four new watchers: DaemonSet, StatefulSet, CronJob, HPA</li>
+                  <li>· Opsgenie, Discord, Telegram sinks</li>
+                  <li>· Alert grouping, escalations, state persistence</li>
+                  <li>· Alertmanager receiver + GET /api/alerts</li>
+                  <li>· Grafana dashboard + cosign-signed releases</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div data-anim="fade-up" class="relative pb-6">
+            <span class="timeline-dot"></span>
+            <div class="card p-6">
+              <div class="flex flex-wrap items-baseline gap-3">
+                <span class="text-xl font-bold" style="color:#ECB22E;">v0.1.0</span>
+                <span class="text-xs font-mono text-mute">2026-06-10</span>
+                <span class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> Production readiness</span>
+              </div>
+              <div class="mt-5">
+                <div class="text-xs uppercase tracking-wider text-mute mb-3">Highlights</div>
+                <ul class="grid md:grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-300">
+                  <li>· Sink retries, mute rollback, resolve delivery fixes</li>
+                  <li>· Leader election, HA, namespace-scoped RBAC</li>
+                  <li>· Log redaction, credential Secrets, distroless image</li>
+                  <li>· Config validation, test coverage, CI hardening</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div data-anim="fade-up" class="relative pb-6">
+            <span class="timeline-dot"></span>
+            <div class="card p-6">
+              <div class="flex flex-wrap items-baseline gap-3">
+                <span class="text-xl font-bold" style="color:#4599DF;">v0.0.1</span>
                 <span class="text-xs font-mono text-mute">2026-06-09</span>
-                <span class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> Initial release</span>
+                <span class="badge bg-edge text-slate-300"><span class="dot bg-info"></span> Initial release</span>
               </div>
 
               <div class="mt-5">
@@ -720,22 +865,10 @@ silences:
                 <ul class="grid md:grid-cols-2 gap-x-6 gap-y-2 text-sm text-slate-300">
                   <li>· Multi-resource watchers: Pod, Node, Deployment, PVC, Job</li>
                   <li>· Severity model with distinct colors and emoji</li>
-                  <li>· Slack sink with Block Kit templates</li>
-                  <li>· PagerDuty sink (Events API v2, critical-only)</li>
-                  <li>· Microsoft Teams sink (MessageCard)</li>
-                  <li>· Generic JSON webhook sink</li>
-                  <li>· Stdout sink for local development</li>
-                  <li>· Per-severity Slack channel routing</li>
+                  <li>· Slack, PagerDuty, Teams, webhook, stdout sinks</li>
                   <li>· YAML-first config: routing, inhibitions, silences, filters</li>
-                  <li>· Fingerprint-based dedupe and mute window</li>
-                  <li>· Resolve detection with synthetic resolved event</li>
-                  <li>· Cross-kind inhibitions</li>
-                  <li>· Time-bounded silences via config or annotation</li>
-                  <li>· Prometheus metrics endpoint</li>
-                  <li>· Health and readiness probes</li>
+                  <li>· Fingerprint dedupe, resolve detection, Prometheus metrics</li>
                   <li>· Helm chart with optional ServiceMonitor</li>
-                  <li>· Pod-level annotations: channel, silence, runbook</li>
-                  <li>· Namespace + pod-name-prefix filters (literal or regex)</li>
                 </ul>
               </div>
             </div>
@@ -761,7 +894,7 @@ silences:
               Kubernetes multi-resource alerting. Severity-aware. Multi-sink routing.
             </p>
             <div class="mt-4 flex items-center gap-2">
-              <span class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> v0.0.1</span>
+              <span class="badge bg-edge text-slate-300"><span class="dot bg-warning"></span> v0.2.1</span>
               <span class="badge bg-edge text-slate-300">Apache-2.0</span>
             </div>
           </div>

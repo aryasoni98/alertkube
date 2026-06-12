@@ -7,7 +7,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -33,24 +32,8 @@ func NewPVC(cfg *config.Config) *PVCWatcher {
 func (*PVCWatcher) Name() string { return "pvc" }
 
 func (p *PVCWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Core().V1().PersistentVolumeClaims().Informer()
-	handler := func(obj interface{}) {
-		pvc, ok := obj.(*v1.PersistentVolumeClaim)
-		if !ok || !p.ns.allows(pvc.Namespace) {
-			return
-		}
-		p.evaluate(pvc, emit)
-	}
-	register("pvc", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("pvc.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("pvc.Update")
-			handler(cur)
-		},
-	})
+	register("pvc", f.Core().V1().PersistentVolumeClaims().Informer(),
+		handleCurrent("pvc", p.ns, func(pvc *v1.PersistentVolumeClaim) { p.evaluate(pvc, emit) }))
 }
 
 func (p *PVCWatcher) evaluate(pvc *v1.PersistentVolumeClaim, emit Emit) {

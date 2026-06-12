@@ -1,110 +1,82 @@
-# alertkube — Troubleshooting
+# Troubleshooting
 
-Symptom → root cause → fix. Pair with [`OPERATIONS.md`](OPERATIONS.md) and [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md).
+Symptom → cause → fix for common alertkube issues.
 
----
-
-## Pod crashloops at startup
+## No alerts firing
 
 | Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `klog.Fatalf("kube client init …")` after 30 s | Missing or broken kubeconfig; SA can't reach apiserver | Check `serviceAccountName` + RBAC. `kubectl auth can-i list pods --as=system:serviceaccount:<ns>:alertkube`. |
-| `informer cache for … did not sync` | RBAC denies one of the watched resources | Re-apply `helm/templates/rbac.yaml`; ensure `pods/log`, `events`, and apps/batch verbs are granted. |
-| `cluster is required` | Helm value empty | `--set cluster=<name>` or set in your values file. |
-| OOMKill after a minute | Pod cache exceeds limit | Raise `resources.limits.memory` to `1Gi`+ or scope down with `filters.watchedNamespaces`. |
+|---------|--------------|-----|
+| Nothing in Slack after pod crash | Namespace filter excludes the pod | Check `filters.watchedNamespaces` in config |
+| Nothing after install | Cache not synced yet | Wait for `/readyz` 200; check startup grace (`behavior.startupGraceSeconds`) |
+| Pod crash but no alert | Past `ignoreRestartCount` for restart-only | CrashLoop/OOM still fire; check watcher logs |
+| Alerts in metrics but not Slack | Routing rule mismatch | Verify `routing` match labels; check default sinks |
+| All sinks fail silently | Mute rollback should retry | Check `alertkube_sink_errors_total`; fix webhook URL |
 
-## `/readyz` keeps returning 503
+## Duplicate or missing pages
 
-The atomic ready flag is only flipped after `factory.WaitForCacheSync`. If 503 persists:
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Double page on upgrade | sha256 fingerprint change (v0.2) | Expected once per standing condition; see AUDIT-REPORT |
+| PagerDuty never resolves | Resolve blocked (pre-v0.1) | Upgrade to ≥ v0.1; resolves bypass severity gate |
+| Duplicate resolve in PD | Receiver + watcher both resolve | Normal if upstream sends resolve; local state is forgotten |
+| Re-page after restart (pre-v0.2) | No persistence | Enable `persistence.enabled` (default in Helm v0.2) |
 
-1. `kubectl logs deploy/alertkube` — look for `alertkube started` (synced) or `informer cache for X did not sync` (RBAC).
-2. `kubectl describe pod alertkube-*` — check the readiness probe failure reason.
-3. Confirm the apiserver is reachable from the pod (`kubectl exec -it deploy/alertkube -- wget -qO- https://kubernetes.default/healthz`). On a hardened NetworkPolicy install, add an egress rule for the apiserver.
+## Suppression / noise
 
-## Alerts firing in Slack but not PagerDuty
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Alerts stop mid-outage | Inhibition expired (pre-v0.2) | Upgrade to v0.2; muted NodeNotReady re-arms inhibitions |
+| Storm of similar alerts | Grouping disabled | Enable `grouping.enabled` with a 30s window |
+| `ratelimited` in metrics | Sink rate limit hit | Raise `sinkRates` for the affected sink |
+| Pod alerts during node outage | Inhibition not configured | Add NodeNotReady → Pod inhibition rule |
+| Self-silenced workloads | `alert-silence-until` annotation | Set `behavior.disableAnnotationSilences: true` |
 
-| Cause | Diagnostic | Fix |
-| --- | --- | --- |
-| `PAGERDUTY_ROUTING_KEY` empty | `kubectl exec deploy/alertkube -- printenv PAGERDUTY_ROUTING_KEY` | Set `pagerduty.routingKey` or `pagerduty.routingKeySecretKeyRef`. |
-| Severity gate | PagerDuty sink only sends `critical`. | If you need pageable warnings, override `Supports` (will need a code change). |
-| Routing rule | First-match-wins. A broader rule may swallow the alert before the PagerDuty rule. | Reorder `routing:` in config so `pagerduty` rule comes first or anchor `match:` more tightly. |
-| Sink error | `alertkube_sink_errors_total{sink="pagerduty"} > 0` | Inspect logs; PagerDuty Events API returns the failing field name in the response. |
+## Slack-specific
 
-## Alerts firing in unexpected Slack channel
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Wrong channel | Webhook ignores channel field | Switch to bot-token mode (`slack.botToken`) |
+| Invalid payload error | UTF-8 split in log truncation | Fixed in v0.1; upgrade |
+| Channel override ignored | Invalid annotation format | Must match `^#?[a-z0-9._-]{1,80}$` |
 
-The channel resolution order:
+## Teams / Discord / Telegram
 
-1. `alert-slack-channel` annotation on the pod — IF it matches `^#?[a-z0-9._-]{1,80}$`.
-2. The severity-mapped channel from `channels.{critical,warning,info}`.
-3. The `warning` channel as a fallback.
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Teams 400 Bad Request | Legacy connector retired | Use Power Automate Workflows webhook (Adaptive Cards) |
+| Runbook button missing | Non-https runbook URL | Use `https://` runbook URLs only |
+| Telegram HTML parse error | Unescaped content | Fixed via HTML escape in sink |
 
-If the override regex rejects a value you see `ignoring invalid alert-slack-channel override for <fingerprint>` in logs. Otherwise check the pod's annotations.
+## Controller health
 
-## Tenant abuse: workload silencing its own alerts
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `/readyz` 503 forever | Informer sync failed | Check RBAC; verify API server connectivity |
+| `/readyz` 503 on follower | Leader election standby | Expected; only leader is ready |
+| CrashLoop on namespace scope | Node watcher on namespace RBAC | Use `rbac.scope: namespace` — node watcher auto-disabled |
+| Config ignored | Bad `--config` path (pre-v0.1) | Upgrade; invalid path is now a hard error |
 
-The `alert-silence-until` annotation works by design. To stop accepting it from workloads:
+## Receiver (Alertmanager webhook)
 
-1. (Quick) Add a Kyverno / OPA policy denying `alert-silence-until` outside an admin allow-list of namespaces.
-2. (Tracked) Move silences fully into operator-controlled config — open audit item `security #3`.
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| 401 on POST | Token required | Set `ALERTKUBE_RECEIVER_TOKEN`; send `Authorization: Bearer` |
+| 503 on POST | Controller not started | Leader follower or cache not synced |
+| Alerts not deduped with AM | Fingerprint mismatch | Upstream fingerprint preserved when provided |
 
-## Resolved alerts never fire
+## Debugging commands
 
-Resolution depends on `EndsAt`. Triage:
+```bash
+# Active alerts JSON
+kubectl exec -n monitoring deploy/alertkube -- \
+  wget -qO- http://127.0.0.1:9090/api/alerts
 
-1. Confirm the resolve TTL is reasonable (`behavior.resolveTTLSeconds`, default 600).
-2. Check that the resolve happens *after* the workload stops emitting events. If the same alert keeps re-firing, `Touch()` is pushing `EndsAt` forward indefinitely — that's correct behavior while the condition persists.
-3. Inspect `kubectl logs ... | grep RESOLVED` — the synthetic resolved Slack message logs as `RESOLVED: <kind> <reason>`. PagerDuty closes the incident via dedupKey.
+# Recent suppression reasons
+kubectl port-forward -n monitoring svc/alertkube 9090:9090
+curl -s localhost:9090/metrics | grep alertkube_alerts_suppressed
 
-## Sink errors after a Slack rotation
-
-You rotated the webhook URL but alerts still fail with `POST https://hooks.slack.com/[REDACTED] returned 404`. Sinks load env at process start.
-
-```
-kubectl rollout restart deploy/alertkube
-```
-
-is required after secret rotation (tracked as `code_quality #7`).
-
-## Sink errors but no detail
-
-`alertkube_sink_errors_total{sink="..."}` increments but logs are quiet. Bump verbosity:
-
-```
-kubectl set env deploy/alertkube GODEBUG=netdns=go
-# then in args:
-helm upgrade ... --set 'extraArgs={-v=4}'
-```
-
-The HTTP path additionally logs `sink "X" send failed: …` at default verbosity once retry exhaustion is reached.
-
-## Logs contain `[REDACTED]`
-
-By design. `collectors.RedactSecrets` masks AWS / GitHub / Slack / OpenAI / Bearer / `password|secret|token=` / URL query tokens before logs are attached to alerts. To debug a redaction false-positive, fetch the raw container log directly:
-
-```
-kubectl logs <workload-pod> --previous --tail=50
+# Controller logs
+kubectl logs -n monitoring -l app.kubernetes.io/name=alertkube -f
 ```
 
-If the redactor is dropping legitimate output, file an issue with the masked + unmasked sample (rotate any incidentally exposed secret afterward).
-
-## CPU pegged at 100 %
-
-Usually the result of:
-
-- Massive ConfigMap with thousands of routing/inhibition rules (rebuild on every alert).
-- A regex in `filters.watchedNamespaces` that is catastrophic-backtracking.
-
-Mitigation:
-
-- Simplify routing.
-- Use literal prefixes in filters where possible.
-- The runtime caches anchored regex from `alert.MatchLabels` — but `filter.Set` re-evaluates per token.
-
-## Where to file bugs
-
-Open an issue at https://github.com/aryasoni98/alertkube/issues with:
-
-- `kubectl version --short`
-- `helm get values alertkube`
-- `kubectl logs deploy/alertkube --tail=200`
-- `curl localhost:9090/metrics` for any `alertkube_*` line that's non-zero or zero where you expect otherwise.
+See [OPERATIONS.md](./OPERATIONS.md) for dashboards and alerting on alertkube itself.

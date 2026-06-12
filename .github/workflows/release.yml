@@ -131,6 +131,8 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
+          # severity is ignored for SARIF output unless this is set
+          limit-severities-for-sarif: true
           ignore-unfixed: true
 
       - name: Upload SARIF

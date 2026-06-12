@@ -6,7 +6,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -24,24 +23,8 @@ func NewDeployment(cfg *config.Config) *DeploymentWatcher {
 func (*DeploymentWatcher) Name() string { return "deployment" }
 
 func (d *DeploymentWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Apps().V1().Deployments().Informer()
-	handler := func(obj interface{}) {
-		dep, ok := obj.(*appsv1.Deployment)
-		if !ok || !d.ns.allows(dep.Namespace) {
-			return
-		}
-		d.evaluate(dep, emit)
-	}
-	register("deployment", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("deployment.Add")
-			handler(obj)
-		},
-		UpdateFunc: func(_, cur interface{}) {
-			defer recoverHandler("deployment.Update")
-			handler(cur)
-		},
-	})
+	register("deployment", f.Apps().V1().Deployments().Informer(),
+		handleCurrent("deployment", d.ns, func(dep *appsv1.Deployment) { d.evaluate(dep, emit) }))
 }
 
 func (d *DeploymentWatcher) evaluate(dep *appsv1.Deployment, emit Emit) {
