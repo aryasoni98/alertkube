@@ -60,7 +60,26 @@ export CLUSTER_NAME=my-cluster
 go run .
 ```
 
-## Helm install
+## Install
+
+Container image (multi-arch, cosign-signed):
+
+```bash
+docker pull ghcr.io/aryasoni98/alertkube:v0.2.0
+```
+
+Helm from the published OCI chart:
+
+```bash
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.0 \
+  --set cluster=my-cluster \
+  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
+  --set slack.channels.critical=alerts-critical \
+  --set slack.channels.warning=alerts-warning \
+  --set slack.channels.info=alerts-info
+```
+
+Or from a git checkout:
 
 ```bash
 helm upgrade --install alertkube ./helm \
@@ -76,7 +95,12 @@ Optional flags:
 ```bash
 --set pagerduty.routingKey=...
 --set teams.webhookUrl=...
+--set discord.webhookUrl=...
+--set telegram.botToken=... --set telegram.chatId=...
+--set opsgenie.apiKey=...
 --set genericWebhook.url=...
+--set receiver.enabled=true --set receiver.token=...
+--set grouping.enabled=true
 --set metrics.serviceMonitor.enabled=true
 ```
 
