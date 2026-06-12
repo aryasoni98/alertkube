@@ -16,7 +16,7 @@ Symptom → cause → fix for common alertkube issues.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Double page on upgrade | sha256 fingerprint change (v0.2) | Expected once per standing condition; see AUDIT-REPORT |
+| Double page on upgrade | sha256 fingerprint change (v0.2) | Expected once per standing condition; see CHANGELOG |
 | PagerDuty never resolves | Resolve blocked (pre-v0.1) | Upgrade to ≥ v0.1; resolves bypass severity gate |
 | Duplicate resolve in PD | Receiver + watcher both resolve | Normal if upstream sends resolve; local state is forgotten |
 | Re-page after restart (pre-v0.2) | No persistence | Enable `persistence.enabled` (default in Helm v0.2) |

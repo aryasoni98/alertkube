@@ -4,7 +4,6 @@ Thumbs.db
 
 # Go binaries
 /alertkube
-/dumppayload
 /bin/
 *.exe
 *.exe~

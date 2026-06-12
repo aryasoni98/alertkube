@@ -204,7 +204,6 @@ silences:
 
 | Doc | Description |
 | --- | --- |
-| [AUDIT-REPORT.md](docs/AUDIT-REPORT.md) | Security audit findings and v0.2.0 launch sign-off |
 | [OPERATIONS.md](docs/OPERATIONS.md) | SLOs, dashboards, PrometheusRule, upgrades, HA |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix |
 | [MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md) | Upgrade from k8s-pod-restart-info-collector |
