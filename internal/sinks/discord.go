@@ -79,11 +79,11 @@ func orDash(s string) string {
 
 // truncate bounds s to max bytes on a rune boundary (Discord rejects
 // over-length fields wholesale).
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	for i := max; i > 0; i-- {
+	for i := limit; i > 0; i-- {
 		if (s[i] & 0xC0) != 0x80 { // not a UTF-8 continuation byte
 			return s[:i]
 		}
