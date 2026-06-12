@@ -1,34 +1,27 @@
 package watchers
 
 import (
-	"context"
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
 )
 
-// JobWatcher fires on Failed jobs (backoffLimit hit).
-type JobWatcher struct {
-	ns nsFilter
+// NewJob fires on Failed jobs (backoffLimit hit).
+func NewJob(cfg *config.Config) *simple[*batchv1.Job] {
+	return newSimple("job", cfg,
+		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return f.Batch().V1().Jobs().Informer()
+		},
+		evaluateJob)
 }
 
-func NewJob(cfg *config.Config) *JobWatcher {
-	return &JobWatcher{ns: newNSFilter(cfg)}
-}
-
-func (*JobWatcher) Name() string { return "job" }
-
-func (j *JobWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	register("job", f.Batch().V1().Jobs().Informer(),
-		handleCurrent("job", j.ns, func(job *batchv1.Job) { j.evaluate(job, emit) }))
-}
-
-func (j *JobWatcher) evaluate(job *batchv1.Job, emit Emit) {
+func evaluateJob(job *batchv1.Job, emit Emit) {
 	for _, cond := range job.Status.Conditions {
 		if cond.Type == batchv1.JobFailed && cond.Status == v1.ConditionTrue {
 			a := alert.New(alert.KindJob, job.Namespace, job.Name, "JobFailed", alert.SeverityCritical)

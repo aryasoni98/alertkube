@@ -1,36 +1,29 @@
 package watchers
 
 import (
-	"context"
 	"fmt"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
 )
 
-// HPAWatcher fires when an autoscaler is pinned at maxReplicas while
-// still wanting to scale up - the workload is saturated and the only
-// remedies (raise max, add capacity) need a human.
-type HPAWatcher struct {
-	ns nsFilter
+// NewHPA fires when an autoscaler is pinned at maxReplicas while still
+// wanting to scale up - the workload is saturated and the only remedies
+// (raise max, add capacity) need a human.
+func NewHPA(cfg *config.Config) *simple[*autoscalingv2.HorizontalPodAutoscaler] {
+	return newSimple("hpa", cfg,
+		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return f.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
+		},
+		evaluateHPA)
 }
 
-func NewHPA(cfg *config.Config) *HPAWatcher {
-	return &HPAWatcher{ns: newNSFilter(cfg)}
-}
-
-func (*HPAWatcher) Name() string { return "hpa" }
-
-func (h *HPAWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	register("hpa", f.Autoscaling().V2().HorizontalPodAutoscalers().Informer(),
-		handleCurrent("hpa", h.ns, func(hpa *autoscalingv2.HorizontalPodAutoscaler) { h.evaluate(hpa, emit) }))
-}
-
-func (h *HPAWatcher) evaluate(hpa *autoscalingv2.HorizontalPodAutoscaler, emit Emit) {
+func evaluateHPA(hpa *autoscalingv2.HorizontalPodAutoscaler, emit Emit) {
 	if hpa.Status.CurrentReplicas < hpa.Spec.MaxReplicas {
 		return
 	}

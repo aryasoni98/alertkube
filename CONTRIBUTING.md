@@ -37,15 +37,15 @@ go run .
 
 ## Adding a watcher
 
-1. Create `internal/watchers/<kind>.go`.
-2. Register in `main.go`.
+1. Create `internal/watchers/<kind>.go` (use `newSimple` if evaluation only needs the latest object state).
+2. Register in `buildWatchers` in `builders.go`.
 3. Add RBAC rules in `helm/templates/rbac.yaml` if a new API resource.
 4. Add table-driven tests in `internal/watchers/<kind>_test.go`.
 
 ## Adding a sink
 
 1. Create `internal/sinks/<name>.go`.
-2. Register in `main.go` sink registry.
+2. Register in `buildSinks` in `builders.go`.
 3. Add Helm values and Secret wiring in `helm/`.
 4. Document env vars in README.
 

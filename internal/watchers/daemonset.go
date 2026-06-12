@@ -1,34 +1,27 @@
 package watchers
 
 import (
-	"context"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
 )
 
-// DaemonSetWatcher fires when scheduled pods are unavailable on nodes
-// that should run them.
-type DaemonSetWatcher struct {
-	ns nsFilter
+// NewDaemonSet fires when scheduled pods are unavailable on nodes that
+// should run them.
+func NewDaemonSet(cfg *config.Config) *simple[*appsv1.DaemonSet] {
+	return newSimple("daemonset", cfg,
+		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return f.Apps().V1().DaemonSets().Informer()
+		},
+		evaluateDaemonSet)
 }
 
-func NewDaemonSet(cfg *config.Config) *DaemonSetWatcher {
-	return &DaemonSetWatcher{ns: newNSFilter(cfg)}
-}
-
-func (*DaemonSetWatcher) Name() string { return "daemonset" }
-
-func (d *DaemonSetWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	register("daemonset", f.Apps().V1().DaemonSets().Informer(),
-		handleCurrent("daemonset", d.ns, func(ds *appsv1.DaemonSet) { d.evaluate(ds, emit) }))
-}
-
-func (d *DaemonSetWatcher) evaluate(ds *appsv1.DaemonSet, emit Emit) {
+func evaluateDaemonSet(ds *appsv1.DaemonSet, emit Emit) {
 	if ds.Status.NumberUnavailable > 0 {
 		a := alert.New(alert.KindDaemonSet, ds.Namespace, ds.Name, "DaemonSetUnavailable", alert.SeverityWarning)
 		a.Summary = fmt.Sprintf("daemonset %s/%s: %d of %d node(s) unavailable",

@@ -1,33 +1,26 @@
 package watchers
 
 import (
-	"context"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
 )
 
-// StatefulSetWatcher fires when ready replicas fall below desired.
-type StatefulSetWatcher struct {
-	ns nsFilter
+// NewStatefulSet fires when ready replicas fall below desired.
+func NewStatefulSet(cfg *config.Config) *simple[*appsv1.StatefulSet] {
+	return newSimple("statefulset", cfg,
+		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
+			return f.Apps().V1().StatefulSets().Informer()
+		},
+		evaluateStatefulSet)
 }
 
-func NewStatefulSet(cfg *config.Config) *StatefulSetWatcher {
-	return &StatefulSetWatcher{ns: newNSFilter(cfg)}
-}
-
-func (*StatefulSetWatcher) Name() string { return "statefulset" }
-
-func (s *StatefulSetWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	register("statefulset", f.Apps().V1().StatefulSets().Informer(),
-		handleCurrent("statefulset", s.ns, func(sts *appsv1.StatefulSet) { s.evaluate(sts, emit) }))
-}
-
-func (s *StatefulSetWatcher) evaluate(sts *appsv1.StatefulSet, emit Emit) {
+func evaluateStatefulSet(sts *appsv1.StatefulSet, emit Emit) {
 	if sts.Spec.Replicas == nil {
 		return
 	}

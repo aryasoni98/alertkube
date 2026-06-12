@@ -59,6 +59,36 @@ func register(name string, inf cache.SharedIndexInformer, h cache.ResourceEventH
 	}
 }
 
+// simple is a Watcher whose evaluation needs only the latest object
+// state. It owns the struct/Name/Setup boilerplate so each resource kind
+// only supplies its informer getter and evaluate function. Watchers that
+// diff old vs new state (pod, node, cronjob) implement Watcher directly.
+type simple[T interface{ GetNamespace() string }] struct {
+	name     string
+	ns       nsFilter
+	informer func(informers.SharedInformerFactory) cache.SharedIndexInformer
+	eval     func(T, Emit)
+}
+
+func newSimple[T interface{ GetNamespace() string }](
+	name string,
+	cfg *config.Config,
+	informer func(informers.SharedInformerFactory) cache.SharedIndexInformer,
+	eval func(T, Emit),
+) *simple[T] {
+	return &simple[T]{name: name, ns: newNSFilter(cfg), informer: informer, eval: eval}
+}
+
+func (w *simple[T]) Name() string { return w.name }
+
+func (w *simple[T]) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
+	register(w.name, w.informer(f), handleCurrent(w.name, w.ns, func(o T) { w.eval(o, emit) }))
+}
+
+// evaluate is exposed for tests, which drive evaluation directly without
+// an informer.
+func (w *simple[T]) evaluate(o T, emit Emit) { w.eval(o, emit) }
+
 // handleCurrent builds Add/Update handlers that type-assert to T, apply
 // the namespace filter, recover panics, and call eval with the current
 // object. Watchers whose evaluation needs only the latest state use it;

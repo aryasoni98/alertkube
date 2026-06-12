@@ -11,11 +11,14 @@ Thumbs.db
 *.so
 *.dylib
 *.test
+__debug_bin
 
 # Go build & test output
 /dist/
 /out/
 /coverage.out
+*.coverprofile
+coverage.html
 *.out
 vendor/
 go.work
@@ -43,3 +46,4 @@ trivy-results.sarif
 # Local tooling
 .cache/
 .claude/
+graphify-out/

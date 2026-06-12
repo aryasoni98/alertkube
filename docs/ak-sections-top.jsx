@@ -11,6 +11,7 @@ function AKNav({ theme, setTheme }) {
     { label: "Sinks", href: "#sinks" },
     { label: "Install", href: "#install" },
     { label: "Changelog", href: "#changelog" },
+    { label: "GraphMap", href: "../graphify-out/graph.html" },
   ];
   return (
     <nav className="wk-nav">
