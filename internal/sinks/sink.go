@@ -105,6 +105,8 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 		wg.Add(1)
 		go func(name string, s Sink, limiter *rate.Limiter) {
 			defer wg.Done()
+			metrics.DispatchInflight.WithLabelValues(name).Inc()
+			defer metrics.DispatchInflight.WithLabelValues(name).Dec()
 			defer func() {
 				if rec := recover(); rec != nil {
 					metrics.SinkErrors.WithLabelValues(name).Inc()
@@ -116,8 +118,10 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 
 			if limiter != nil {
 				if err := limiter.Wait(sendCtx); err != nil {
+					// A drop here means the alert never reaches this sink —
+					// surface which one, loudly, instead of a V(2) whisper.
 					metrics.AlertsSuppressed.WithLabelValues("ratelimited").Inc()
-					klog.V(2).Infof("sink %q rate-limited: %v", name, err)
+					klog.Warningf("sink %q dropped %s: rate limit not acquired within %s", name, a, perSinkTimeout)
 					return
 				}
 			}

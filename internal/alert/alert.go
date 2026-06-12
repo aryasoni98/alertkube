@@ -1,7 +1,7 @@
 package alert
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -45,11 +45,18 @@ func (s Severity) Emoji() string {
 type Kind string
 
 const (
-	KindPod        Kind = "Pod"
-	KindNode       Kind = "Node"
-	KindDeployment Kind = "Deployment"
-	KindPVC        Kind = "PersistentVolumeClaim"
-	KindJob        Kind = "Job"
+	KindPod         Kind = "Pod"
+	KindNode        Kind = "Node"
+	KindDeployment  Kind = "Deployment"
+	KindPVC         Kind = "PersistentVolumeClaim"
+	KindJob         Kind = "Job"
+	KindDaemonSet   Kind = "DaemonSet"
+	KindStatefulSet Kind = "StatefulSet"
+	KindCronJob     Kind = "CronJob"
+	KindHPA         Kind = "HorizontalPodAutoscaler"
+	// KindExternal marks alerts ingested through the Alertmanager
+	// webhook receiver rather than produced by a watcher.
+	KindExternal Kind = "External"
 )
 
 // Alert is the canonical event flowing through the pipeline.
@@ -72,8 +79,14 @@ type Alert struct {
 }
 
 // ComputeFingerprint hashes the identity tuple so equivalent alerts dedupe.
+// sha256 rather than sha1: collision resistance is irrelevant here, but it
+// keeps security scanners quiet and costs nothing. Truncated to 12 hex
+// chars for log/footer readability. NOTE: changing this function changes
+// every fingerprint — persisted snapshots from older versions then fail to
+// match live alerts, so re-fires inside the mute window re-page once after
+// the upgrade. Bump SnapshotVersion if the change must invalidate state.
 func ComputeFingerprint(kind Kind, ns, name, reason string) string {
-	h := sha1.New()
+	h := sha256.New()
 	h.Write([]byte(string(kind) + "|" + ns + "|" + name + "|" + reason))
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }

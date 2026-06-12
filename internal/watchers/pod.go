@@ -3,6 +3,7 @@ package watchers
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
@@ -16,6 +17,12 @@ import (
 	"alertkube/internal/filter"
 )
 
+// enrichWorkers bounds concurrent enrichment API calls (events, logs).
+// Enrichment runs off the informer handler so a slow API server cannot
+// stall event processing; past this bound alerts go out skinny instead
+// of queueing.
+const enrichWorkers = 4
+
 // PodWatcher reacts to restart, crashloop, oom, imagepull, pending events.
 type PodWatcher struct {
 	clientset     kubernetes.Interface
@@ -24,6 +31,8 @@ type PodWatcher struct {
 	ignoredNS     *filter.Set
 	watchedPrefix *filter.Set
 	ignoredPrefix *filter.Set
+	enrichSem     chan struct{}
+	enrichWG      sync.WaitGroup
 }
 
 func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
@@ -34,6 +43,7 @@ func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
 		ignoredNS:     filter.New(cfg.Filters.IgnoredNamespaces),
 		watchedPrefix: filter.New(cfg.Filters.WatchedPodNamePrefixes),
 		ignoredPrefix: filter.New(cfg.Filters.IgnoredPodNamePrefixes),
+		enrichSem:     make(chan struct{}, enrichWorkers),
 	}
 }
 
@@ -124,6 +134,7 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 	a.Summary = fmt.Sprintf("container %q in pod %s/%s entered %s", st.Name, pod.Namespace, pod.Name, reason)
 	a.Annotations = mergeAnnotations(pod)
 
+	// Local enrichment (no API calls) stays on the handler path.
 	if podInfo, err := collectors.PrintPod(pod); err == nil {
 		a.Details["Pod Status"] = podInfo
 	}
@@ -137,10 +148,35 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 			}
 		}
 	}
+
+	// API-backed enrichment (events, previous logs) moves to a bounded
+	// pool so a slow apiserver cannot stall the informer handler. When
+	// the pool is saturated (alert storm) the alert ships skinny — a
+	// timely page without logs beats a late one with them.
+	select {
+	case p.enrichSem <- struct{}{}:
+		p.enrichWG.Add(1)
+		go func() {
+			defer p.enrichWG.Done()
+			defer func() { <-p.enrichSem }()
+			func() {
+				defer recoverHandler("pod.enrich")
+				p.enrich(ctx, pod, st, reason, a)
+			}()
+			emit(a)
+		}()
+	default:
+		klog.Warningf("enrichment pool saturated; emitting %s without events/logs", a)
+		emit(a)
+	}
+}
+
+// enrich fills the Details that require apiserver round-trips.
+func (p *PodWatcher) enrich(ctx context.Context, pod *v1.Pod, st v1.ContainerStatus, reason string, a *alert.Alert) {
 	if events, err := collectors.PodEvents(ctx, p.clientset, pod.Namespace, pod.Name); err == nil && events != "" {
 		a.Details["Pod Events"] = events
 	}
-	if reason != "ImagePullBackOff" && reason != "ErrImagePull" {
+	if !p.cfg.Behavior.DisableLogCollection && reason != "ImagePullBackOff" && reason != "ErrImagePull" {
 		if logs, err := collectors.PreviousContainerLogs(ctx, p.clientset, pod, st.Name); err == nil && logs != "" {
 			a.Details["Pod Logs Before Restart"] = logs
 		}
@@ -150,8 +186,6 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 			a.Details["Node Events"] = nodeEvents
 		}
 	}
-
-	emit(a)
 }
 
 func totalRestarts(pod *v1.Pod) int {
@@ -165,12 +199,26 @@ func totalRestarts(pod *v1.Pod) int {
 	return r
 }
 
+// controlAnnotationKeys are annotation keys that change alertkube behavior
+// (silencing, channel routing, rendered links). Labels must never populate
+// these: labels are typically writable by lower-privilege automation than
+// annotations, and back-filling them would let a label-writer silence their
+// own alerts or inject runbook links.
+var controlAnnotationKeys = map[string]struct{}{
+	"alert-silence-until": {},
+	"alert-slack-channel": {},
+	"runbook-url":         {},
+}
+
 func mergeAnnotations(pod *v1.Pod) map[string]string {
 	out := map[string]string{}
 	for k, v := range pod.GetAnnotations() {
 		out[k] = v
 	}
 	for k, v := range pod.GetLabels() {
+		if _, control := controlAnnotationKeys[k]; control {
+			continue
+		}
 		if _, exists := out[k]; !exists {
 			out[k] = v
 		}

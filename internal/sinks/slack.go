@@ -29,8 +29,8 @@ type SlackSink struct {
 }
 
 func NewSlack(cluster, username string, channels map[alert.Severity]string) *SlackSink {
-	if os.Getenv("SLACK_WEBHOOK_URL") == "" {
-		klog.Warning("SLACK_WEBHOOK_URL unset; Slack sink will no-op")
+	if os.Getenv("SLACK_WEBHOOK_URL") == "" && os.Getenv("SLACK_BOT_TOKEN") == "" {
+		klog.Warning("SLACK_WEBHOOK_URL and SLACK_BOT_TOKEN unset; Slack sink will no-op")
 	}
 	return &SlackSink{
 		username:   username,
@@ -45,11 +45,6 @@ func (s *SlackSink) Name() string { return "slack" }
 func (s *SlackSink) Supports(_ alert.Severity) bool { return true }
 
 func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
-	// Read URL per send so Secret rotation is honored without a restart.
-	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
-	if webhookURL == "" {
-		return nil
-	}
 	channel := s.routeChannel(a)
 	if override, ok := a.Annotations["alert-slack-channel"]; ok && override != "" {
 		if channelOverridePattern.MatchString(override) {
@@ -59,21 +54,49 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 		}
 	}
 	blocks := templates.Build(a)
+	attachment := slack.Attachment{
+		Color:  a.Severity.Color(),
+		Footer: fmt.Sprintf("%s | %s | fp=%s", s.cluster, a.Kind, a.Fingerprint),
+	}
+
+	// Credentials are read per send so Secret rotation is honored without
+	// a restart. Bot token wins over webhook: chat.postMessage is the only
+	// mode where per-severity channel routing actually works with a modern
+	// Slack app (webhooks ignore the channel field).
+	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
+		return s.sendBotToken(ctx, token, channel, blocks, attachment)
+	}
+	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	if webhookURL == "" {
+		return nil
+	}
 	msg := &slack.WebhookMessage{
-		Username:  s.username,
-		Channel:   channel,
-		IconEmoji: ":kubernetes:",
-		Blocks:    &slack.Blocks{BlockSet: blocks},
-		Attachments: []slack.Attachment{{
-			Color:  a.Severity.Color(),
-			Footer: fmt.Sprintf("%s | %s | fp=%s", s.cluster, a.Kind, a.Fingerprint),
-		}},
+		Username:    s.username,
+		Channel:     channel,
+		IconEmoji:   ":kubernetes:",
+		Blocks:      &slack.Blocks{BlockSet: blocks},
+		Attachments: []slack.Attachment{attachment},
 	}
 	// slack-go does one attempt per call; wrap with backoff so a transient
 	// 429/5xx does not drop the alert (its StatusCodeError exposes
 	// HTTPStatusCode, which httpx.Retriable understands).
 	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
 		return slack.PostWebhookCustomHTTPContext(ctx, webhookURL, s.httpClient, msg)
+	})
+}
+
+// sendBotToken posts via chat.postMessage. The bot must be a member of
+// the target channel (invite it with /invite @alertkube).
+func (s *SlackSink) sendBotToken(ctx context.Context, token, channel string, blocks []slack.Block, attachment slack.Attachment) error {
+	api := slack.New(token, slack.OptionHTTPClient(s.httpClient))
+	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
+		_, _, err := api.PostMessageContext(ctx, channel,
+			slack.MsgOptionUsername(s.username),
+			slack.MsgOptionIconEmoji(":kubernetes:"),
+			slack.MsgOptionBlocks(blocks...),
+			slack.MsgOptionAttachments(attachment),
+		)
+		return err
 	})
 }
 

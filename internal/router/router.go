@@ -16,6 +16,10 @@ type Router struct {
 	inhibitions  []config.Inhibition
 	silences     []config.Silence
 	defaultSinks []string
+	// disableAnnotationSilences ignores `alert-silence-until` annotations
+	// so workload authors cannot self-silence. Config-file silences still
+	// apply (those are operator-controlled).
+	disableAnnotationSilences bool
 
 	mu             sync.Mutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
@@ -56,10 +60,28 @@ func (r *Router) Route(a *alert.Alert) []string {
 	return r.defaultSinks
 }
 
+// ArmInhibitions refreshes inhibition expiries for a firing source alert
+// without running the full routing decision. Callers use this for muted
+// re-fires: a NodeNotReady that keeps firing inside its mute window must
+// keep its pod inhibitions armed, otherwise they expire while the node is
+// still down and the pod alert storm leaks through.
+func (r *Router) ArmInhibitions(a *alert.Alert) {
+	if a.Resolved {
+		return
+	}
+	r.maybeArmInhibition(a)
+}
+
+// SetDisableAnnotationSilences toggles whether `alert-silence-until`
+// annotations are honored. Call before the first Route.
+func (r *Router) SetDisableAnnotationSilences(disabled bool) {
+	r.disableAnnotationSilences = disabled
+}
+
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
-	if until, ok := a.Annotations["alert-silence-until"]; ok {
+	if until, ok := a.Annotations["alert-silence-until"]; ok && !r.disableAnnotationSilences {
 		if t, err := time.Parse(time.RFC3339, until); err == nil && now.Before(t) {
 			return true
 		}

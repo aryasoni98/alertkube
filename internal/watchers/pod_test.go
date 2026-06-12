@@ -2,6 +2,7 @@ package watchers
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -136,10 +137,16 @@ func TestPodEvaluate(t *testing.T) {
 			cfg.Behavior.IgnoreRestartsWithExitCodeZero = tc.ignoreExitCodeZero
 			w := NewPod(fake.NewSimpleClientset(), cfg)
 
+			var mu sync.Mutex
 			var got []*alert.Alert
-			emit := func(a *alert.Alert) { got = append(got, a) }
+			emit := func(a *alert.Alert) {
+				mu.Lock()
+				got = append(got, a)
+				mu.Unlock()
+			}
 
 			w.evaluate(context.Background(), tc.oldPod, tc.newPod, emit)
+			w.enrichWG.Wait() // emit runs async after enrichment
 
 			if tc.wantNone {
 				if len(got) != 0 {
@@ -215,5 +222,30 @@ func TestPodShouldHandle(t *testing.T) {
 				t.Errorf("shouldHandle(ns=%q): got %v, want %v", tc.namespace, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestMergeAnnotationsExcludesControlKeysFromLabels(t *testing.T) {
+	pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{"runbook-url": "https://from-annotation"},
+		Labels: map[string]string{
+			"alert-silence-until": "2099-01-01T00:00:00Z",
+			"alert-slack-channel": "#attacker",
+			"runbook-url":         "https://from-label",
+			"team":                "payments",
+		},
+	}}
+	got := mergeAnnotations(pod)
+	if got["runbook-url"] != "https://from-annotation" {
+		t.Fatalf("annotation should win: %q", got["runbook-url"])
+	}
+	if _, ok := got["alert-silence-until"]; ok {
+		t.Fatal("label must not populate alert-silence-until")
+	}
+	if _, ok := got["alert-slack-channel"]; ok {
+		t.Fatal("label must not populate alert-slack-channel")
+	}
+	if got["team"] != "payments" {
+		t.Fatalf("non-control labels should still merge: %q", got["team"])
 	}
 }

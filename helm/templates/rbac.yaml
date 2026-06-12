@@ -106,3 +106,39 @@ subjects:
   name: {{ include "alertkube.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
 {{- end }}
+{{- if .Values.persistence.enabled }}
+---
+# State persistence: the controller snapshots active-alert and mute state
+# into a ConfigMap. get/update/patch are pinned to that one object;
+# create cannot be resourceName-scoped (Kubernetes RBAC limitation) so it
+# is granted on configmaps in the release namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "alertkube.fullname" . }}-state
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: [{{ .Values.persistence.configMapName | default (printf "%s-state" (include "alertkube.fullname" .)) | quote }}]
+  verbs: ["get", "update", "patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "alertkube.fullname" . }}-state
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "alertkube.fullname" . }}-state
+subjects:
+- kind: ServiceAccount
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+{{- end }}

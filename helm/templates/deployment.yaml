@@ -59,6 +59,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- if .Values.genericWebhook.signingSecret }}
             - name: GENERIC_WEBHOOK_SECRET
               valueFrom:
@@ -69,6 +73,31 @@ spec:
             - name: SLACK_WEBHOOK_URL
               valueFrom:
               {{- include "alertkube.slackWebhookSecret" . | indent 14 }}
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+              {{- include "alertkube.slackBotToken" . | indent 14 }}
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+              {{- include "alertkube.discordWebhookUrl" . | indent 14 }}
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+              {{- include "alertkube.telegramBotToken" . | indent 14 }}
+            {{- if .Values.telegram.chatId }}
+            - name: TELEGRAM_CHAT_ID
+              value: {{ .Values.telegram.chatId | quote }}
+            {{- end }}
+            - name: OPSGENIE_API_KEY
+              valueFrom:
+              {{- include "alertkube.opsgenieApiKey" . | indent 14 }}
+            {{- if .Values.opsgenie.apiUrl }}
+            - name: OPSGENIE_API_URL
+              value: {{ .Values.opsgenie.apiUrl | quote }}
+            {{- end }}
+            {{- if .Values.receiver.enabled }}
+            - name: ALERTKUBE_RECEIVER_TOKEN
+              valueFrom:
+              {{- include "alertkube.receiverToken" . | indent 14 }}
+            {{- end }}
             - name: PAGERDUTY_ROUTING_KEY
               valueFrom:
               {{- include "alertkube.pagerdutyRoutingKey" . | indent 14 }}

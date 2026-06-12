@@ -49,6 +49,13 @@ type secretPattern struct {
 }
 
 var secretPatterns = []secretPattern{
+	// JWTs: three dot-separated base64url segments starting with eyJ
+	// (base64 of `{"`). Session tokens, OIDC ID tokens, service-account
+	// tokens all match this shape.
+	{regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), "[REDACTED]"},
+	// URL-embedded basic-auth credentials: scheme://user:password@host
+	// (database connection strings, git remotes, proxy URLs).
+	{regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:)[^@\s/]+(@)`), "${1}[REDACTED]${2}"},
 	{regexp.MustCompile(`AKIA[0-9A-Z]{16}`), "[REDACTED]"},
 	{regexp.MustCompile(`(?i)(aws_secret_access_key)(\s*[=:]\s*)([^\s&"']+)`), "${1}${2}[REDACTED]"},
 	{regexp.MustCompile(`ghp_[0-9A-Za-z]{30,}`), "[REDACTED]"},

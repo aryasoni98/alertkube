@@ -41,6 +41,16 @@ func TestRouteSilencedAnnotation(t *testing.T) {
 	}
 }
 
+func TestRouteAnnotationSilenceDisabled(t *testing.T) {
+	r := New(nil, nil, nil, []string{"stdout"})
+	r.SetDisableAnnotationSilences(true)
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)
+	a.Annotations["alert-silence-until"] = time.Now().Add(time.Hour).Format(time.RFC3339)
+	if r.Route(a) == nil {
+		t.Fatalf("annotation silence must be ignored when disabled")
+	}
+}
+
 func TestInhibition(t *testing.T) {
 	r := New(
 		nil,
@@ -70,6 +80,47 @@ func TestInhibition(t *testing.T) {
 	other.NodeName = "node-2"
 	if r.Route(other) == nil {
 		t.Fatalf("pod on a different node must not be inhibited")
+	}
+}
+
+func TestArmInhibitionsRefreshesExpiry(t *testing.T) {
+	r := New(
+		nil,
+		[]config.Inhibition{{
+			Source:   map[string]string{"kind": "Node", "reason": "NodeNotReady"},
+			Target:   map[string]string{"kind": "Pod"},
+			Equal:    []string{"node"},
+			Duration: "40ms",
+		}},
+		nil,
+		[]string{"slack"},
+	)
+	src := alert.New(alert.KindNode, "", "node-1", "NodeNotReady", alert.SeverityCritical)
+	src.NodeName = "node-1"
+	r.Route(src)
+
+	// Simulate muted re-fires keeping the inhibition alive past its
+	// original expiry.
+	for i := 0; i < 3; i++ {
+		time.Sleep(25 * time.Millisecond)
+		r.ArmInhibitions(src)
+	}
+
+	pod := alert.New(alert.KindPod, "ns", "p", "CrashLoopBackOff", alert.SeverityCritical)
+	pod.NodeName = "node-1"
+	if r.Route(pod) != nil {
+		t.Fatalf("re-armed inhibition must still suppress the pod alert")
+	}
+
+	// Resolved source alerts must not arm anything.
+	resolved := alert.New(alert.KindNode, "", "node-2", "NodeNotReady", alert.SeverityCritical)
+	resolved.NodeName = "node-2"
+	resolved.Resolved = true
+	r.ArmInhibitions(resolved)
+	other := alert.New(alert.KindPod, "ns", "p2", "CrashLoopBackOff", alert.SeverityCritical)
+	other.NodeName = "node-2"
+	if r.Route(other) == nil {
+		t.Fatalf("resolved source must not arm an inhibition")
 	}
 }
 

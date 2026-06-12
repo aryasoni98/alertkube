@@ -19,6 +19,23 @@ data:
       resolveTTLSeconds: {{ .Values.behavior.resolveTTLSeconds }}
       startupGraceSeconds: {{ .Values.behavior.startupGraceSeconds }}
       pvcPendingSeconds: {{ .Values.behavior.pvcPendingSeconds }}
+      disableLogCollection: {{ .Values.behavior.disableLogCollection | default false }}
+      disableAnnotationSilences: {{ .Values.behavior.disableAnnotationSilences | default false }}
+    {{- with .Values.escalations }}
+    escalations:
+{{ toYaml . | indent 6 }}
+    {{- end }}
+    receiver:
+      enabled: {{ .Values.receiver.enabled | default false }}
+    grouping:
+      enabled: {{ .Values.grouping.enabled | default false }}
+      windowSeconds: {{ .Values.grouping.windowSeconds | default 30 }}
+      {{- with .Values.grouping.by }}
+      by: {{ toJson . }}
+      {{- end }}
+    persistence:
+      enabled: {{ .Values.persistence.enabled }}
+      configMapName: {{ .Values.persistence.configMapName | default (printf "%s-state" (include "alertkube.fullname" .)) | quote }}
     channels:
       critical: {{ .Values.slack.channels.critical | quote }}
       warning:  {{ .Values.slack.channels.warning | quote }}

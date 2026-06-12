@@ -85,3 +85,68 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     optional: true
 {{- end }}
 {{- end }}
+
+{{- define "alertkube.slackBotToken" -}}
+{{- if .Values.slack.botTokenSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.slack.botTokenSecretKeyRef.key }}
+    name: {{ .Values.slack.botTokenSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: slackBotToken
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
+{{- define "alertkube.discordWebhookUrl" -}}
+{{- if .Values.discord.webhookUrlSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.discord.webhookUrlSecretKeyRef.key }}
+    name: {{ .Values.discord.webhookUrlSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: discordWebhookUrl
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
+{{- define "alertkube.telegramBotToken" -}}
+{{- if .Values.telegram.botTokenSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.telegram.botTokenSecretKeyRef.key }}
+    name: {{ .Values.telegram.botTokenSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: telegramBotToken
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
+{{- define "alertkube.opsgenieApiKey" -}}
+{{- if .Values.opsgenie.apiKeySecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.opsgenie.apiKeySecretKeyRef.key }}
+    name: {{ .Values.opsgenie.apiKeySecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: opsgenieApiKey
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
+{{- define "alertkube.receiverToken" -}}
+{{- if .Values.receiver.tokenSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.receiver.tokenSecretKeyRef.key }}
+    name: {{ .Values.receiver.tokenSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: receiverToken
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}

@@ -5,7 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.0] - 2026-06-12
+
+### Security
+
+- `runbook-url` scheme validation (https-only, length-capped) now applies to the Teams, Discord, and Telegram sinks via the shared `templates.SafeRunbookURL` guard — previously only the Slack Block Kit button was protected (`internal/templates/blockkit.go`, `internal/sinks/{teams,discord,telegram}.go`).
+- Pod **labels** are no longer back-filled into the control annotation keys (`alert-silence-until`, `alert-slack-channel`, `runbook-url`); only real annotations drive silencing, channel overrides, and runbook links. Labels are commonly writable by lower-privilege automation, so a label-writer could previously self-silence alerts or inject links (`internal/watchers/pod.go`).
+- Startup now logs a prominent warning when the Alertmanager receiver is enabled without `ALERTKUBE_RECEIVER_TOKEN` — that combination accepts unauthenticated alert injection on the metrics port (`main.go`).
+
+### Added
+
+- **Four new watchers**: DaemonSet (unavailable on scheduled nodes), StatefulSet (ready < desired, generation-guarded), CronJob (`CronJobMissingSuccess` — a full schedule interval passed without a successful run, detected without cron parsing; plus suspend transitions), HPA (`HPAMaxedOut` — pinned at maxReplicas while ScalingLimited). The chart's RBAC already granted these resources (`internal/watchers/{daemonset,statefulset,cronjob,hpa}.go`).
+- **Escalation rules** (`escalations` config): still-unresolved alerts matching a rule re-dispatch to extra sinks after `afterMinutes`, tagged `[ESCALATED]`, at most once per alert lifetime; marks clear on resolve. New `alertkube_escalations_total` counter (`internal/alert/store.go`, `main.go`).
+- **Alertmanager-compatible receiver** (`receiver.enabled`): `POST /api/v1/alerts` on the metrics port accepts Alertmanager webhook payloads (version 4) and runs them through the same dedupe/grouping/routing/sink pipeline; upstream fingerprints are preserved for dedupe alignment, resolves forget local state to avoid duplicate synthetic resolves. Optional bearer auth via `ALERTKUBE_RECEIVER_TOKEN`. New `alertkube_received_alerts_total{status}` counter (`internal/receiver`).
+- **`GET /api/alerts`**: read-only JSON of the active alert set plus a 200-entry ring of recent fires/resolves (Details stripped). Gate with the chart's NetworkPolicy `ingressFrom` on multi-tenant clusters (`internal/metrics`, `internal/alert/store.go`).
+- **Grafana dashboard** at `docs/grafana-dashboard.json`: active alerts, severity rates, suppression breakdown, sink latency p95, storm indicator, receiver intake.
+- **Alert grouping / storm folding** (`grouping.*` config, off by default): the first alert of a group (default identity: kind+namespace+reason+severity) dispatches immediately; later same-group alerts within the window collapse into one summary message ("4 more Pod CrashLoopBackOff alerts…"). Resolves fold into their own summaries. PagerDuty/Opsgenie still receive every member resolve so incidents close, and never receive summaries (`internal/group`, `main.go`).
+- **New sinks**: Opsgenie (Alert API v2, alias=fingerprint dedupe, close-on-resolve, P1/P3 mapping, EU endpoint via `OPSGENIE_API_URL`), Discord (embeds), Telegram (Bot API, HTML-escaped) (`internal/sinks/{opsgenie,discord,telegram}.go`, `helm/`).
+- **Slack bot-token mode**: set `slack.botToken` (`SLACK_BOT_TOKEN`) to send via `chat.postMessage` — per-severity channel routing that actually works with modern Slack apps. Takes precedence over the webhook URL (`internal/sinks/slack.go`).
+- **Async enrichment pool**: events/logs API calls moved off the informer handler into a bounded pool (4 workers); under storm saturation alerts ship without enrichment instead of stalling event processing (`internal/watchers/pod.go`).
+- **Teams Adaptive Cards**: the Teams sink now sends the `{type: message, attachments: [adaptive card]}` envelope required by Power Automate Workflows webhooks (Office 365 connectors are retired); includes FactSet and a Runbook button (`internal/sinks/teams.go`).
+- **State persistence**: active alerts and mute history snapshot to a ConfigMap (`persistence.*` config, on by default in the Helm chart). A controller restart now still sends pending resolves — no more dangling PagerDuty incidents — and does not re-page standing conditions. Saves are skipped when nothing changed; a final save runs on shutdown (`internal/persist`, `internal/alert/snapshot.go`, `main.go`, `helm/`).
+- `behavior.disableLogCollection`: turn off previous-container log enrichment for environments that must not forward workload logs to chat/paging sinks (`internal/config`, `internal/watchers/pod.go`).
+- `behavior.disableAnnotationSilences`: ignore `alert-silence-until` annotations so workload authors cannot self-silence; config-file silences still apply (`internal/router`).
+- `alertkube_dispatch_inflight` gauge: sink sends in flight, including time queued on the rate limiter — pins high when an alert storm is about to drop messages (`internal/metrics`, `internal/sinks`).
+- Log redaction now also masks JWTs and URL-embedded basic-auth credentials (database connection strings, git remotes) (`internal/collectors/logs.go`).
+- Release images are cosign-signed (keyless) and ship an SPDX SBOM attached to the GitHub release (`.github/workflows/release.yml`).
+
+### Fixed
+
+- **Inhibition expiry during long outages**: muted re-fires of a source alert (e.g. `NodeNotReady` inside its mute window) now re-arm their inhibitions; previously the inhibition expired after `duration` and the dependent pod-alert storm leaked through mid-outage (`main.go`, `internal/router/router.go`).
+- Rate-limited sink drops now log at warning with the alert identity instead of a V(2) whisper (`internal/sinks/sink.go`).
+
+### Changed
+
+- Alert fingerprints now use sha256 (truncated) instead of sha1. Identity semantics are unchanged, but fingerprints differ across the upgrade: a condition firing during the rollout may page once more than expected as the old mute record no longer matches.
 
 ## [v0.1.0] - 2026-06-10
 

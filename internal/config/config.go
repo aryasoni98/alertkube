@@ -32,6 +32,17 @@ type Config struct {
 		// PVCPendingSeconds is how long a claim may stay Pending before
 		// alerting (provisioners legitimately take a while).
 		PVCPendingSeconds int `yaml:"pvcPendingSeconds"`
+		// DisableLogCollection stops the pod watcher from fetching
+		// previous-container logs for alert enrichment. Logs are redacted
+		// before forwarding, but redaction is pattern-based and
+		// best-effort — strict environments should turn collection off
+		// entirely rather than trust it.
+		DisableLogCollection bool `yaml:"disableLogCollection"`
+		// DisableAnnotationSilences ignores the `alert-silence-until`
+		// pod annotation. Anyone with patch on a workload can otherwise
+		// silence its alerts; environments where workload authors must
+		// not control alerting set this.
+		DisableAnnotationSilences bool `yaml:"disableAnnotationSilences"`
 	} `yaml:"behavior"`
 
 	Channels struct {
@@ -57,7 +68,45 @@ type Config struct {
 
 	Silences []Silence `yaml:"silences"`
 
+	// Escalations re-dispatch still-unresolved matching alerts to extra
+	// sinks after a delay. Each rule fires at most once per alert
+	// lifetime. Match semantics are the same as routing rules.
+	Escalations []Escalation `yaml:"escalations"`
+
+	// Receiver exposes POST /api/v1/alerts on the metrics address,
+	// accepting Alertmanager webhook payloads and running them through
+	// the same dedupe/grouping/routing/sink pipeline. Optional bearer
+	// auth via the ALERTKUBE_RECEIVER_TOKEN env var.
+	Receiver struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"receiver"`
+
 	MetricsAddr string `yaml:"metricsAddr"`
+
+	// Grouping folds alert storms: the first alert of a group dispatches
+	// immediately, later same-group alerts within the window collapse
+	// into one summary. Stateful incident sinks (pagerduty, opsgenie)
+	// still receive every resolve so incidents close, and never receive
+	// summaries.
+	Grouping struct {
+		Enabled       bool `yaml:"enabled"`
+		WindowSeconds int  `yaml:"windowSeconds"`
+		// By lists the alert fields forming the group identity.
+		// Defaults to kind, namespace, reason, severity.
+		By []string `yaml:"by"`
+	} `yaml:"grouping"`
+
+	// Persistence snapshots active-alert and mute state to a ConfigMap so
+	// a restart does not lose pending resolves or re-page muted standing
+	// conditions. Requires get/create/update on the named ConfigMap.
+	Persistence struct {
+		Enabled bool `yaml:"enabled"`
+		// ConfigMapName defaults to "alertkube-state".
+		ConfigMapName string `yaml:"configMapName"`
+		// Namespace defaults to the POD_NAMESPACE env var (set via the
+		// Downward API in the Helm chart).
+		Namespace string `yaml:"namespace"`
+	} `yaml:"persistence"`
 }
 
 type Route struct {
@@ -99,6 +148,14 @@ type Silence struct {
 	Until    string            `yaml:"until"`
 }
 
+// Escalation re-dispatches an alert that is still active after
+// AfterMinutes to the listed sinks.
+type Escalation struct {
+	Match        map[string]string `yaml:"match"`
+	AfterMinutes int               `yaml:"afterMinutes"`
+	Sinks        []string          `yaml:"sinks"`
+}
+
 // Load reads YAML from path, then layers env-var fallbacks for legacy v1 keys.
 // A path that cannot be read is a hard error: silently booting on env
 // defaults because a ConfigMap mount is wrong gives an operator a
@@ -130,6 +187,9 @@ var KnownSinks = map[string]bool{
 	"teams":     true,
 	"webhook":   true,
 	"stdout":    true,
+	"discord":   true,
+	"telegram":  true,
+	"opsgenie":  true,
 }
 
 // Validate rejects configurations that would otherwise fail open at
@@ -195,6 +255,32 @@ func (c *Config) Validate() error {
 	if c.Behavior.PVCPendingSeconds <= 0 {
 		return fmt.Errorf("behavior.pvcPendingSeconds must be positive, got %d", c.Behavior.PVCPendingSeconds)
 	}
+	if c.Persistence.Enabled && c.Persistence.Namespace == "" {
+		return fmt.Errorf("persistence.enabled requires persistence.namespace or the POD_NAMESPACE env var")
+	}
+	for i, esc := range c.Escalations {
+		if esc.AfterMinutes <= 0 {
+			return fmt.Errorf("escalations[%d]: afterMinutes must be positive, got %d", i, esc.AfterMinutes)
+		}
+		if len(esc.Sinks) == 0 {
+			return fmt.Errorf("escalations[%d]: sinks list is empty", i)
+		}
+		for _, s := range esc.Sinks {
+			if !KnownSinks[s] {
+				return fmt.Errorf("escalations[%d]: unknown sink %q", i, s)
+			}
+		}
+	}
+	if c.Grouping.Enabled {
+		if c.Grouping.WindowSeconds <= 0 {
+			return fmt.Errorf("grouping.windowSeconds must be positive, got %d", c.Grouping.WindowSeconds)
+		}
+		for i, k := range c.Grouping.By {
+			if k == "" {
+				return fmt.Errorf("grouping.by[%d]: empty field name", i)
+			}
+		}
+	}
 	return nil
 }
 
@@ -243,6 +329,15 @@ func (c *Config) applyEnvDefaults() {
 	}
 	if c.MetricsAddr == "" {
 		c.MetricsAddr = envOr("METRICS_ADDR", ":9090")
+	}
+	if c.Grouping.WindowSeconds == 0 {
+		c.Grouping.WindowSeconds = 30
+	}
+	if c.Persistence.ConfigMapName == "" {
+		c.Persistence.ConfigMapName = "alertkube-state"
+	}
+	if c.Persistence.Namespace == "" {
+		c.Persistence.Namespace = os.Getenv("POD_NAMESPACE")
 	}
 }
 

@@ -42,6 +42,14 @@ slack:
   webhookUrlSecretKeyRef: {}
     # key: slackWebhookUrl
     # name: alertkube
+  # Bot token mode (chat.postMessage). Takes precedence over webhookUrl
+  # and is the only mode where per-severity channel routing works with a
+  # modern Slack app (webhooks ignore the channel field). Needs the
+  # chat:write scope and the bot invited to each channel.
+  botToken: ""
+  botTokenSecretKeyRef: {}
+    # key: slackBotToken
+    # name: alertkube
 
 pagerduty:
   routingKey: ""           # PagerDuty Events API v2 routing key (inline -> Secret)
@@ -56,6 +64,26 @@ teams:
     # key: teamsWebhookUrl
     # name: alertkube-teams
 
+discord:
+  webhookUrl: ""           # Discord channel webhook (inline -> Secret)
+  webhookUrlSecretKeyRef: {}
+    # key: discordWebhookUrl
+    # name: alertkube-discord
+
+telegram:
+  botToken: ""             # Telegram bot token from @BotFather (inline -> Secret)
+  chatId: ""               # Target chat/channel id (not secret)
+  botTokenSecretKeyRef: {}
+    # key: telegramBotToken
+    # name: alertkube-telegram
+
+opsgenie:
+  apiKey: ""               # Opsgenie Alert API key (inline -> Secret)
+  apiUrl: ""               # Override for EU region: https://api.eu.opsgenie.com
+  apiKeySecretKeyRef: {}
+    # key: opsgenieApiKey
+    # name: alertkube-opsgenie
+
 genericWebhook:
   url: ""                  # POST JSON Alert struct to any endpoint
   urlSecretKeyRef: {}
@@ -66,6 +94,41 @@ genericWebhook:
   # and `X-Alertkube-Timestamp: <RFC3339>` so receivers can verify
   # authenticity and reject replay.
   signingSecret: ""
+
+# Re-dispatch still-unresolved alerts to extra sinks after a delay.
+# Each rule fires at most once per alert lifetime.
+escalations: []
+  # - match: {severity: critical}
+  #   afterMinutes: 15
+  #   sinks: [pagerduty]
+
+# Accept Alertmanager webhook payloads on /api/v1/alerts (metrics port)
+# and run them through the same dedupe/grouping/routing pipeline.
+# Optional bearer auth: set receiver.token (stored in the chart Secret).
+receiver:
+  enabled: false
+  token: ""
+  tokenSecretKeyRef: {}
+    # key: receiverToken
+    # name: alertkube-receiver
+
+# Fold alert storms: first alert of a group dispatches immediately,
+# later same-group alerts within the window collapse into one summary
+# ("4 more Pod CrashLoopBackOff alerts ..."). PagerDuty/Opsgenie still
+# receive every resolve and never receive summaries.
+grouping:
+  enabled: false
+  windowSeconds: 30
+  by: [kind, namespace, reason, severity]
+
+# Persist active-alert and mute state to a ConfigMap in the release
+# namespace. A controller restart then still sends pending resolves
+# (no dangling PagerDuty incidents) and does not re-page standing
+# conditions. Adds a namespaced Role for the state ConfigMap.
+persistence:
+  enabled: true
+  # Defaults to "<fullname>-state" when empty.
+  configMapName: ""
 
 filters:
   watchedNamespaces: ""
@@ -87,6 +150,14 @@ behavior:
   # How long a PVC may stay Pending before alerting (provisioners
   # legitimately take a while).
   pvcPendingSeconds: 300
+  # Stop fetching previous-container logs for alert enrichment. Logs are
+  # redacted before forwarding, but redaction is pattern-based and
+  # best-effort — strict environments should disable collection instead
+  # of trusting it.
+  disableLogCollection: false
+  # Ignore `alert-silence-until` pod annotations. Anyone with patch on a
+  # workload can otherwise silence its own alerts.
+  disableAnnotationSilences: false
 
 metrics:
   enabled: true

@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,7 +28,10 @@ import (
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
+	"alertkube/internal/group"
 	"alertkube/internal/metrics"
+	"alertkube/internal/persist"
+	"alertkube/internal/receiver"
 	"alertkube/internal/router"
 	"alertkube/internal/sinks"
 	"alertkube/internal/watchers"
@@ -91,15 +97,101 @@ func main() {
 func runController(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string) {
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
+	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
+
+	var grouper *group.Grouper
+	if cfg.Grouping.Enabled {
+		window := time.Duration(cfg.Grouping.WindowSeconds) * time.Second
+		grouper = group.New(window, cfg.Grouping.By, func(s *alert.Alert) {
+			// Summaries never go to stateful incident sinks: those dedupe
+			// storms by fingerprint themselves, and a summary incident has
+			// no resolve to close it.
+			route := dropStateful(r.Route(s))
+			if len(route) == 0 {
+				return
+			}
+			// Detached ctx so the shutdown drain can still deliver.
+			fctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			reg.Dispatch(fctx, s, route)
+		})
+	}
+
+	// dispatchResolved handles both the store's TTL-based synthetic
+	// resolves and resolves ingested by the webhook receiver.
+	dispatchResolved := func(a *alert.Alert) {
+		route := r.Route(a)
+		if route == nil {
+			return
+		}
+		if grouper != nil && !grouper.Offer(a) {
+			metrics.AlertsSuppressed.WithLabelValues("grouped").Inc()
+			// Absorbed resolves still must close their incidents:
+			// stateful sinks key on the member fingerprint.
+			route = keepStateful(route)
+			if len(route) == 0 {
+				return
+			}
+		}
+		reg.Dispatch(ctx, a, route)
+	}
 
 	store := alert.NewStore(
 		time.Duration(cfg.Behavior.MuteSeconds)*time.Second,
 		time.Duration(cfg.Behavior.ResolveTTLSeconds)*time.Second,
-		func(a *alert.Alert) { reg.Dispatch(ctx, a, r.Route(a)) },
+		dispatchResolved,
 	)
 	store.SetOnChange(func(n int) { metrics.ActiveAlerts.Set(float64(n)) })
 
-	emit := makeEmitter(ctx, store, r, reg, cfg)
+	// Restore persisted state before the informers start so the initial
+	// sync sees the prior mute history and pending resolves survive the
+	// restart instead of leaving PagerDuty incidents dangling.
+	var persister *persist.ConfigMapStore
+	if cfg.Persistence.Enabled {
+		persister = persist.NewConfigMapStore(clientset, cfg.Persistence.Namespace, cfg.Persistence.ConfigMapName)
+		loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
+		snap, err := persister.Load(loadCtx)
+		loadCancel()
+		switch {
+		case err != nil:
+			klog.Warningf("state restore failed (starting cold): %v", err)
+		case snap != nil:
+			store.Restore(snap)
+			klog.Infof("restored state: %d active alerts, %d mute records (saved %s)",
+				len(snap.Active), len(snap.LastSent), snap.SavedAt.Format(time.RFC3339))
+		}
+	}
+
+	emit := makeEmitter(ctx, store, r, reg, cfg, grouper)
+
+	// Read-only view of the active set + recent history for dashboards
+	// and debugging. Reachable on the metrics address; gate with the
+	// chart's NetworkPolicy ingressFrom when the cluster is multi-tenant.
+	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": store.ActiveList(),
+			"recent": store.Recent(),
+		})
+	}))
+
+	if cfg.Receiver.Enabled {
+		receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
+		if receiverToken == "" {
+			klog.Warningf("receiver enabled WITHOUT a bearer token: POST /api/v1/alerts on %s accepts unauthenticated alert injection — set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
+		}
+		metrics.SetReceiverHandler(receiver.New(
+			receiverToken,
+			func(a *alert.Alert) { emit(a) },
+			func(a *alert.Alert) {
+				// Upstream already told the world it resolved; forget our
+				// copy so the TTL sweep does not emit a duplicate resolve.
+				store.Forget(a.Fingerprint)
+				dispatchResolved(a)
+			},
+		))
+		klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+	}
 
 	var factoryOpts []informers.SharedInformerOption
 	if watchNamespace != "" {
@@ -122,11 +214,26 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go runSweeper(ctx, &wg, store)
+	go runSweeper(ctx, &wg, store, persister, reg, cfg)
+	if grouper != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grouper.Run(ctx) // drains open windows on shutdown
+		}()
+	}
 
 	<-ctx.Done()
 	klog.Infof("%s shutting down", appName)
 	wg.Wait()
+	if persister != nil {
+		// ctx is already cancelled; the final save gets its own deadline.
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := persister.Save(saveCtx, store.Export()); err != nil {
+			klog.Warningf("final state save: %v", err)
+		}
+		saveCancel()
+	}
 	metrics.MarkNotReady()
 }
 
@@ -222,6 +329,9 @@ func buildSinks(cfg *config.Config) *sinks.Registry {
 	reg.Add(sinks.NewTeams())
 	reg.Add(sinks.NewWebhook())
 	reg.Add(sinks.NewStdout())
+	reg.Add(sinks.NewDiscord())
+	reg.Add(sinks.NewTelegram())
+	reg.Add(sinks.NewOpsgenie())
 	for name, sr := range cfg.SinkRates {
 		reg.SetRate(name, rate.Limit(sr.PerSecond), sr.Burst)
 	}
@@ -234,6 +344,10 @@ func buildWatchers(c kubernetes.Interface, cfg *config.Config, watchNamespace st
 		watchers.NewDeployment(cfg),
 		watchers.NewPVC(cfg),
 		watchers.NewJob(cfg),
+		watchers.NewDaemonSet(cfg),
+		watchers.NewStatefulSet(cfg),
+		watchers.NewCronJob(cfg),
+		watchers.NewHPA(cfg),
 	}
 	// Nodes are cluster-scoped: a namespace-scoped factory cannot sync a
 	// node informer and a namespace Role cannot grant it.
@@ -243,7 +357,32 @@ func buildWatchers(c kubernetes.Interface, cfg *config.Config, watchNamespace st
 	return ws
 }
 
-func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config) watchers.Emit {
+// statefulSinks open/close incidents keyed by alert fingerprint. They
+// dedupe storms themselves, must receive every resolve (to close the
+// incident), and must never receive group summaries (nothing closes them).
+var statefulSinks = map[string]bool{"pagerduty": true, "opsgenie": true}
+
+func dropStateful(route []string) []string {
+	out := make([]string, 0, len(route))
+	for _, s := range route {
+		if !statefulSinks[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func keepStateful(route []string) []string {
+	out := make([]string, 0, len(route))
+	for _, s := range route {
+		if statefulSinks[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper) watchers.Emit {
 	controllerStart := time.Now()
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
@@ -268,10 +407,21 @@ func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg 
 		if !store.ShouldSend(a) {
 			metrics.AlertsSuppressed.WithLabelValues("muted").Inc()
 			store.Touch(a.Fingerprint)
+			// A muted re-fire still proves the source condition persists:
+			// keep its inhibitions armed or they expire mid-outage and the
+			// dependent alert storm leaks through.
+			r.ArmInhibitions(a)
 			return
 		}
 		route := r.Route(a)
 		if route == nil {
+			return
+		}
+		// Grouping runs after routing so silenced/inhibited alerts never
+		// open or join a window. The first alert of a group passes; the
+		// rest fold into the summary flushed at window close.
+		if grouper != nil && !grouper.Offer(a) {
+			metrics.AlertsSuppressed.WithLabelValues("grouped").Inc()
 			return
 		}
 		// Dispatch a copy: the original is retained in the store and its
@@ -283,10 +433,11 @@ func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg 
 	}
 }
 
-func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store) {
+func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, persister *persist.ConfigMapStore, reg *sinks.Registry, cfg *config.Config) {
 	defer wg.Done()
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
+	var savedGen uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -294,6 +445,49 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store) {
 		case <-ticker.C:
 			store.SweepResolved()
 			store.CleanOldHistory()
+			runEscalations(ctx, store, reg, cfg)
+			if persister == nil {
+				continue
+			}
+			// Capture the generation before exporting: a mutation racing
+			// the export is included in the snapshot AND re-saved next
+			// sweep, so no state change is ever silently dropped.
+			gen := store.Generation()
+			if gen == savedGen {
+				continue
+			}
+			saveCtx, saveCancel := context.WithTimeout(ctx, 10*time.Second)
+			err := persister.Save(saveCtx, store.Export())
+			saveCancel()
+			if err != nil {
+				klog.Warningf("state save: %v", err)
+				continue
+			}
+			savedGen = gen
+		}
+	}
+}
+
+// runEscalations re-dispatches still-active alerts that outlived an
+// escalation rule's delay. Store.Overdue marks matches so each rule fires
+// at most once per alert lifetime; marks clear when the alert resolves.
+func runEscalations(ctx context.Context, store *alert.Store, reg *sinks.Registry, cfg *config.Config) {
+	for i, esc := range cfg.Escalations {
+		after := time.Duration(esc.AfterMinutes) * time.Minute
+		ruleKey := fmt.Sprintf("rule%d", i)
+		for _, a := range store.Overdue(after, ruleKey, esc.Match) {
+			// Clone Labels before tagging: the copy still shares the map
+			// with the stored alert.
+			labels := make(map[string]string, len(a.Labels)+1)
+			for k, v := range a.Labels {
+				labels[k] = v
+			}
+			labels["alertkube-escalated"] = "true"
+			a.Labels = labels
+			a.Summary = "[ESCALATED — unresolved after " + after.String() + "] " + a.Summary
+			metrics.EscalationsTotal.Inc()
+			klog.Infof("escalating %s to %v (%s)", a, esc.Sinks, ruleKey)
+			reg.Dispatch(ctx, a, esc.Sinks)
 		}
 	}
 }

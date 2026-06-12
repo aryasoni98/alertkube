@@ -28,7 +28,10 @@ jobs:
       image: ${{ steps.meta.outputs.tags }}
       digest: ${{ steps.build.outputs.digest }}
     steps:
+      # Explicit ref so workflow_dispatch builds the tag, not the default branch.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -48,10 +51,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # raw TAG instead of type=ref,event=tag so workflow_dispatch
+          # (branch ref) still pushes the :vX.Y.Z tag the sbom/trivy/helm
+          # jobs reference.
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ env.TAG }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
             type=raw,value=latest
 
       - name: Build & push
@@ -65,6 +71,39 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless (Sigstore) signature over the manifest digest. Verify with:
+      #   cosign verify ghcr.io/<owner>/alertkube@<digest> \
+      #     --certificate-identity-regexp 'https://github.com/.+/.github/workflows/release.yml@.+' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Sign image (cosign keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          format: spdx-json
+          output-file: alertkube-sbom.spdx.json
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: alertkube-sbom.spdx.json
 
   trivy:
     name: Scan image (Trivy)
@@ -106,6 +145,8 @@ jobs:
     needs: docker
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Log in to GHCR (Helm)
         run: |
@@ -128,16 +169,23 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [docker, trivy, helm]
+    needs: [docker, trivy, helm, sbom]
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG }}
           fetch-depth: 0
 
       - name: Download chart artifact
         uses: actions/download-artifact@v4
         with:
           name: helm-chart
+          path: dist
+
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom
           path: dist
 
       - name: Compute chart version
@@ -147,9 +195,11 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           generate_release_notes: true
           files: |
             dist/*.tgz
+            dist/alertkube-sbom.spdx.json
           body: |
             ## alertkube ${{ env.TAG }}
 
@@ -157,6 +207,14 @@ jobs:
             ```
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
             ```
+
+            Image is signed with cosign (keyless). Verify:
+            ```
+            cosign verify ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} \
+              --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@.+' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+            ```
+            SBOM (SPDX JSON) is attached to this release.
 
             ### Helm
             ```

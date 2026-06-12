@@ -43,13 +43,54 @@ var (
 	ActiveAlerts = prometheus.NewGauge(
 		prometheus.GaugeOpts{Name: "alertkube_active_alerts", Help: "Count of currently active alerts."},
 	)
+	// DispatchInflight tracks sink sends currently in progress (including
+	// time queued on the rate limiter). A value pinned high for a sink
+	// means an alert storm is queueing and rate-limit drops are imminent.
+	DispatchInflight = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "alertkube_dispatch_inflight", Help: "Sink sends currently in flight."},
+		[]string{"sink"},
+	)
+	EscalationsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{Name: "alertkube_escalations_total", Help: "Alerts re-dispatched by escalation rules."},
+	)
+	ReceivedAlerts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "alertkube_received_alerts_total", Help: "Alerts accepted by the webhook receiver, by status."},
+		[]string{"status"},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, ReceivedAlerts)
 }
 
-// Serve exposes /metrics, /healthz, /readyz. Non-blocking unless addr is empty.
+// alertsHandler and receiverHandler are installed after the server
+// starts: the HTTP server boots in main() before the controller (and its
+// store) exists, and on leader-election followers the controller never
+// starts at all. Until installed, their routes return 503.
+var (
+	alertsHandler   atomic.Pointer[http.Handler]
+	receiverHandler atomic.Pointer[http.Handler]
+)
+
+// SetAlertsHandler installs the /api/alerts handler.
+func SetAlertsHandler(h http.Handler) { alertsHandler.Store(&h) }
+
+// SetReceiverHandler installs the /api/v1/alerts (Alertmanager webhook
+// receiver) handler.
+func SetReceiverHandler(h http.Handler) { receiverHandler.Store(&h) }
+
+func dynamic(p *atomic.Pointer[http.Handler]) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h := p.Load(); h != nil {
+			(*h).ServeHTTP(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+}
+
+// Serve exposes /metrics, /healthz, /readyz, /api/alerts, /api/v1/alerts.
+// Non-blocking unless addr is empty.
 // /readyz returns 503 until MarkReady is called.
 func Serve(addr string) *http.Server {
 	if addr == "" {
@@ -57,6 +98,8 @@ func Serve(addr string) *http.Server {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/api/alerts", dynamic(&alertsHandler))
+	mux.HandleFunc("/api/v1/alerts", dynamic(&receiverHandler))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
