@@ -35,7 +35,7 @@ type Config struct {
 		// DisableLogCollection stops the pod watcher from fetching
 		// previous-container logs for alert enrichment. Logs are redacted
 		// before forwarding, but redaction is pattern-based and
-		// best-effort — strict environments should turn collection off
+		// best-effort - strict environments should turn collection off
 		// entirely rather than trust it.
 		DisableLogCollection bool `yaml:"disableLogCollection"`
 		// DisableAnnotationSilences ignores the `alert-silence-until`
@@ -56,11 +56,11 @@ type Config struct {
 	// SeverityOverrides remap an alert's severity before dedupe and
 	// routing. First match wins. Watchers hardcode sensible defaults
 	// (ImagePullBackOff=warning, JobFailed=critical, ...) but every org
-	// disagrees somewhere — this is the escape hatch.
+	// disagrees somewhere - this is the escape hatch.
 	SeverityOverrides []SeverityOverride `yaml:"severityOverrides"`
 
 	// SinkRates overrides the per-sink send rate limiter. Unlisted sinks
-	// keep the conservative default (1/sec, burst 5 — Slack's published
+	// keep the conservative default (1/sec, burst 5 - Slack's published
 	// webhook limit).
 	SinkRates map[string]SinkRate `yaml:"sinkRates"`
 

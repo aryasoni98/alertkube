@@ -8,7 +8,7 @@ Runbook for operating alertkube in production.
 |-----|--------|--------|
 | Alert delivery | 99.5% / 30d | `rate(alertkube_sink_errors_total[5m]) / rate(alertkube_alerts_total[5m])` |
 | Controller availability | 99.9% / 30d | `up{job="alertkube"}` or `/readyz` probe success |
-| Suppression accuracy | — | `alertkube_alerts_suppressed_total{reason="ratelimited"}` should stay near zero |
+| Suppression accuracy | - | `alertkube_alerts_suppressed_total{reason="ratelimited"}` should stay near zero |
 
 ## Dashboard
 
@@ -51,7 +51,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: alertkube sink queue backing up — rate-limit drops imminent
+            summary: alertkube sink queue backing up - rate-limit drops imminent
         - alert: AlertkubeNotReady
           expr: kube_pod_status_ready{pod=~"alertkube.*"} == 0
           for: 5m
@@ -69,7 +69,7 @@ spec:
 | 500–5k pods | 250m CPU, 256Mi RAM | Enable grouping if storm-prone |
 | > 5k pods | 500m CPU, 512Mi RAM | Tune `sinkRates`, enable leader election for HA |
 
-Watch `alertkube_dispatch_inflight` during incidents. Sustained high values mean the default 1 rps / burst 5 per-sink limiter is dropping messages — raise limits in config:
+Watch `alertkube_dispatch_inflight` during incidents. Sustained high values mean the default 1 rps / burst 5 per-sink limiter is dropping messages - raise limits in config:
 
 ```yaml
 sinkRates:
@@ -79,7 +79,7 @@ sinkRates:
 ## Upgrade procedure (v0.1 → v0.2)
 
 1. Read [MIGRATION-FROM-V1.md](./MIGRATION-FROM-V1.md) if migrating from k8s-pod-restart-info-collector.
-2. Review CHANGELOG for fingerprint (sha256) behavior — one extra page possible for standing conditions.
+2. Review CHANGELOG for fingerprint (sha256) behavior - one extra page possible for standing conditions.
 3. Upgrade Helm chart; checksum annotation triggers a rolling restart:
 
 ```bash
@@ -104,7 +104,7 @@ Followers serve metrics and health but `/readyz` is 503 until they hold the leas
 
 ## Persistence
 
-State snapshots to a ConfigMap (enabled by default). Ensures pending resolves fire after restart and standing conditions do not re-page. Requires Role permissions on the ConfigMap — the chart adds these automatically.
+State snapshots to a ConfigMap (enabled by default). Ensures pending resolves fire after restart and standing conditions do not re-page. Requires Role permissions on the ConfigMap - the chart adds these automatically.
 
 ## NetworkPolicy
 

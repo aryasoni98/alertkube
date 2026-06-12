@@ -67,7 +67,7 @@ func orderedDetailKeys() []string {
 
 // truncate keeps the tail of s (most recent log lines) within limit bytes.
 // The byte cut can land mid-rune; leading continuation bytes are dropped so
-// the result stays valid UTF-8 — Slack rejects payloads containing invalid
+// the result stays valid UTF-8 - Slack rejects payloads containing invalid
 // UTF-8, which would otherwise fail the whole alert for non-ASCII logs.
 func truncate(s string, limit int) string {
 	if len(s) <= limit {

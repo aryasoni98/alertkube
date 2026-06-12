@@ -13,7 +13,7 @@ import (
 )
 
 // HPAWatcher fires when an autoscaler is pinned at maxReplicas while
-// still wanting to scale up — the workload is saturated and the only
+// still wanting to scale up - the workload is saturated and the only
 // remedies (raise max, add capacity) need a human.
 type HPAWatcher struct {
 	ns nsFilter

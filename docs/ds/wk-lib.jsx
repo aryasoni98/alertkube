@@ -1,4 +1,4 @@
-// Wooak landing-page UI primitives — shared across sections
+// Wooak landing-page UI primitives - shared across sections
 // Loaded as a Babel script. Components are exported to window.
 const { motion, AnimatePresence, useScroll, useTransform, useInView, useReducedMotion, useMotionValue, useSpring } = window.FramerMotion || {};
 
@@ -63,7 +63,7 @@ function Button({ variant = "grad", size = "md", children, icon, trailing, onCli
 
 /* ----------------------------- SECTION REVEAL --------------------------- */
 // IntersectionObserver always delivers an initial entry for observed elements.
-// If none arrives shortly after mount, IO is dead in this environment — force
+// If none arrives shortly after mount, IO is dead in this environment - force
 // content visible rather than leaving it stuck at opacity 0.
 function useIOFallback(ref) {
   const [broken, setBroken] = React.useState(false);

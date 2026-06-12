@@ -71,7 +71,7 @@ func RedactSecrets(s string) string {
 	if s == "" {
 		return s
 	}
-	// URL query-string tokens first — preserve surrounding params instead of
+	// URL query-string tokens first - preserve surrounding params instead of
 	// being swallowed by the broad key=value pattern below.
 	if strings.Contains(s, "://") {
 		s = urlTokenPattern.ReplaceAllString(s, "$1[REDACTED]")

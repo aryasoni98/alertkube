@@ -12,7 +12,7 @@ import (
 // TeamsSink posts Adaptive Cards to a Microsoft Teams webhook.
 //
 // Payload is the `{type: message, attachments: [adaptive card]}` envelope
-// accepted by Power Automate Workflows webhooks — the replacement for
+// accepted by Power Automate Workflows webhooks - the replacement for
 // Office 365 connectors, which Microsoft retired. Legacy connector URLs
 // (while they still function) accept the same envelope.
 // Webhook URL is read on each Send so Secret rotation is honored.

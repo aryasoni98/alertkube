@@ -21,7 +21,7 @@ go run .
 ## Development workflow
 
 1. Fork the repository and create a feature branch from `main`.
-2. Make focused changes — one concern per PR.
+2. Make focused changes - one concern per PR.
 3. Add or update tests for behavior changes.
 4. Run `go test ./...` and `golangci-lint run` (CI uses v1.64.8).
 5. Update `CHANGELOG.md` under `[Unreleased]` if user-facing.
@@ -30,8 +30,8 @@ go run .
 ## Code conventions
 
 - Match existing naming and package layout under `internal/`.
-- Watchers implement `Name() / Setup(ctx, factory, emit)` — see `internal/watchers/watcher.go`.
-- Sinks implement `Name() / Send(ctx, alert) / Supports(severity)` — see `internal/sinks/sink.go`.
+- Watchers implement `Name() / Setup(ctx, factory, emit)` - see `internal/watchers/watcher.go`.
+- Sinks implement `Name() / Send(ctx, alert) / Supports(severity)` - see `internal/sinks/sink.go`.
 - Keep diffs minimal; avoid drive-by refactors.
 - Security-sensitive paths (annotations, log redaction, credential handling) need tests.
 

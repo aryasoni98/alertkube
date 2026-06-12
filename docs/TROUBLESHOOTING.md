@@ -53,7 +53,7 @@ Symptom → cause → fix for common alertkube issues.
 |---------|--------------|-----|
 | `/readyz` 503 forever | Informer sync failed | Check RBAC; verify API server connectivity |
 | `/readyz` 503 on follower | Leader election standby | Expected; only leader is ready |
-| CrashLoop on namespace scope | Node watcher on namespace RBAC | Use `rbac.scope: namespace` — node watcher auto-disabled |
+| CrashLoop on namespace scope | Node watcher on namespace RBAC | Use `rbac.scope: namespace` - node watcher auto-disabled |
 | Config ignored | Bad `--config` path (pre-v0.1) | Upgrade; invalid path is now a hard error |
 
 ## Receiver (Alertmanager webhook)

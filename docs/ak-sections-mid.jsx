@@ -1,4 +1,4 @@
-// AlertKube — Watchers grid, Metrics band, Sinks table
+// AlertKube - Watchers grid, Metrics band, Sinks table
 const midFM = window.FramerMotion || {};
 
 /* ----------------------------- WATCHERS ----------------------------- */
@@ -6,10 +6,10 @@ const AK_WATCHERS = [
   { n: "Deployment", icon: "target", file: "watchers/deployment.go", d: "Unavailable replicas and ProgressDeadlineExceeded, with desired / ready / updated counts.", tags: ["Unavailable", "ProgressDeadline"] },
   { n: "PVC", icon: "ring", file: "watchers/pvc.go", d: "ClaimLost is critical. ClaimPending fires as warning so storage flapping doesn't page on-call.", tags: ["Lost", "Pending"] },
   { n: "Job", icon: "check", file: "watchers/job.go", d: "Backoff-limit hit, with active / succeeded / failed counts and the condition message.", tags: ["JobFailed"] },
-  { n: "DaemonSet", icon: "zap", file: "watchers/daemonset.go", d: "Unavailable pods on scheduled nodes — the quiet way node agents break.", tags: ["Unavailable"] },
+  { n: "DaemonSet", icon: "zap", file: "watchers/daemonset.go", d: "Unavailable pods on scheduled nodes - the quiet way node agents break.", tags: ["Unavailable"] },
   { n: "StatefulSet", icon: "layers", file: "watchers/statefulset.go", d: "Ready replicas below desired, generation-guarded to avoid stale fires.", tags: ["ReplicaShortfall"] },
   { n: "CronJob", icon: "calendar", file: "watchers/cronjob.go", d: "Missing success after a full schedule interval; suspend transitions land as info.", tags: ["MissingSuccess", "Suspended"] },
-  { n: "HPA", icon: "chart", file: "watchers/hpa.go", d: "Pinned at maxReplicas while ScalingLimited — the capacity ceiling, before users feel it.", tags: ["MaxedOut"] },
+  { n: "HPA", icon: "chart", file: "watchers/hpa.go", d: "Pinned at maxReplicas while ScalingLimited - the capacity ceiling, before users feel it.", tags: ["MaxedOut"] },
 ];
 
 function AKWatchers() {
@@ -23,14 +23,14 @@ function AKWatchers() {
         />
         <Reveal>
           <div className="ak-wgrid">
-            {/* Pod — flagship tile */}
+            {/* Pod - flagship tile */}
             <div className="ak-wtile ak-wtile--feat">
               <div className="thead">
                 <span className="ic-chip" style={{ background: "var(--wk-gradient)", color: "#fff" }}><Icon name="grid" size={16} /></span>
                 <span className="file">internal/watchers/pod.go</span>
               </div>
               <h3>Pod</h3>
-              <p>Restart counts, container waiting reasons, OOM, image pulls. Filters by namespace and pod-name prefix — literal or regex.</p>
+              <p>Restart counts, container waiting reasons, OOM, image pulls. Filters by namespace and pod-name prefix - literal or regex.</p>
               <div className="minis">
                 <div className="ak-row" style={{ padding: "10px 12px" }}>
                   <AKDot tone="critical" />
@@ -52,19 +52,19 @@ function AKWatchers() {
               </div>
             </div>
 
-            {/* Node — second flagship */}
+            {/* Node - second flagship */}
             <div className="ak-wtile ak-wtile--feat">
               <div className="thead">
                 <span className="ic-chip"><Icon name="shield" size={16} /></span>
                 <span className="file">watchers/node.go</span>
               </div>
               <h3>Node</h3>
-              <p>Transitions only — NodeReady flips, memory / disk / PID pressure, manual cordon. Inhibits its dependent pod alerts.</p>
+              <p>Transitions only - NodeReady flips, memory / disk / PID pressure, manual cordon. Inhibits its dependent pod alerts.</p>
               <div className="minis">
                 {[
                   ["critical", "ip-10-0-3-41 · NotReady", "kubelet stopped posting"],
                   ["warning", "ip-10-0-1-12 · MemoryPressure", "evicting best-effort pods"],
-                  ["info", "ip-10-0-2-08 · Cordoned", "by mia@ — maintenance"],
+                  ["info", "ip-10-0-2-08 · Cordoned", "by mia@ - maintenance"],
                 ].map(([tone, t, s]) => (
                   <div key={t} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <AKDot tone={tone} size={7} />
@@ -101,7 +101,7 @@ function AKWatchers() {
               <h3>Your watcher</h3>
               <p>
                 Implement <span className="wk-mono" style={{ fontSize: 12.5 }}>Name() / Setup(ctx, factory, emit)</span>, emit a canonical alert,
-                and you're in the pipeline — dedupe, routing, and metrics included.
+                and you're in the pipeline - dedupe, routing, and metrics included.
               </p>
             </div>
           </div>
@@ -139,14 +139,14 @@ function AKMetricsBand() {
 
 /* ----------------------------- SINKS ----------------------------- */
 const AK_SINKS = [
-  { n: "Slack", pages: "all", tone: "info", transport: "Webhook or bot token", payload: "Block Kit — header, fields, summary, runbook", env: "SLACK_WEBHOOK_URL" },
+  { n: "Slack", pages: "all", tone: "info", transport: "Webhook or bot token", payload: "Block Kit - header, fields, summary, runbook", env: "SLACK_WEBHOOK_URL" },
   { n: "PagerDuty", pages: "critical only", tone: "critical", transport: "Events API v2", payload: "Trigger / resolve, dedupKey = fingerprint", env: "PAGERDUTY_ROUTING_KEY" },
   { n: "Microsoft Teams", pages: "all", tone: "info", transport: "Power Automate webhook", payload: "Adaptive Card with FactSet + runbook button", env: "TEAMS_WEBHOOK_URL" },
   { n: "Opsgenie", pages: "all", tone: "info", transport: "Alert API v2", payload: "Create / close, alias = fingerprint", env: "OPSGENIE_API_KEY" },
   { n: "Discord", pages: "all", tone: "info", transport: "Channel webhook", payload: "Embed with severity color + runbook", env: "DISCORD_WEBHOOK_URL" },
   { n: "Telegram", pages: "all", tone: "info", transport: "Bot API", payload: "HTML-escaped message", env: "TELEGRAM_BOT_TOKEN" },
   { n: "Generic webhook", pages: "all", tone: "info", transport: "HTTP POST", payload: "Raw alert as JSON", env: "GENERIC_WEBHOOK_URL" },
-  { n: "stdout", pages: "all", tone: "info", transport: "klog", payload: "Single-line summary — local dev", env: "—" },
+  { n: "stdout", pages: "all", tone: "info", transport: "klog", payload: "Single-line summary - local dev", env: "-" },
 ];
 
 function AKSinks() {

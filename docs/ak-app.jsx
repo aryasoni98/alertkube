@@ -1,4 +1,4 @@
-// AlertKube — app composition + tweaks
+// AlertKube - app composition + tweaks
 const appFM = window.FramerMotion || {};
 const mApp = appFM.motion;
 

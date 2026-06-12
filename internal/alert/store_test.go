@@ -55,7 +55,7 @@ func TestSweepResolvedDeletesLastSent(t *testing.T) {
 	s.ShouldSend(a)
 	time.Sleep(20 * time.Millisecond)
 	s.SweepResolved()
-	// After resolve, the next occurrence must fire immediately — the mute
+	// After resolve, the next occurrence must fire immediately - the mute
 	// window should not silence a re-fire after the alert resolved.
 	if !s.ShouldSend(a) {
 		t.Fatalf("re-fire after resolve should not be muted")

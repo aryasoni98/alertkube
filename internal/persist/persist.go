@@ -79,7 +79,7 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 		}, metav1.CreateOptions{})
 		if apierrors.IsAlreadyExists(err) {
 			// Lost a create race (e.g. brief dual-leader window); the other
-			// writer's state is as good as ours — next sweep retries.
+			// writer's state is as good as ours - next sweep retries.
 			return nil
 		}
 		if err != nil {

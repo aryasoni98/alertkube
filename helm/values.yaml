@@ -152,7 +152,7 @@ behavior:
   pvcPendingSeconds: 300
   # Stop fetching previous-container logs for alert enrichment. Logs are
   # redacted before forwarding, but redaction is pattern-based and
-  # best-effort — strict environments should disable collection instead
+  # best-effort - strict environments should disable collection instead
   # of trusting it.
   disableLogCollection: false
   # Ignore `alert-silence-until` pod annotations. Anyone with patch on a

@@ -1,6 +1,6 @@
 {{- if .Values.networkPolicy.enabled -}}
 {{- if not .Values.networkPolicy.apiServer.cidrs }}
-{{- fail "networkPolicy.apiServer.cidrs is required when networkPolicy.enabled=true — find endpoint IPs with: kubectl get endpoints kubernetes" }}
+{{- fail "networkPolicy.apiServer.cidrs is required when networkPolicy.enabled=true - find endpoint IPs with: kubectl get endpoints kubernetes" }}
 {{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -30,7 +30,7 @@ spec:
         - port: 53
           protocol: TCP
     # Kubernetes API server. NetworkPolicy evaluates post-DNAT addresses,
-    # so traffic to the API lands on control-plane endpoint IPs — typically
+    # so traffic to the API lands on control-plane endpoint IPs - typically
     # inside the private ranges excluded from the catch-all 443 rule below.
     # An explicit allow with the real endpoint CIDRs is therefore required.
     - to:

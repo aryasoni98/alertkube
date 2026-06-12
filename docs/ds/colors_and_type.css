@@ -1,6 +1,6 @@
 /* =========================================================
-   WOOAK DESIGN SYSTEM — Tokens
-   Brand: Wooak — all-in-one HR & people operations
+   WOOAK DESIGN SYSTEM - Tokens
+   Brand: Wooak - all-in-one HR & people operations
    ========================================================= */
 
 /* ---------- WEBFONTS ---------- */
@@ -8,7 +8,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap");
 
 :root {
-  /* ===== COLOR — primary palette =====
+  /* ===== COLOR - primary palette =====
      Blue stroke (left side of the W) */
   --wk-blue-50:  #EAF1FE;
   --wk-blue-100: #C7DAFC;
@@ -27,13 +27,13 @@
   --wk-green-700: #15803D;
   --wk-green-900: #0A4424;
 
-  /* Orange spark — sparing use only */
+  /* Orange spark - sparing use only */
   --wk-spark-50:  #FFF1E6;
   --wk-spark-300: #FDBA74;
   --wk-spark-500: #F97316;   /* the spark */
   --wk-spark-700: #C2410C;
 
-  /* ===== COLOR — warm neutrals ===== */
+  /* ===== COLOR - warm neutrals ===== */
   --wk-paper:   #FAFAF7;    /* warm off-white surface */
   --wk-cream:   #F5F5F0;    /* soft cream */
   --wk-bone:    #ECEBE4;    /* slightly deeper, for borders/dividers */
@@ -44,7 +44,7 @@
   --wk-ink-12:  rgba(10,10,10,0.12);
   --wk-ink-06:  rgba(10,10,10,0.06);
 
-  /* ===== SEMANTIC — light theme (default) ===== */
+  /* ===== SEMANTIC - light theme (default) ===== */
   --bg:           var(--wk-paper);
   --bg-elevated:  #FFFFFF;
   --bg-muted:     var(--wk-cream);
@@ -119,14 +119,14 @@
   --d-layout: 400ms;
   --d-entry:  600ms;
 
-  /* ===== TYPE — families ===== */
+  /* ===== TYPE - families ===== */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "JetBrains Mono", monospace;
 }
 
-/* ---------- DARK THEME — intentional, not inverted ---------- */
+/* ---------- DARK THEME - intentional, not inverted ---------- */
 .theme-dark, [data-theme="dark"] {
   --bg:          #0A0F1A;            /* deep blue-ink, not pure black */
   --bg-elevated: #111827;
@@ -147,14 +147,14 @@
   --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.60), 0 4px 12px rgba(0,0,0,0.30);
   --shadow-xl: 0 32px 64px -16px rgba(0,0,0,0.70), 0 8px 24px rgba(0,0,0,0.36);
 
-  /* Spark surface re-tinted for dark — keep warm + readable */
+  /* Spark surface re-tinted for dark - keep warm + readable */
   --wk-spark-wash: rgba(249,115,22,0.12);
   --wk-spark-wash-border: rgba(249,115,22,0.30);
   --wk-spark-text: #FDBA74;
 }
 
 /* =========================================================
-   TYPE SYSTEM — semantic
+   TYPE SYSTEM - semantic
    Display H1 uses tight tracking per brief: -0.02em
    ========================================================= */
 
@@ -181,7 +181,7 @@ body { font-family: var(--font-sans); font-weight: 400; font-size: 16px; line-he
 .wk-mono  { font-family: var(--font-mono); font-size: 13px; }
 .wk-quote { font-family: var(--font-serif); font-style: italic; font-size: clamp(24px, 2.4vw, 34px); line-height: 1.25; letter-spacing: -0.01em; color: var(--fg); }
 
-/* Gradient text utility — never on body copy */
+/* Gradient text utility - never on body copy */
 .wk-text-gradient {
   background: var(--wk-gradient-text);
   -webkit-background-clip: text;

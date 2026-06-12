@@ -1,4 +1,4 @@
-// AlertKube — Config, Install, Changelog, Final CTA, Footer
+// AlertKube - Config, Install, Changelog, Final CTA, Footer
 const botFM = window.FramerMotion || {};
 
 /* ----------------------------- CONFIG ----------------------------- */
@@ -167,7 +167,7 @@ function AKFinalCTA() {
         <Reveal delay={0.08}>
           <p className="wk-finalcta__sub">
             Open source, Apache-2.0, one small binary in your cluster.
-            Free forever — like good infrastructure should be.
+            Free forever - like good infrastructure should be.
           </p>
         </Reveal>
         <Reveal delay={0.16}>

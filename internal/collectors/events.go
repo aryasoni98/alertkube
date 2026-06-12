@@ -23,7 +23,7 @@ func PodEvents(ctx context.Context, c kubernetes.Interface, ns, name string) (st
 // NodeEvents returns events for a given node from across all namespaces
 // (kubelet typically writes Node-scoped events into `default`, but some
 // distributions route them to `kube-system` or the involved object's
-// namespace — list cluster-wide and filter server-side).
+// namespace - list cluster-wide and filter server-side).
 func NodeEvents(ctx context.Context, c kubernetes.Interface, nodeName string) (string, error) {
 	events, err := c.CoreV1().Events(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.kind=Node,involvedObject.name=%s", nodeName),

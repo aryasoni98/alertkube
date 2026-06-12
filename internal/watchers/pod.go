@@ -151,7 +151,7 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 
 	// API-backed enrichment (events, previous logs) moves to a bounded
 	// pool so a slow apiserver cannot stall the informer handler. When
-	// the pool is saturated (alert storm) the alert ships skinny — a
+	// the pool is saturated (alert storm) the alert ships skinny - a
 	// timely page without logs beats a late one with them.
 	select {
 	case p.enrichSem <- struct{}{}:

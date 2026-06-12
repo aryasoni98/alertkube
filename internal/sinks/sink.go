@@ -21,7 +21,7 @@ const perSinkTimeout = 15 * time.Second
 
 // defaultSinkRate is the per-sink rate limit applied when no explicit
 // rate is configured. Slack's published limit is ~1 msg/sec/channel and
-// the other sinks have similar shapes — start conservative.
+// the other sinks have similar shapes - start conservative.
 var defaultSinkRate = rate.Limit(1)
 var defaultSinkBurst = 5
 
@@ -68,7 +68,7 @@ func (r *Registry) SetRate(name string, limit rate.Limit, burst int) {
 // the Supports severity gate so a resolve always follows its trigger
 // (PagerDuty drops resolves for unknown dedup keys, so extras are harmless).
 // Returns false only when at least one sink was attempted and every
-// attempt failed — callers use that to roll back dedupe state so the next
+// attempt failed - callers use that to roll back dedupe state so the next
 // firing retries delivery.
 func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string) bool {
 	var (
@@ -101,7 +101,7 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 
 			if limiter != nil {
 				if err := limiter.Wait(sendCtx); err != nil {
-					// A drop here means the alert never reaches this sink —
+					// A drop here means the alert never reaches this sink -
 					// surface which one, loudly, instead of a V(2) whisper.
 					metrics.AlertsSuppressed.WithLabelValues("ratelimited").Inc()
 					klog.Warningf("sink %q dropped %s: rate limit not acquired within %s", name, a, perSinkTimeout)

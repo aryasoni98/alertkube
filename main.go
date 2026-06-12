@@ -178,7 +178,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	if cfg.Receiver.Enabled {
 		receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
 		if receiverToken == "" {
-			klog.Warningf("receiver enabled WITHOUT a bearer token: POST /api/v1/alerts on %s accepts unauthenticated alert injection — set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
+			klog.Warningf("receiver enabled WITHOUT a bearer token: POST /api/v1/alerts on %s accepts unauthenticated alert injection - set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
 		}
 		metrics.SetReceiverHandler(receiver.New(
 			receiverToken,
@@ -247,7 +247,7 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 	}
 	// A hot-standby follower is a healthy, ready pod: it serves /metrics
 	// and is one lease transition away from leading. Without this, a
-	// RollingUpdate with maxUnavailable: 0 deadlocks — the new pod starts
+	// RollingUpdate with maxUnavailable: 0 deadlocks - the new pod starts
 	// as a follower, never reports Ready, and the old leader is never
 	// terminated.
 	metrics.MarkReady()
@@ -484,7 +484,7 @@ func runEscalations(ctx context.Context, store *alert.Store, reg *sinks.Registry
 			}
 			labels["alertkube-escalated"] = "true"
 			a.Labels = labels
-			a.Summary = "[ESCALATED — unresolved after " + after.String() + "] " + a.Summary
+			a.Summary = "[ESCALATED - unresolved after " + after.String() + "] " + a.Summary
 			metrics.EscalationsTotal.Inc()
 			klog.Infof("escalating %s to %v (%s)", a, esc.Sinks, ruleKey)
 			reg.Dispatch(ctx, a, esc.Sinks)

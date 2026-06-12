@@ -18,11 +18,11 @@ alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in 
 | Resolve detection | Synthetic resolved alert when fingerprint stops firing past TTL |
 | Inhibitions | Suppress dependent alerts (e.g. NodeNotReady silences Pod alerts on that node) |
 | Silences | Time-bounded matchers from config or `alert-silence-until: RFC3339` annotation (annotation form can be disabled) |
-| State persistence | Active alerts + mute history snapshot to a ConfigMap — restarts still send pending resolves and do not re-page standing conditions |
+| State persistence | Active alerts + mute history snapshot to a ConfigMap - restarts still send pending resolves and do not re-page standing conditions |
 | Prometheus metrics | `alertkube_alerts_total`, `alertkube_alerts_suppressed_total`, `alertkube_sink_send_seconds`, `alertkube_sink_errors_total`, `alertkube_active_alerts`, `alertkube_dispatch_inflight` |
 | Escalations | Re-dispatch still-unresolved alerts to extra sinks after a delay (once per alert) |
 | Alertmanager receiver | `POST /api/v1/alerts` accepts Alertmanager webhook payloads into the same pipeline (optional bearer auth) |
-| Alerts API | `GET /api/alerts` — JSON of active alerts + recent history |
+| Alerts API | `GET /api/alerts` - JSON of active alerts + recent history |
 | Health endpoints | `/healthz`, `/readyz` |
 | ServiceMonitor | Optional Prometheus Operator integration via Helm |
 | Grafana dashboard | `docs/grafana-dashboard.json` |
@@ -194,7 +194,7 @@ silences:
 | `runbook-url: https://wiki/runbooks/foo` | Renders a Runbook button in Slack |
 
 > **Slack channel routing:** webhook mode sets the `channel` field, which
-> Slack honors only for **legacy** incoming webhooks — modern-app webhooks
+> Slack honors only for **legacy** incoming webhooks - modern-app webhooks
 > post to the install-time channel and ignore it. For real per-severity
 > channel routing, use **bot-token mode**: set `slack.botToken` (scope
 > `chat:write`, bot invited to each channel). When `SLACK_BOT_TOKEN` is

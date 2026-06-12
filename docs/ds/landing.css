@@ -1,5 +1,5 @@
 /* =========================================================
-   Wooak — Landing page styles (composes design tokens)
+   Wooak - Landing page styles (composes design tokens)
    ========================================================= */
 
 * { box-sizing: border-box; }
@@ -249,7 +249,7 @@ img { display: block; }
   margin: 0 32px;
   padding: 96px 0;
   position: relative;
-  overflow: clip; /* clip instead of hidden — keeps descendant sticky working */
+  overflow: clip; /* clip instead of hidden - keeps descendant sticky working */
 }
 .wk-tour-section::before {
   content: "";
@@ -379,7 +379,7 @@ img { display: block; }
   margin: 0;
   max-width: 460px;
 }
-/* Mobile tour — stacked, no sticky */
+/* Mobile tour - stacked, no sticky */
 .wk-tour-mobile { display: flex; flex-direction: column; gap: 56px; }
 .wk-tour-mobile__item { display: flex; flex-direction: column; gap: 20px; }
 .wk-tour-mobile__visual {
@@ -550,7 +550,7 @@ img { display: block; }
 .wk-finalcta__title { font-weight: 700; font-size: clamp(44px, 6vw, 80px); line-height: 1; letter-spacing: -0.024em; margin: 0 0 18px; }
 .wk-finalcta__sub { font-size: 19px; color: var(--fg-muted); margin: 0 0 32px; }
 
-/* Dark mode — make the W and conic carry actual presence against the deep ink bg */
+/* Dark mode - make the W and conic carry actual presence against the deep ink bg */
 [data-theme="dark"] .wk-finalcta__bg-w {
   /* Invert the mark to a luminous near-white, then re-tint with the gradient via mix-blend */
   filter: brightness(0) invert(1);
@@ -597,7 +597,7 @@ img { display: block; }
 }
 
 /* =========================================================
-   MOBILE POLISH (≤ 720px) — overrides for narrow viewports
+   MOBILE POLISH (≤ 720px) - overrides for narrow viewports
    ========================================================= */
 @media (max-width: 720px) {
   /* Nav */
@@ -625,7 +625,7 @@ img { display: block; }
   .wk-shead__title { font-size: clamp(28px, 7vw, 38px); }
   .wk-shead__sub { font-size: 15.5px; }
 
-  /* Bento — already responsive, just tighten radii */
+  /* Bento - already responsive, just tighten radii */
   .wk-bento .tile { padding: 16px; border-radius: 14px; }
   .wk-bento .tile h3 { font-size: 18px; }
   .wk-bento .tile p { font-size: 13px; }
@@ -642,7 +642,7 @@ img { display: block; }
   .wk-quote-card { flex: 0 0 calc(100% - 40px); padding: 24px; }
   .wk-quote-card__text { font-size: 20px; }
 
-  /* Integrations — shrink constellation */
+  /* Integrations - shrink constellation */
   .wk-section .wk-wrap > div[style*="aspect-ratio"] { max-width: 92vw !important; }
 
   /* Pricing toggle wrapping */
@@ -671,7 +671,7 @@ img { display: block; }
   .wk-footer__bot { flex-wrap: wrap; gap: 12px; }
 }
 
-/* Extra narrow (≤ 420px) — tighten a touch more */
+/* Extra narrow (≤ 420px) - tighten a touch more */
 @media (max-width: 420px) {
   .wk-wrap { padding: 0 16px; }
   .wk-hero__title { font-size: 40px; }

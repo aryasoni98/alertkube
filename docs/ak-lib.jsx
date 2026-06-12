@@ -1,4 +1,4 @@
-// AlertKube — shared primitives (composes Wooak DS bundle exports)
+// AlertKube - shared primitives (composes Wooak DS bundle exports)
 const akFM = window.FramerMotion || {};
 
 /* ----------------------------- LOGO ----------------------------- */

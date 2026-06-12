@@ -14,8 +14,8 @@ import (
 
 // CronJobWatcher fires when a schedule tick passes without a successful
 // run. Individual failed runs already alert via the Job watcher
-// (JobFailed); this catches the chronic case — a CronJob whose runs keep
-// failing or never complete — without parsing cron expressions: each new
+// (JobFailed); this catches the chronic case - a CronJob whose runs keep
+// failing or never complete - without parsing cron expressions: each new
 // LastScheduleTime is an Update event, and at that moment we can check
 // whether the previous tick ever succeeded.
 type CronJobWatcher struct {

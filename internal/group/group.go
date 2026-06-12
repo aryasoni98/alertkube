@@ -133,7 +133,7 @@ func (g *Grouper) FlushAll() {
 
 // emitSummary builds and flushes the summary alert for a bucket that
 // absorbed at least one member. A bucket whose window passed with no
-// absorptions produces nothing — the pass-through alert already told the
+// absorptions produces nothing - the pass-through alert already told the
 // whole story.
 func (g *Grouper) emitSummary(b *bucket) {
 	n := len(b.members)

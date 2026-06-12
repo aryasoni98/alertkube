@@ -207,7 +207,7 @@ func (s *Store) Recent() []*Alert {
 
 // Forget drops all state for a fingerprint without emitting a resolve.
 // Used when an external system (e.g. an Alertmanager resolve received by
-// the webhook receiver) already told the sinks the alert is over —
+// the webhook receiver) already told the sinks the alert is over -
 // keeping it active would emit a duplicate synthetic resolve at TTL.
 func (s *Store) Forget(fp string) {
 	s.mu.Lock()

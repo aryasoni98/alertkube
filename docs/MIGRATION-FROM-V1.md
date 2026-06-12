@@ -58,7 +58,7 @@ behavior:
   muteSeconds: 600
 ```
 
-Disable watchers you do not need by not granting RBAC — or accept the broader coverage (recommended).
+Disable watchers you do not need by not granting RBAC - or accept the broader coverage (recommended).
 
 ### 3. Add annotations (optional)
 
@@ -106,7 +106,7 @@ kubectl delete configmap alertkube-state -n monitoring
 
 ## FAQ
 
-**Will I get more alerts?** Yes — node, deployment, and PVC issues now surface. Use routing rules and silences to tune.
+**Will I get more alerts?** Yes - node, deployment, and PVC issues now surface. Use routing rules and silences to tune.
 
 **Do fingerprints match v1?** No. alertkube uses `sha256(kind|ns|name|reason)`. PagerDuty dedup keys will differ.
 

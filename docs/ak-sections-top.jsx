@@ -1,4 +1,4 @@
-// AlertKube — Nav, Hero, Marquee, Pipeline, Severity
+// AlertKube - Nav, Hero, Marquee, Pipeline, Severity
 const topFM = window.FramerMotion || {};
 const mT = topFM.motion;
 
@@ -91,7 +91,7 @@ function AKHero({ live }) {
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                v0.2.1 — escalations, grouping, persistence
+                v0.2.1 - escalations, grouping, persistence
               </span>
             </Reveal>
             <Reveal delay={0.06}>
@@ -102,7 +102,7 @@ function AKHero({ live }) {
             </Reveal>
             <Reveal delay={0.12}>
               <p className="wk-hero__sub">
-                AlertKube watches nine Kubernetes resource kinds — classifies by severity,
+                AlertKube watches nine Kubernetes resource kinds - classifies by severity,
                 dedupes the storms, inhibits the noise, and routes each page to the one
                 person who should actually wake up.
               </p>
@@ -196,7 +196,7 @@ function AKHero({ live }) {
                   <Icon name="bell" size={15} />
                 </span>
                 <span>
-                  <span className="t" style={{ display: "block" }}>PagerDuty — paged Mia</span>
+                  <span className="t" style={{ display: "block" }}>PagerDuty - paged Mia</span>
                   <span className="s">critical only · dedupKey a3f29c41b07e</span>
                 </span>
               </mT.div>
@@ -223,7 +223,7 @@ function AKMarquee() {
 
 /* ----------------------------- PIPELINE ----------------------------- */
 const AK_STAGES = [
-  { t: "Fingerprint", d: "sha256(kind | ns | name | reason), truncated to 12 chars. Same fingerprint, same alert — dedupe for free." },
+  { t: "Fingerprint", d: "sha256(kind | ns | name | reason), truncated to 12 chars. Same fingerprint, same alert - dedupe for free." },
   { t: "Mute", d: "muteSeconds blocks re-firing of the same fingerprint. The last-sent table self-cleans after an hour." },
   { t: "Silence", d: "Matchers plus an RFC3339 until. The alert-silence-until annotation works per-resource." },
   { t: "Inhibit", d: "A source alert arms a window; matching targets are dropped while it holds. NodeNotReady mutes its pods." },
@@ -264,7 +264,7 @@ function AKStageVisual({ i }) {
       <span className="pv-arrow"><Icon name="chev" size={18} /></span>
       <div className="pv-card pv-card--off"><AKDot tone="critical" /><span className="pv-name">payments/api-7d9fc · CrashLoopBackOff</span></div>
       <div className="pv-card pv-card--off"><AKDot tone="critical" /><span className="pv-name">search/indexer-1 · CrashLoopBackOff</span></div>
-      <span className="pv-note">12 pod alerts inhibited — one page, not thirteen</span>
+      <span className="pv-note">12 pod alerts inhibited - one page, not thirteen</span>
     </div>
   );
   if (i === 4) return (
@@ -300,7 +300,7 @@ function AKPipeline() {
         <AKHead
           eyebrow="The pipeline"
           title="From raw event to a page worth taking"
-          sub="Every alert flows through the same six stages. No magic — a small, inspectable Go pipeline with metrics at every hop."
+          sub="Every alert flows through the same six stages. No magic - a small, inspectable Go pipeline with metrics at every hop."
         />
         <Reveal>
           <div className="ak-stages">
@@ -376,7 +376,7 @@ function AKSeverity() {
         <AKHead
           eyebrow="Severity model"
           title="Three tiers. One source of truth."
-          sub="Severity drives color, channel, and which sinks accept the page. PagerDuty only rings on critical — Slack takes all three."
+          sub="Severity drives color, channel, and which sinks accept the page. PagerDuty only rings on critical - Slack takes all three."
         />
         <Stagger className="ak-sev-grid">
           {AK_SEV.map((s) => (

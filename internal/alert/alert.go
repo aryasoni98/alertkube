@@ -82,7 +82,7 @@ type Alert struct {
 // sha256 rather than sha1: collision resistance is irrelevant here, but it
 // keeps security scanners quiet and costs nothing. Truncated to 12 hex
 // chars for log/footer readability. NOTE: changing this function changes
-// every fingerprint — persisted snapshots from older versions then fail to
+// every fingerprint - persisted snapshots from older versions then fail to
 // match live alerts, so re-fires inside the mute window re-page once after
 // the upgrade. Bump SnapshotVersion if the change must invalidate state.
 func ComputeFingerprint(kind Kind, ns, name, reason string) string {
