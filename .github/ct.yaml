@@ -1,0 +1,12 @@
+# chart-testing (ct) configuration. https://github.com/helm/chart-testing
+# Used by the Helm CI workflow to lint the chart and (optionally) install it.
+target-branch: master
+chart-dirs:
+  - .
+chart-repos: []
+# The chart lives at ./helm, not in a charts/ dir, so point ct at it directly.
+charts:
+  - helm
+helm-extra-args: --timeout 180s
+validate-maintainers: true
+check-version-increment: false # release-please / manual bumps own the version

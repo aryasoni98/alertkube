@@ -1,0 +1,163 @@
+name: E2E
+
+# End-to-end tests against real kind clusters across a Kubernetes version matrix.
+# Heavy, so it runs on PRs that touch the controller/chart, plus nightly and on
+# demand. See test/e2e/README.md.
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "Dockerfile"
+      - "helm/**"
+      - "test/e2e/**"
+      - ".github/workflows/e2e.yml"
+  schedule:
+    - cron: "37 2 * * *" # nightly 02:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: alertkube:e2e
+  CLUSTER: alertkube-e2e
+  RELEASE_NS: alertkube
+
+jobs:
+  smoke:
+    name: Smoke (k8s ${{ matrix.k8s }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # kindest/node image tags — keep within the supported skew.
+        k8s: ["v1.29.14", "v1.30.13", "v1.31.9"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build controller image
+        run: docker build -t "${IMAGE}" .
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          node_image: kindest/node:${{ matrix.k8s }}
+
+      - name: Load image into kind
+        run: kind load docker-image "${IMAGE}" --name "${CLUSTER}"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.16.0
+
+      - name: Install alertkube (stdout sink)
+        run: |
+          helm upgrade --install alertkube ./helm \
+            --namespace "${RELEASE_NS}" --create-namespace \
+            --set cluster=e2e \
+            --set image.repository=alertkube \
+            --set image.tag=e2e \
+            --set image.pullPolicy=Never \
+            --set persistence.enabled=false \
+            --set behavior.startupGraceSeconds=0 \
+            --set behavior.muteSeconds=5 \
+            --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
+            --wait --timeout 180s
+
+      - name: Wait for rollout
+        run: kubectl -n "${RELEASE_NS}" rollout status deploy/alertkube --timeout=120s
+
+      - name: Readiness probe
+        run: |
+          kubectl -n "${RELEASE_NS}" wait --for=condition=Available deploy/alertkube --timeout=120s
+
+      - name: Break a pod and assert an alert
+        run: |
+          kubectl create namespace alertkube-e2e --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n alertkube-e2e run boom --image=busybox:1.36 --restart=Always -- /bin/false
+          echo "Waiting for the controller to emit a CrashLoopBackOff alert for 'boom'..."
+          ok=0
+          for _ in $(seq 1 40); do
+            if kubectl -n "${RELEASE_NS}" logs deploy/alertkube --tail=-1 2>/dev/null \
+                 | grep -E "boom" | grep -Eiq "CrashLoopBackOff"; then
+              echo "alert observed"; ok=1; break
+            fi
+            sleep 6
+          done
+          if [ "${ok}" -ne 1 ]; then
+            echo "::error::no CrashLoopBackOff alert for 'boom' within timeout"
+            kubectl -n "${RELEASE_NS}" logs deploy/alertkube --tail=120 || true
+            kubectl -n alertkube-e2e describe pod boom || true
+            exit 1
+          fi
+
+      - name: Controller logs (always)
+        if: always()
+        run: kubectl -n "${RELEASE_NS}" logs deploy/alertkube --tail=120 || true
+
+  ha:
+    name: HA leader election
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build controller image
+        run: docker build -t "${IMAGE}" .
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          node_image: kindest/node:v1.31.9
+
+      - name: Load image into kind
+        run: kind load docker-image "${IMAGE}" --name "${CLUSTER}"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.16.0
+
+      - name: Install alertkube (2 replicas, leader election)
+        run: |
+          helm upgrade --install alertkube ./helm \
+            --namespace "${RELEASE_NS}" --create-namespace \
+            --set cluster=e2e \
+            --set image.repository=alertkube \
+            --set image.tag=e2e \
+            --set image.pullPolicy=Never \
+            --set replicaCount=2 \
+            --set leaderElection.enabled=true \
+            --set leaderElection.namespace="${RELEASE_NS}" \
+            --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
+            --wait --timeout 180s
+
+      - name: Assert two replicas and exactly one leader
+        run: |
+          kubectl -n "${RELEASE_NS}" rollout status deploy/alertkube --timeout=120s
+          replicas=$(kubectl -n "${RELEASE_NS}" get deploy/alertkube -o jsonpath='{.status.readyReplicas}')
+          echo "ready replicas: ${replicas}"
+          [ "${replicas}" = "2" ] || { echo "::error::expected 2 ready replicas, got ${replicas}"; exit 1; }
+          echo "Waiting for a leader Lease..."
+          holder=""
+          for _ in $(seq 1 20); do
+            holder=$(kubectl -n "${RELEASE_NS}" get lease -o jsonpath='{.items[?(@.spec.holderIdentity)].spec.holderIdentity}' 2>/dev/null || true)
+            [ -n "${holder}" ] && break
+            sleep 6
+          done
+          if [ -z "${holder}" ]; then
+            echo "::error::no Lease with a holderIdentity found — leader election did not establish a leader"
+            kubectl -n "${RELEASE_NS}" get lease -o yaml || true
+            exit 1
+          fi
+          echo "leader holderIdentity: ${holder}"
+
+      - name: Controller logs (always)
+        if: always()
+        run: kubectl -n "${RELEASE_NS}" logs -l app.kubernetes.io/name=alertkube --tail=80 --prefix || true

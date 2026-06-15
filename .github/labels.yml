@@ -1,0 +1,87 @@
+# Label definitions for alertkube, synced to GitHub by .github/workflows/labels.yml
+# (crazy-max/ghaction-github-labeler). Edit here, not in the GitHub UI.
+
+# --- Triage ---
+- name: needs-triage
+  color: "ededed"
+  description: Awaiting maintainer triage
+- name: good first issue
+  color: "7057ff"
+  description: Good for newcomers — small, well-scoped
+- name: help wanted
+  color: "008672"
+  description: Extra attention is welcome
+- name: blocked
+  color: "b60205"
+  description: Blocked on something else
+- name: duplicate
+  color: "cfd3d7"
+  description: Already tracked elsewhere
+- name: wontfix
+  color: "ffffff"
+  description: Will not be worked on
+- name: question
+  color: "d876e3"
+  description: Further information is requested
+
+# --- Kind ---
+- name: kind/bug
+  color: "d73a4a"
+  description: Something is not working
+- name: kind/feature
+  color: "0e8a16"
+  description: New capability
+- name: kind/docs
+  color: "0075ca"
+  description: Documentation
+- name: kind/chore
+  color: "fef2c0"
+  description: Maintenance, CI, deps
+- name: kind/security
+  color: "b60205"
+  description: Security-relevant (non-vuln; vulns go through SECURITY.md)
+- name: kind/refactor
+  color: "c5def5"
+  description: Internal change, no behavior difference
+
+# --- Area ---
+- name: area/watchers
+  color: "1d76db"
+  description: internal/watchers — Kubernetes resource observers
+- name: area/sinks
+  color: "1d76db"
+  description: internal/sinks — alert delivery targets
+- name: area/router
+  color: "1d76db"
+  description: routing, silences, inhibitions, grouping
+- name: area/config
+  color: "1d76db"
+  description: configuration surface
+- name: area/helm
+  color: "1d76db"
+  description: Helm chart and Kubernetes manifests
+- name: area/ci
+  color: "1d76db"
+  description: CI/CD and automation
+- name: area/docs
+  color: "1d76db"
+  description: docs and docs site
+
+# --- Priority ---
+- name: priority/critical
+  color: "b60205"
+  description: Drop everything
+- name: priority/high
+  color: "d93f0b"
+  description: Important, schedule soon
+- name: priority/low
+  color: "0e8a16"
+  description: Nice to have
+
+# --- Meta ---
+- name: hacktoberfest
+  color: "ff7518"
+  description: Eligible for Hacktoberfest
+- name: dependencies
+  color: "0366d6"
+  description: Dependency updates (Dependabot)

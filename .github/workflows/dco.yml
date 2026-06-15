@@ -1,0 +1,61 @@
+name: DCO
+
+# Verifies that every commit in a pull request carries a
+# `Signed-off-by:` trailer (Developer Certificate of Origin).
+# Self-contained: no third-party action, so nothing to pin/trust.
+# See CONTRIBUTING.md "Developer Certificate of Origin (DCO)".
+
+on:
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: Check Signed-off-by
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify DCO sign-off on all PR commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          fail=0
+          # Iterate non-merge commits in the PR range.
+          commits=$(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")
+          if [ -z "${commits}" ]; then
+            echo "No non-merge commits to check."
+            exit 0
+          fi
+          for sha in ${commits}; do
+            subject=$(git show -s --format='%s' "${sha}")
+            author="$(git show -s --format='%an <%ae>' "${sha}")"
+            # Collect all Signed-off-by trailers on this commit.
+            signoffs=$(git show -s --format='%B' "${sha}" \
+              | grep -Ei '^Signed-off-by: .+ <.+@.+>' || true)
+            if [ -z "${signoffs}" ]; then
+              echo "::error::Commit ${sha:0:12} (\"${subject}\") is missing a Signed-off-by line."
+              fail=1
+              continue
+            fi
+            # Require the commit author to appear in a sign-off (case-insensitive).
+            if ! echo "${signoffs}" | grep -qiF "${author}"; then
+              echo "::warning::Commit ${sha:0:12} is signed off, but not by its author (${author})."
+            fi
+            echo "ok: ${sha:0:12} (\"${subject}\")"
+          done
+          if [ "${fail}" -ne 0 ]; then
+            echo ""
+            echo "One or more commits are missing a DCO sign-off."
+            echo "Fix with:  git rebase --signoff ${BASE_SHA}  &&  git push --force-with-lease"
+            echo "Going forward, commit with:  git commit -s"
+            exit 1
+          fi
+          echo "All commits carry a DCO sign-off."

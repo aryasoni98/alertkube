@@ -43,6 +43,9 @@ trivy-results.sarif
 *.swo
 *~
 
+# Docs site build output
+/docs-site/site/
+
 # Local tooling
 .cache/
 .claude/

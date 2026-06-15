@@ -1,20 +1,24 @@
 # alertkube default values.
 
+# -- Cluster name shown in every alert.
 cluster: "Change-Me"
 
 # replicaCount > 1 requires leaderElection.enabled=true. The Recreate
 # strategy is used when leader election is off so two instances never
 # overlap and re-fire each other's alerts after a restart.
+# -- Replica count (>1 requires `leaderElection.enabled`).
 replicaCount: 1
 
 leaderElection:
+  # -- Enable HA leader election via a coordination Lease.
   enabled: false
   # Namespace holding the Lease object. Defaults to the release namespace
   # if empty. kube-system or a shared "system" namespace is typical so
   # the release can be reinstalled without losing the lease.
+  # -- Namespace for the Lease (defaults to the release namespace).
   namespace: ""
 
-# Pass-through arguments appended to the controller command line.
+# -- Extra arguments appended to the controller command line.
 extraArgs: []
 
 # cluster: ClusterRole, watches all namespaces + nodes.
@@ -22,23 +26,33 @@ extraArgs: []
 # via WATCH_NAMESPACE and node alerts are disabled (nodes are
 # cluster-scoped resources).
 rbac:
+  # -- RBAC scope: `cluster` (all namespaces + nodes) or `namespace`.
   scope: cluster   # cluster | namespace
 
 image:
+  # -- Controller image repository.
   repository: ghcr.io/aryasoni98/alertkube
   # Defaults to the chart appVersion when empty.
+  # -- Image tag (defaults to the chart `appVersion`).
   tag: ""
+  # -- Image pull policy.
   pullPolicy: IfNotPresent
 
 # Slack - per-severity channels. slackWebhookUrl can come from a Secret.
 slack:
+  # -- Slack incoming webhook URL (inline; prefer `webhookUrlSecretKeyRef`).
   webhookUrl: ""
+  # -- Username shown on Slack webhook messages.
   username: "alertkube"
   channels:
+    # -- Channel for critical alerts (bot-token mode only).
     critical: "alerts-critical"
+    # -- Channel for warning alerts (bot-token mode only).
     warning:  "alerts-warning"
+    # -- Channel for info alerts (bot-token mode only).
     info:     "alerts-info"
   # External Secret reference (set webhookUrl to "" to use it).
+  # -- Secret reference for the webhook URL (`{key, name}`).
   webhookUrlSecretKeyRef: {}
     # key: slackWebhookUrl
     # name: alertkube
@@ -46,46 +60,62 @@ slack:
   # and is the only mode where per-severity channel routing works with a
   # modern Slack app (webhooks ignore the channel field). Needs the
   # chat:write scope and the bot invited to each channel.
+  # -- Slack bot token (chat.postMessage); enables per-severity channels.
   botToken: ""
+  # -- Secret reference for the bot token (`{key, name}`).
   botTokenSecretKeyRef: {}
     # key: slackBotToken
     # name: alertkube
 
 pagerduty:
-  routingKey: ""           # PagerDuty Events API v2 routing key (inline -> Secret)
+  # -- PagerDuty Events API v2 routing key (inline; prefer the Secret ref).
+  routingKey: ""
   # External Secret reference (set routingKey to "" to use it).
+  # -- Secret reference for the routing key (`{key, name}`).
   routingKeySecretKeyRef: {}
     # key: pagerdutyRoutingKey
     # name: alertkube-pagerduty
 
 teams:
-  webhookUrl: ""           # Microsoft Teams incoming webhook (inline -> Secret)
+  # -- Microsoft Teams incoming webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Teams webhook URL (`{key, name}`).
   webhookUrlSecretKeyRef: {}
     # key: teamsWebhookUrl
     # name: alertkube-teams
 
 discord:
-  webhookUrl: ""           # Discord channel webhook (inline -> Secret)
+  # -- Discord channel webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Discord webhook URL (`{key, name}`).
   webhookUrlSecretKeyRef: {}
     # key: discordWebhookUrl
     # name: alertkube-discord
 
 telegram:
-  botToken: ""             # Telegram bot token from @BotFather (inline -> Secret)
-  chatId: ""               # Target chat/channel id (not secret)
+  # -- Telegram bot token from @BotFather (inline; prefer the Secret ref).
+  botToken: ""
+  # -- Target chat/channel id (not secret).
+  chatId: ""
+  # -- Secret reference for the Telegram bot token (`{key, name}`).
   botTokenSecretKeyRef: {}
     # key: telegramBotToken
     # name: alertkube-telegram
 
 opsgenie:
-  apiKey: ""               # Opsgenie Alert API key (inline -> Secret)
-  apiUrl: ""               # Override for EU region: https://api.eu.opsgenie.com
+  # -- Opsgenie Alert API key (inline; prefer the Secret ref).
+  apiKey: ""
+  # -- API URL override for the EU region (`https://api.eu.opsgenie.com`).
+  apiUrl: ""
+  # -- Secret reference for the Opsgenie API key (`{key, name}`).
   apiKeySecretKeyRef: {}
     # key: opsgenieApiKey
     # name: alertkube-opsgenie
 
 genericWebhook:
-  url: ""                  # POST JSON Alert struct to any endpoint
+  # -- Endpoint that receives the raw Alert JSON via POST.
+  url: ""
+  # -- Secret reference for the webhook URL (`{key, name}`).
   urlSecretKeyRef: {}
     # key: genericWebhookUrl
     # name: alertkube-webhook
@@ -93,10 +123,12 @@ genericWebhook:
   # `X-Alertkube-Signature: sha256=<hex(hmac(secret, timestamp.body))>`
   # and `X-Alertkube-Timestamp: <RFC3339>` so receivers can verify
   # authenticity and reject replay.
+  # -- Optional HMAC-SHA256 signing key for request signatures.
   signingSecret: ""
 
 # Re-dispatch still-unresolved alerts to extra sinks after a delay.
 # Each rule fires at most once per alert lifetime.
+# -- Escalation rules; re-dispatch unresolved alerts to extra sinks after a delay.
 escalations: []
   # - match: {severity: critical}
   #   afterMinutes: 15
@@ -106,8 +138,11 @@ escalations: []
 # and run them through the same dedupe/grouping/routing pipeline.
 # Optional bearer auth: set receiver.token (stored in the chart Secret).
 receiver:
+  # -- Accept Alertmanager webhooks on `/api/v1/alerts`.
   enabled: false
+  # -- Optional bearer token guarding the receiver (inline; prefer the Secret ref).
   token: ""
+  # -- Secret reference for the receiver token (`{key, name}`).
   tokenSecretKeyRef: {}
     # key: receiverToken
     # name: alertkube-receiver
@@ -117,8 +152,11 @@ receiver:
 # ("4 more Pod CrashLoopBackOff alerts ..."). PagerDuty/Opsgenie still
 # receive every resolve and never receive summaries.
 grouping:
+  # -- Fold alert storms into one summary per group.
   enabled: false
+  # -- Window in seconds during which same-group alerts collapse.
   windowSeconds: 30
+  # -- Grouping key fields.
   by: [kind, namespace, reason, severity]
 
 # Persist active-alert and mute state to a ConfigMap in the release
@@ -126,50 +164,86 @@ grouping:
 # (no dangling PagerDuty incidents) and does not re-page standing
 # conditions. Adds a namespaced Role for the state ConfigMap.
 persistence:
+  # -- Snapshot active-alert and mute state to a ConfigMap.
   enabled: true
   # Defaults to "<fullname>-state" when empty.
+  # -- State ConfigMap name (defaults to `<fullname>-state`).
   configMapName: ""
 
 filters:
+  # -- Comma-separated namespaces to watch (empty = all).
   watchedNamespaces: ""
+  # -- Comma-separated namespaces to ignore.
   ignoredNamespaces: ""
+  # -- Comma-separated pod-name prefixes to watch.
   watchedPodNamePrefixes: ""
+  # -- Comma-separated pod-name prefixes to ignore.
   ignoredPodNamePrefixes: ""
 
 behavior:
+  # -- Re-alert mute window in seconds for a still-firing condition.
   muteSeconds: 600
+  # -- Restart count above which CrashLoopBackOff stops re-alerting.
   ignoreRestartCount: 30
+  # -- Skip alerts for restarts that exited with code 0.
   ignoreRestartsWithExitCodeZero: false
+  # -- Seconds an alert may stay unseen before it is treated as resolved.
   resolveTTLSeconds: 600
   # Suppress alerts fired during the first N seconds after start. The
   # informer initial sync re-fires every standing condition (e.g.
   # CrashLoopBackOff pods) on each controller restart; the grace window
   # mutes those re-fires. Conditions still firing after the window alert
   # normally once the mute window expires. 0 disables.
+  # -- Mute alerts fired during the first N seconds after start (0 disables).
   startupGraceSeconds: 30
   # How long a PVC may stay Pending before alerting (provisioners
   # legitimately take a while).
+  # -- Seconds a PVC may stay Pending before alerting.
   pvcPendingSeconds: 300
   # Stop fetching previous-container logs for alert enrichment. Logs are
   # redacted before forwarding, but redaction is pattern-based and
   # best-effort - strict environments should disable collection instead
   # of trusting it.
+  # -- Disable previous-container log collection for alert enrichment.
   disableLogCollection: false
   # Ignore `alert-silence-until` pod annotations. Anyone with patch on a
   # workload can otherwise silence its own alerts.
+  # -- Ignore `alert-silence-until` pod annotations (anti-self-silence).
   disableAnnotationSilences: false
 
 metrics:
+  # -- Expose the metrics/health HTTP server.
   enabled: true
+  # -- Port for `/metrics`, `/healthz`, `/readyz`.
   port: 9090
   serviceMonitor:
+    # -- Create a Prometheus Operator `ServiceMonitor`.
     enabled: false
+    # -- Scrape interval for the ServiceMonitor.
     interval: 30s
+    # -- Extra labels on the ServiceMonitor.
     labels: {}
+
+# Self-health PrometheusRule (requires the Prometheus Operator). Alerts on
+# alertkube being down/unscraped, sustained sink errors, rate-limit drops, and
+# dispatch saturation - the "who watches the watcher" rules.
+prometheusRule:
+  # -- Create a self-health `PrometheusRule` (requires the Prometheus Operator).
+  enabled: false
+  # namespace: ""               # defaults to the release namespace
+  # -- Extra labels so your Prometheus selects the rule.
+  labels: {}
+  # -- How long alertkube metrics may be absent before `AlertkubeAbsent` fires.
+  absentFor: "10m"
+  # -- `AlertkubeDispatchSaturated` in-flight threshold.
+  dispatchInflightThreshold: 20
+  # -- Extra PrometheusRule entries appended verbatim.
+  additionalRules: []
 
 # Remap alert severities before dedupe/routing. First match wins.
 # match semantics are the same as routing rules (namespace/reason accept
 # anchored regexes, other keys are exact).
+# -- Severity remap rules applied before dedupe/routing (first match wins).
 severityOverrides: []
   # - match: {kind: Pod, reason: ImagePullBackOff, namespace: dev-.*}
   #   severity: info
@@ -178,6 +252,7 @@ severityOverrides: []
 
 # Per-sink send rate overrides (token bucket). Unlisted sinks default to
 # 1 msg/sec with burst 5 (Slack's published webhook limit).
+# -- Per-sink token-bucket rate overrides (default 1 msg/s, burst 5).
 sinkRates: {}
   # slack:
   #   perSecond: 1
@@ -187,6 +262,7 @@ sinkRates: {}
   #   burst: 20
 
 # Free-form routing/inhibition/silence rules rendered into ConfigMap.
+# -- Routing rules mapping alert matches to sinks (rendered into the ConfigMap).
 routing:
   - match: {severity: critical}
     sinks: [slack, pagerduty]
@@ -195,27 +271,36 @@ routing:
   - match: {severity: info}
     sinks: [slack]
 
+# -- Inhibition rules that suppress targets while a source alert is active.
 inhibitions:
   - source: {kind: Node, reason: NodeNotReady}
     target: {kind: Pod}
     equal: [node]
     duration: 10m
 
+# -- Standing silence rules.
 silences: []
 
 resources:
+  # -- Resource limits.
   limits:
     cpu: 200m
     memory: 256Mi
+  # -- Resource requests.
   requests:
     cpu: 50m
     memory: 64Mi
 
+# -- Image pull secrets.
 imagePullSecrets: []
+# -- Override the chart name portion of resource names.
 nameOverride: ""
+# -- Override the full resource name.
 fullnameOverride: ""
+# -- Extra annotations on the controller pod.
 podAnnotations: {}
 
+# -- Pod-level security context.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532
@@ -224,6 +309,7 @@ podSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# -- Container-level security context.
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
@@ -232,27 +318,36 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
+# -- Node selector for scheduling.
 nodeSelector: {}
+# -- Tolerations for scheduling.
 tolerations: []
+# -- Affinity rules for scheduling.
 affinity: {}
 
 podDisruptionBudget:
+  # -- Create a PodDisruptionBudget (for HA).
   enabled: false
+  # -- Minimum available replicas.
   minAvailable: 1
 
 networkPolicy:
+  # -- Restrict metrics ingress and controller egress with a NetworkPolicy.
   enabled: false
   # Kubernetes API server endpoints. Required when enabled: NetworkPolicy
   # sees post-DNAT endpoint IPs, which the private-range exclusions below
   # would otherwise block, cutting the controller off from the API.
   # Find them with: kubectl get endpoints kubernetes
   apiServer:
-    cidrs: []     # e.g. ["10.0.0.2/32"] or your control-plane subnet
-    port: 443     # endpoint target port; often 6443 on self-managed clusters
+    # -- API server endpoint CIDRs (e.g. `["10.0.0.2/32"]`); required when enabled.
+    cidrs: []
+    # -- API server endpoint target port (often 6443 on self-managed).
+    port: 443
   # Restrict who can scrape /metrics. Defaults to allow-all when empty.
+  # -- Sources allowed to scrape `/metrics` (empty = allow all).
   ingressFrom: []
     # - namespaceSelector:
     #     matchLabels:
     #       kubernetes.io/metadata.name: monitoring
-  # Extra egress rules appended verbatim to the egress list.
+  # -- Extra egress rules appended verbatim.
   extraEgress: []

@@ -1,0 +1,9 @@
+# Artifact Hub repository metadata.
+# Lets you claim ownership of the alertkube Helm repo on artifacthub.io and earn
+# the "Verified Publisher" badge. After publishing, set the repository URL on
+# Artifact Hub to this repo and the ownership claim reads this file.
+# Docs: https://artifacthub.io/docs/topics/repositories/
+repositoryID: ""  # paste the UUID Artifact Hub issues for this repository
+owners:
+  - name: Arya Soni
+    email: ""  # the email associated with your Artifact Hub account

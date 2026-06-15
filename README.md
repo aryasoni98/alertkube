@@ -2,6 +2,16 @@
 
 > Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.
 
+[![CI](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/aryasoni98/alertkube/badge)](https://scorecard.dev/viewer/?uri=github.com/aryasoni98/alertkube)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aryasoni98/alertkube)](https://goreportcard.com/report/github.com/aryasoni98/alertkube)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-2.0.txt)
+<!-- Earned after registering at bestpractices.dev / Artifact Hub — see docs/security/openssf-best-practices.md
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/PROJECT_ID/badge)](https://www.bestpractices.dev/projects/PROJECT_ID)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/alertkube)](https://artifacthub.io/packages/helm/alertkube/alertkube)
+-->
+
 alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit, webhook or bot token), PagerDuty (Events API v2), Microsoft Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhooks, or stdout for local dev.
 
 ## Features
@@ -65,13 +75,13 @@ go run .
 Container image (multi-arch, cosign-signed):
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v0.2.1
+docker pull ghcr.io/aryasoni98/alertkube:v0.2.2
 ```
 
 Helm from the published OCI chart:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.1 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.2 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \
@@ -202,13 +212,36 @@ silences:
 
 ## Documentation
 
+A full documentation site (MkDocs Material, Diátaxis) lives in [`docs-site/`](docs-site/) —
+run `make docs-serve`. Key documents:
+
 | Doc | Description |
 | --- | --- |
+| [Docs site](docs-site/) | Tutorials · How-to · Reference · Explanation (`make docs-serve`) |
 | [OPERATIONS.md](docs/OPERATIONS.md) | SLOs, dashboards, PrometheusRule, upgrades, HA |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix |
 | [MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md) | Upgrade from k8s-pod-restart-info-collector |
+| [TESTING.md](docs/TESTING.md) | Test pyramid, fuzzing, coverage gate |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, load testing, tuning |
+| [ROADMAP.md](docs/ROADMAP.md) | Build pipeline toward CNCF Sandbox |
+| [decisions/](docs/decisions/) | Architecture Decision Records (ADRs) |
 | [grafana-dashboard.json](docs/grafana-dashboard.json) | Importable Grafana dashboard |
 | [Landing page](docs/index.html) | GitHub Pages site (deployed from `docs/`) |
+
+## Community & governance
+
+alertkube is open to contributors and run under a lightweight, neutral governance
+model.
+
+| | |
+| --- | --- |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, DCO, Conventional Commits |
+| [Good first issues](docs/good-first-issues.md) | Curated starter tasks |
+| [GOVERNANCE.md](GOVERNANCE.md) | Roles, decision making, contribution ladder |
+| [MAINTAINERS.md](MAINTAINERS.md) | Who maintains the project (we're looking for more!) |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | CNCF Community Code of Conduct |
+| [ADOPTERS.md](ADOPTERS.md) | Who uses alertkube — add yourself! |
+| [SECURITY.md](SECURITY.md) | Report a vulnerability privately |
 
 ## License
 

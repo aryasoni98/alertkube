@@ -1,0 +1,58 @@
+{{- if .Values.prometheusRule.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "alertkube.fullname" . }}
+  {{- with .Values.prometheusRule.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "alertkube.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: alertkube.self-health
+      rules:
+        # alertkube itself stopped exporting metrics (down or unscraped). If the
+        # controller is down, nothing is alerting — this is the watcher-of-watchers.
+        - alert: AlertkubeAbsent
+          expr: absent(alertkube_active_alerts)
+          for: {{ .Values.prometheusRule.absentFor | default "10m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "alertkube is not exporting metrics"
+            description: "No alertkube_active_alerts series for {{ .Values.prometheusRule.absentFor | default "10m" }}. The controller may be down — cluster alerts are not being delivered."
+        # Sustained sink delivery failures: pages/messages are being dropped.
+        - alert: AlertkubeSinkErrors
+          expr: sum by (sink) (rate(alertkube_sink_errors_total[5m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "alertkube sink {{`{{ $labels.sink }}`}} is erroring"
+            description: "Sink {{`{{ $labels.sink }}`}} has a non-zero error rate over 10m. Alerts to it may be dropped after retries."
+        # Rate limiter is dropping alerts under storm.
+        - alert: AlertkubeRateLimited
+          expr: sum(rate(alertkube_alerts_suppressed_total{reason="ratelimited"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "alertkube is dropping alerts to the rate limiter"
+            description: "Alerts are being suppressed with reason=ratelimited over 10m. A sink cannot keep up; consider raising sinkRates for it."
+        # Dispatch queue saturated — sends are backing up.
+        - alert: AlertkubeDispatchSaturated
+          expr: alertkube_dispatch_inflight > {{ .Values.prometheusRule.dispatchInflightThreshold | default 20 }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "alertkube dispatch queue is saturated"
+            description: "alertkube_dispatch_inflight has exceeded {{ .Values.prometheusRule.dispatchInflightThreshold | default 20 }} for 10m. Sinks are slow or rate-limited; alert delivery is delayed."
+        {{- with .Values.prometheusRule.additionalRules }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

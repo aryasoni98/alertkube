@@ -1,6 +1,29 @@
-* @aryasoni98
+# Code owners for alertkube.
+# Kept in sync with MAINTAINERS.md (the single source of truth).
+# Order matters: the last matching pattern wins.
+# See GOVERNANCE.md for the contribution ladder (contributor -> reviewer -> maintainer).
 
+# Default owner for everything.
+*                     @aryasoni98
+
+# area/helm
 /helm/                @aryasoni98
+
+# area/sinks
 /internal/sinks/      @aryasoni98
+
+# area/watchers
 /internal/watchers/   @aryasoni98
+
+# area/router (suppression & dedup)
+/internal/router/     @aryasoni98
+/internal/alert/      @aryasoni98
+
+# area/ci
 /.github/             @aryasoni98
+
+# area/docs
+/docs/                @aryasoni98
+/docs-site/           @aryasoni98
+/GOVERNANCE.md        @aryasoni98
+/MAINTAINERS.md       @aryasoni98

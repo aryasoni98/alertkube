@@ -161,7 +161,8 @@ func isRetriableStatus(code int) bool {
 }
 
 func backoffDelay(p RetryPolicy, attempt int, lastErr error) time.Duration {
-	if se, ok := lastErr.(*statusError); ok && se.retryAfter > 0 {
+	var se *statusError
+	if errors.As(lastErr, &se) && se.retryAfter > 0 {
 		return capDuration(se.retryAfter, p.MaxDelay)
 	}
 	base := p.BaseDelay

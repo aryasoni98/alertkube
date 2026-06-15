@@ -1,0 +1,33 @@
+# Optional local pre-commit hooks. Install with:  pip install pre-commit && pre-commit install
+# Mirrors the cheap CI checks so you catch them before pushing. CI remains the
+# source of truth; these are a convenience.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '^(.*\.svg|LICENSE-2.0\.txt)$'
+      - id: end-of-file-fixer
+        exclude: '^(.*\.svg)$'
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Helm templates and the mkdocs config use non-standard YAML (Go
+        # templating / Python tags) that this generic parser cannot load.
+        exclude: '^(helm/templates/.*|docs-site/mkdocs\.yml)$'
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+      - id: go-vet
+      - id: go-mod-tidy
+
+  - repo: https://github.com/gruntwork-io/pre-commit
+    rev: v0.1.25
+    hooks:
+      - id: helmlint

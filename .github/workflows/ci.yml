@@ -18,10 +18,10 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -40,24 +40,59 @@ jobs:
       - name: Test
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
+      - name: Coverage gate
+        # Fails the build if total statement coverage drops below the floor.
+        # Ratchet target: raise toward 60% then 70% as root-package and e2e
+        # tests land (see docs/ROADMAP.md Phase 1.1.1). Only ever raise this.
+        env:
+          COVERAGE_THRESHOLD: "53"
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "Total coverage: ${total}% (gate: ${COVERAGE_THRESHOLD}%)"
+          awk -v t="$total" -v g="$COVERAGE_THRESHOLD" 'BEGIN { exit (t+0 < g+0) ? 1 : 0 }' || {
+            echo "::error::coverage ${total}% is below the ${COVERAGE_THRESHOLD}% gate"; exit 1; }
+
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
           path: coverage.out
           if-no-files-found: ignore
 
+  fuzz:
+    name: Fuzz (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Short fuzz run on each target to catch regressions on PRs. The corpus
+      # lives in the Go build cache; this is a smoke test, not a soak.
+      - name: Fuzz ComputeFingerprint
+        run: go test -run='^$' -fuzz='^FuzzComputeFingerprint$' -fuzztime=30s ./internal/alert
+
+      - name: Fuzz matchOrRegex
+        run: go test -run='^$' -fuzz='^FuzzMatchOrRegex$' -fuzztime=30s ./internal/alert
+
+      - name: Fuzz config Load
+        run: go test -run='^$' -fuzz='^FuzzLoad$' -fuzztime=30s ./internal/config
+
   docker:
     name: Docker build smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: false

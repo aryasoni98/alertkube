@@ -20,10 +20,10 @@ jobs:
     name: Lint & Template
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.14.0
 
@@ -57,8 +57,65 @@ jobs:
             > /tmp/render-ns.yaml
           test -s /tmp/render-ns.yaml
 
+      - name: Helm template (prometheusRule + serviceMonitor)
+        run: |
+          helm template alertkube helm \
+            --set cluster=ci-test \
+            --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
+            --set metrics.serviceMonitor.enabled=true \
+            --set prometheusRule.enabled=true \
+            > /tmp/render-mon.yaml
+          test -s /tmp/render-mon.yaml
+          grep -q "kind: PrometheusRule" /tmp/render-mon.yaml
+
       - name: kubeconform validation
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
           ./kubeconform -strict -ignore-missing-schemas -summary \
-            /tmp/render.yaml /tmp/render-sm.yaml /tmp/render-ns.yaml
+            /tmp/render.yaml /tmp/render-sm.yaml /tmp/render-ns.yaml /tmp/render-mon.yaml
+
+  helm-docs:
+    name: helm-docs (drift check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install helm-docs
+        run: |
+          VERSION=1.14.2
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${VERSION}/helm-docs_${VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz helm-docs
+          sudo install helm-docs /usr/local/bin/
+
+      - name: Regenerate chart README
+        run: helm-docs --chart-search-root=helm --template-files=README.md.gotmpl
+
+      - name: Fail if helm/README.md is out of date
+        run: |
+          if ! git diff --exit-code helm/README.md; then
+            echo "::error::helm/README.md is stale. Run 'make helm-docs' and commit the result." >&2
+            exit 1
+          fi
+
+  chart-testing:
+    name: chart-testing (lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.16.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.x"
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2
+
+      - name: ct lint
+        run: ct lint --config .github/ct.yaml --all

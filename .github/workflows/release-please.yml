@@ -1,0 +1,26 @@
+name: release-please
+
+# Maintains a "Release PR" that accumulates Conventional-Commit changes, bumps the
+# version, and updates CHANGELOG.md. Merging that PR creates the vX.Y.Z tag, which
+# triggers .github/workflows/release.yml (build, sign, publish image + chart).
+#
+# Net flow:  commits (Conventional Commits)  ->  release-please PR  ->  merge  ->
+#            tag vX.Y.Z  ->  release.yml builds & publishes the signed artifacts.
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Manage release PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

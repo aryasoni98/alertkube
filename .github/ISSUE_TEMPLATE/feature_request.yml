@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a new watcher, sink, config knob, or behavior.
+title: "[feature]: "
+labels: ["kind/feature", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that alertkube cannot do today? Describe the situation, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you would like to see. If it is a new sink or watcher, name the target system / resource.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - area/watchers (a Kubernetes resource to observe)
+        - area/sinks (an alert delivery target)
+        - area/router (routing, silences, inhibitions, grouping)
+        - area/config (a new config knob)
+        - area/helm (chart / deployment)
+        - area/docs
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or other designs you weighed.
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.
+          required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and discussions for this idea.
+          required: true

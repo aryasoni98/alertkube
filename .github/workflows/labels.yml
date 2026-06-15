@@ -1,0 +1,32 @@
+name: Sync labels
+
+# Applies .github/labels.yml to the repository's GitHub labels.
+# Runs when the label definitions change, or on demand.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    name: Sync labels to GitHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Apply labels
+        uses: crazy-max/ghaction-github-labeler@24d110aa46a59976b8a7f35518cb7f14f434c916 # v5
+        with:
+          yaml-file: .github/labels.yml
+          # Set to false here; flip to true once you have reviewed the diff and
+          # are happy for labels not in labels.yml to be deleted.
+          skip-delete: true
+          dry-run: false

@@ -1,0 +1,59 @@
+# Chainsaw e2e: a crash-looping pod must produce an alert the controller emits.
+# Assumes alertkube is installed in the `alertkube` namespace with the stdout
+# sink in the routing (see test/e2e/README.md). Run: chainsaw test test/e2e/chainsaw
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: crashloop-alert
+spec:
+  namespace: alertkube-e2e
+  steps:
+    - name: Create a crash-looping pod
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: boom
+              spec:
+                restartPolicy: Always
+                containers:
+                  - name: boom
+                    image: busybox:1.36
+                    command: ["/bin/false"]
+                    resources:
+                      requests: { cpu: 1m, memory: 8Mi }
+                      limits: { cpu: 10m, memory: 16Mi }
+    - name: Wait for the pod to enter CrashLoopBackOff
+      try:
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: boom
+              status:
+                (containerStatuses[0].state.waiting.reason): CrashLoopBackOff
+    - name: Assert the controller emitted an alert for the pod
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              for _ in $(seq 1 30); do
+                if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
+                     | grep -E "boom" | grep -Eiq "CrashLoopBackOff"; then
+                  echo "alert observed for pod boom"
+                  exit 0
+                fi
+                sleep 6
+              done
+              echo "no CrashLoopBackOff alert for pod boom within timeout"
+              kubectl logs -n alertkube deploy/alertkube --tail=50 || true
+              exit 1
+      finally:
+        - description: Show controller logs on failure
+          script:
+            content: kubectl logs -n alertkube deploy/alertkube --tail=80 || true

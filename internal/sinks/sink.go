@@ -55,6 +55,14 @@ func (r *Registry) Add(s Sink) {
 	}
 }
 
+// Has reports whether a sink is registered under name.
+func (r *Registry) Has(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.sinks[name]
+	return ok
+}
+
 // SetRate overrides the per-second rate and burst for a single sink. Use
 // from main to honor user config.
 func (r *Registry) SetRate(name string, limit rate.Limit, burst int) {

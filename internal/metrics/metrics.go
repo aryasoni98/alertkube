@@ -89,13 +89,9 @@ func dynamic(p *atomic.Pointer[http.Handler]) http.HandlerFunc {
 	}
 }
 
-// Serve exposes /metrics, /healthz, /readyz, /api/alerts, /api/v1/alerts.
-// Non-blocking unless addr is empty.
-// /readyz returns 503 until MarkReady is called.
-func Serve(addr string) *http.Server {
-	if addr == "" {
-		return nil
-	}
+// buildMux wires the routes shared by Serve and the tests:
+// /metrics, /healthz, /readyz, /api/alerts, /api/v1/alerts.
+func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/api/alerts", dynamic(&alertsHandler))
@@ -110,6 +106,17 @@ func Serve(addr string) *http.Server {
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
+	return mux
+}
+
+// Serve exposes /metrics, /healthz, /readyz, /api/alerts, /api/v1/alerts.
+// Non-blocking unless addr is empty.
+// /readyz returns 503 until MarkReady is called.
+func Serve(addr string) *http.Server {
+	if addr == "" {
+		return nil
+	}
+	mux := buildMux()
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,

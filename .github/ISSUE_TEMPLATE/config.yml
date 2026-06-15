@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/aryasoni98/alertkube/discussions
+    about: Ask a question, share how you use alertkube, or float an idea before filing an issue.
+  - name: Security vulnerability
+    url: https://github.com/aryasoni98/alertkube/security/advisories/new
+    about: Report security issues privately. Do NOT open a public issue.
+  - name: Documentation
+    url: https://github.com/aryasoni98/alertkube/tree/master/docs
+    about: Operations, troubleshooting, and migration guides.

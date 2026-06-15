@@ -1,0 +1,103 @@
+# OpenSSF Security Insights — https://github.com/ossf/security-insights-spec
+# A machine-readable summary of the project's security posture. Recognized by
+# CNCF/OpenSSF tooling and a useful artifact for foundation due diligence.
+header:
+  schema-version: 1.0.0
+  expiration-date: "2027-06-15T00:00:00.000Z"
+  last-updated: "2026-06-15"
+  last-reviewed: "2026-06-15"
+  project-url: https://github.com/aryasoni98/alertkube
+  project-release: v0.2.2
+  changelog: https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md
+  license: https://github.com/aryasoni98/alertkube/blob/master/LICENSE-2.0.txt
+
+project-lifecycle:
+  status: active
+  roadmap: https://github.com/aryasoni98/alertkube/blob/master/docs/ROADMAP.md
+  bug-fixes-only: false
+  core-maintainers:
+    - https://github.com/aryasoni98
+
+contribution-policy:
+  accepts-pull-requests: true
+  accepts-automated-pull-requests: true
+  automated-tools-list:
+    - automated-tool: dependabot
+      action: allowed
+      path:
+        - /
+  contributing-policy: https://github.com/aryasoni98/alertkube/blob/master/CONTRIBUTING.md
+  code-of-conduct: https://github.com/aryasoni98/alertkube/blob/master/CODE_OF_CONDUCT.md
+
+documentation:
+  - https://github.com/aryasoni98/alertkube/blob/master/README.md
+  - https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md
+  - https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md
+
+distribution-points:
+  - https://ghcr.io/aryasoni98/alertkube
+  - oci://ghcr.io/aryasoni98/charts/alertkube
+
+security-artifacts:
+  threat-model:
+    threat-model-created: false
+    comment: >
+      No formal threat model document yet. The security-relevant trust
+      boundaries are described in SECURITY.md (credential handling, read-only
+      RBAC, log redaction) and the architecture explanation.
+  self-assessment:
+    self-assessment-created: false
+    comment: A CNCF/OpenSSF self-assessment is planned ahead of Sandbox candidacy.
+
+security-testing:
+  - tool-type: sca
+    tool-name: Dependabot
+    integration:
+      ad-hoc: false
+      ci: false
+      before-release: false
+    comment: Weekly dependency update PRs (gomod, github-actions, docker).
+  - tool-type: sast
+    tool-name: CodeQL
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: false
+    comment: security-extended + security-and-quality queries on push/PR/weekly.
+  - tool-type: sca
+    tool-name: Trivy
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: true
+    comment: Filesystem + IaC misconfig scan in CI; image scan gates the release.
+
+security-assessments: []
+
+security-contacts:
+  - type: website
+    value: https://github.com/aryasoni98/alertkube/security/advisories/new
+    primary: true
+
+vulnerability-reporting:
+  accepts-vulnerability-reports: true
+  email-contact: ""
+  security-policy: https://github.com/aryasoni98/alertkube/blob/master/SECURITY.md
+  bug-bounty-available: false
+  comment: >
+    Report privately via GitHub Security Advisories. Acknowledgement within 72
+    hours, status update within 7 days. Credentials exposure and RBAC escape are
+    treated as high severity.
+
+dependencies:
+  third-party-packages: true
+  dependencies-lists:
+    - https://github.com/aryasoni98/alertkube/blob/master/go.mod
+  sbom:
+    - sbom-file: SPDX SBOM attached to each GitHub Release
+      sbom-format: SPDX
+  dependencies-lifecycle:
+    policy-url: https://github.com/aryasoni98/alertkube/blob/master/.github/dependabot.yml
+    comment: Dependabot-managed, grouped by k8s / observability / minor-patch.
+  env-dependencies-policy:
+    policy-url: https://github.com/aryasoni98/alertkube/blob/master/SECURITY.md

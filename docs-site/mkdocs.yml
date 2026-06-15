@@ -1,0 +1,81 @@
+site_name: alertkube
+site_description: Kubernetes multi-resource alerting controller — severity tiers, multi-sink routing, dedupe, inhibitions, silences, Prometheus metrics.
+site_url: https://aryasoni98.github.io/alertkube/
+repo_url: https://github.com/aryasoni98/alertkube
+repo_name: aryasoni98/alertkube
+edit_uri: edit/master/docs-site/docs/
+copyright: Apache-2.0 licensed. Built with MkDocs Material.
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji
+
+plugins:
+  - search
+
+# Diátaxis: Tutorials (learning) · How-to (tasks) · Reference (lookup) · Explanation (understanding)
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Tutorials:
+      - tutorials/install-with-helm.md
+      - tutorials/first-alert-to-slack.md
+      - tutorials/pagerduty-open-close.md
+  - How-to guides:
+      - how-to/add-a-silence.md
+      - how-to/configure-inhibition.md
+      - how-to/tune-mute-and-grouping.md
+      - how-to/ha-leader-election.md
+  - Reference:
+      - reference/config-schema.md
+      - reference/watcher-conditions.md
+      - reference/sink-credentials.md
+      - reference/metrics.md
+  - Explanation:
+      - explanation/fingerprint-and-dedup.md
+      - explanation/silence-vs-inhibition-vs-mute.md
+      - explanation/deterministic-design.md
+      - explanation/comparison.md

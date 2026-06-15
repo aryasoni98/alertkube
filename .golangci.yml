@@ -12,6 +12,17 @@ linters:
     - staticcheck
     - unconvert
     - unused
+    # Expanded set (1.5.1). High-signal linters for an HTTP-heavy,
+    # security-sensitive controller. Each one was verified to pass on the
+    # current tree before being added.
+    - bodyclose       # every HTTP response body is closed (sinks/receiver)
+    - errorlint       # %w wrapping + errors.Is/As instead of == comparisons
+    - noctx           # no HTTP requests without a context
+    - nilerr          # never return nil when err is non-nil
+    - durationcheck   # no accidental time.Duration multiplication bugs
+    - wastedassign    # assignments whose value is never used
+    - usestdlibvars   # use http.MethodGet etc. instead of string literals
+    - predeclared     # don't shadow predeclared identifiers
   settings:
     revive:
       rules:
@@ -46,6 +57,7 @@ linters:
     rules:
       - linters:
           - errcheck
+          - noctx       # httptest.NewRequest is the idiomatic test constructor
         path: _test\.go
     paths:
       - vendor
