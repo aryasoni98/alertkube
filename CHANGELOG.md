@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [v0.2.2] - 2026-06-15
+
+Project-maturity and CNCF-readiness work (no controller behavior change). See
+[`docs/ROADMAP.md`](docs/ROADMAP.md) Phases 0–2.
+
+### Added
+
+- **Governance & community**: `GOVERNANCE.md` (roles, lazy-consensus decisions,
+  contribution ladder, neutrality), `MAINTAINERS.md`, `ADOPTERS.md`, ADRs under
+  `docs/decisions/` (client-go vs controller-runtime, MkDocs choice, ConfigMap
+  state backend). `CODE_OF_CONDUCT.md` replaced with the CNCF Community Code of
+  Conduct. `CONTRIBUTING.md` expanded with DCO mechanics, Conventional Commits,
+  and a response-time SLA.
+- **Contributor experience**: issue forms (`.github/ISSUE_TEMPLATE/`), a DCO
+  sign-off CI check (`dco.yml`), a label set + sync workflow, and a curated
+  [good first issues](docs/good-first-issues.md) backlog.
+- **Security & supply chain**: OpenSSF Scorecard workflow, `SECURITY-INSIGHTS.yml`,
+  a branch-protection setup script, and an OpenSSF best-practices tracker.
+- **Documentation site**: MkDocs Material site under `docs-site/` organized by
+  Diátaxis (15 pages — tutorials, how-to, reference, explanation) plus an
+  architecture overview; built with `--strict` link checking in CI (`docs.yml`).
+- **Release engineering**: release-please workflow + config for automated
+  versioning/changelog from Conventional Commits.
+- **Testing**: native fuzz targets (`FuzzComputeFingerprint`, `FuzzMatchOrRegex`,
+  `FuzzLoad`), a CI coverage gate, a fuzz-smoke CI job, and `docs/TESTING.md`.
+- **Performance**: Go benchmarks for fingerprint/matching/routing, a load-test
+  harness (`test/load/`), and `docs/PERFORMANCE.md`.
+- **E2E**: kind-based smoke + HA leader-election workflow across a Kubernetes
+  version matrix (`e2e.yml`), with a chainsaw scaffold under `test/e2e/`.
+- **Chart**: optional self-health `PrometheusRule` (`prometheusRule.enabled`),
+  Artifact Hub metadata (`Chart.yaml` annotations, `artifacthub-repo.yml`), a
+  chart `README.md`, and chart-testing (`ct`) lint in CI.
+- **Tooling**: root `Makefile`, optional `.pre-commit-config.yaml`, and design
+  docs for a possible CRD API and a ConfigMap size audit.
+- **Chart docs**: `helm-docs`-generated `helm/README.md` from `# --`-annotated
+  `values.yaml` and a `README.md.gotmpl` template, with a CI drift check and a
+  `make helm-docs` target so the values reference is always current.
+- **Lint**: expanded the golangci-lint set (`bodyclose`, `errorlint`, `noctx`,
+  `nilerr`, `durationcheck`, `wastedassign`, `usestdlibvars`, `predeclared`).
+- **Tests**: `internal/metrics` HTTP server coverage (readiness, dynamic
+  handlers, all routes) — package went from 0% to 96.8%.
+
+### Fixed
+
+- **httpx**: retry backoff now unwraps the status error with `errors.As` instead
+  of a direct type assertion, so a wrapped `*statusError` is still honored.
+
+### Changed
+
+- **metrics**: extracted the route wiring into a testable `buildMux` helper (no
+  behavior change).
+
 ## [v0.2.1] - 2026-06-12
 
 ### Added
