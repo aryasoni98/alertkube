@@ -5,41 +5,76 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AlertKube - Kubernetes alerts that know what matters</title>
   <meta name="description" content="AlertKube is a Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics." />
+  <meta name="author" content="AlertKube" />
+  <meta name="keywords" content="kubernetes, alerting, prometheus, alertmanager, slack, pagerduty, opsgenie, observability, sre, devops" />
+  <meta name="theme-color" content="#0B1220" />
+  <link rel="canonical" href="https://aryasoni98.github.io/alertkube/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="AlertKube" />
+  <meta property="og:title" content="AlertKube - Kubernetes alerts that know what matters" />
+  <meta property="og:description" content="A Kubernetes multi-resource alerting controller: severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics. Deterministic, no AI." />
+  <meta property="og:url" content="https://aryasoni98.github.io/alertkube/" />
+  <meta property="og:image" content="https://aryasoni98.github.io/alertkube/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="AlertKube - Kubernetes alerts that know what matters" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AlertKube - Kubernetes alerts that know what matters" />
+  <meta name="twitter:description" content="A Kubernetes multi-resource alerting controller: severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics. Deterministic, no AI." />
+  <meta name="twitter:image" content="https://aryasoni98.github.io/alertkube/assets/og-image.png" />
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "AlertKube",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Kubernetes",
+    "description": "A Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.",
+    "url": "https://aryasoni98.github.io/alertkube/",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "codeRepository": "https://github.com/aryasoni98/alertkube",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%231E64E6'/%3E%3Cstop offset='1' stop-color='%2322C55E'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='18' fill='url(%23g)'/%3E%3Cpath d='M32 16a11 11 0 0 1 11 11c0 9 3.5 12 3.5 12h-29S21 36 21 27a11 11 0 0 1 11-11z' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='46' r='3.4' fill='%23F97316'/%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="dns-prefetch" href="https://unpkg.com" />
 
   <link rel="stylesheet" href="ds/colors_and_type.css" />
   <link rel="stylesheet" href="ds/landing.css" />
   <link rel="stylesheet" href="alertkube.css?v=2" />
 
-  <!-- React + Babel (pinned) -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script>
-    // The framer-motion UMD dev build trips React's "unique key" warning from
-    // inside its own render path (it fires even for childless motion elements).
-    // Filter that single known-noise signal; everything else passes through.
-    (function () {
-      var orig = console.error;
-      console.error = function () {
-        var args = Array.prototype.slice.call(arguments);
-        var isKeyWarn = typeof args[0] === "string" && args[0].indexOf('unique "key" prop') !== -1;
-        var fromFramer = args.some(function (a) { return typeof a === "string" && a.indexOf("framer-motion") !== -1; });
-        if (isKeyWarn && fromFramer) return;
-        orig.apply(console, args);
-      };
-    })();
-  </script>
+  <!-- React + Babel (pinned, production builds) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <!-- Framer Motion UMD (exposes window.Motion in v11) -->
-  <script src="https://unpkg.com/framer-motion@11.18.2/dist/framer-motion.js"></script>
+  <script src="https://unpkg.com/framer-motion@11.18.2/dist/framer-motion.js" integrity="sha384-MKgqXjmQ6Ua2YDo2EnYsoPUhz4NFfCUxfsvBuDgY8e8AmpTGyFAlWGxVBoHuCbfa" crossorigin="anonymous"></script>
   <script>window.FramerMotion = window.Motion || window.FramerMotion || {};</script>
 
 </head>
 <body>
   <div id="root"></div>
+  <noscript>
+    <section style="max-width:720px;margin:10vh auto;padding:0 24px;font-family:system-ui,-apple-system,sans-serif;line-height:1.6">
+      <h1>AlertKube</h1>
+      <p>Kubernetes alerts that know what matters — a multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.</p>
+      <p>This landing page needs JavaScript for its interactive demo. The project, docs, and install instructions are on
+        <a href="https://github.com/aryasoni98/alertkube">github.com/aryasoni98/alertkube</a>,
+        and the full documentation is at <a href="https://aryasoni98.github.io/alertkube/">the docs site</a>.</p>
+    </section>
+  </noscript>
 
-  <!-- Wooak Design System primitives (Icon, Button, Reveal, Stagger, BlobCursor) -->
+  <!-- AlertKube landing design-system primitives (Icon, Button, Reveal, Stagger, BlobCursor) -->
   <script type="text/babel" data-presets="react" src="ds/wk-lib.jsx?v=5"></script>
   <script type="text/babel" data-presets="react" src="tweaks-panel.jsx"></script>
   <script type="text/babel" data-presets="react" src="ak-lib.jsx?v=2"></script>
