@@ -57,7 +57,7 @@ flowchart TB
 | **0.3.1** Private reporting | GitHub Security tab | Private vuln reporting enabled (SECURITY.md already good) |
 | **0.3.2** OpenSSF Scorecard | `.github/workflows/scorecard.yml` + README badge | Workflow green; badge visible |
 | **0.3.3** Branch protection | GitHub settings | `main` requires review + green CI |
-| **0.3.4** Action hardening | Pin Actions to SHA; least-privilege `GH_TOKEN` | No floating `@v4` on critical jobs |
+| **0.3.4** Action hardening | Pin Actions to SHA; least-privilege `GH_PAGE` | No floating `@v4` on critical jobs |
 | **0.3.5** OpenSSF badge start | `bestpractices.dev` project | “Passing” checklist started; gaps tracked as issues |
 
 ### 0.4 — Documentation site (Diátaxis)

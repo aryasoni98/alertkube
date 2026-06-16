@@ -119,7 +119,7 @@ Project-maturity and CNCF-readiness work (no controller behavior change). See
 - **Leader election rollout deadlock**: followers now report Ready (standby is healthy), unblocking `RollingUpdate maxUnavailable: 0` (`main.go`).
 - **`rbac.scope=namespace` crashloop**: namespace mode now scopes informers via `WATCH_NAMESPACE` and disables the node watcher instead of failing cache sync (`main.go`, `helm/`).
 - **Helm**: ConfigMap/Secret checksum annotations trigger rollouts on config change; template fails when `replicaCount > 1` without leader election; NetworkPolicy requires explicit `apiServer.cidrs` (the old rule cut the controller off from the API); image points at `ghcr.io` with tag defaulting to the chart `appVersion`.
-- **Release pipeline**: Helm chart actually publishes to `oci://ghcr.io/<owner>/charts` with versions derived from the tag; GHCR auth uses `GH_TOKEN`; `:latest` publishes on tags; GitHub release gated on Trivy + Helm jobs; `build.sh` multi-arch push fixed.
+- **Release pipeline**: Helm chart actually publishes to `oci://ghcr.io/<owner>/charts` with versions derived from the tag; GHCR auth uses `GH_PAGE`; `:latest` publishes on tags; GitHub release gated on Trivy + Helm jobs; `build.sh` multi-arch push fixed.
 
 ### Added (this release)
 
