@@ -1,5 +1,6 @@
 site_name: alertkube
 site_description: Kubernetes multi-resource alerting controller — severity tiers, multi-sink routing, dedupe, inhibitions, silences, Prometheus metrics.
+site_author: AlertKube
 site_url: https://aryasoni98.github.io/alertkube/
 repo_url: https://github.com/aryasoni98/alertkube
 repo_name: aryasoni98/alertkube
@@ -11,27 +12,36 @@ docs_dir: docs
 theme:
   name: material
   palette:
-    - scheme: default
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
       primary: indigo
       accent: indigo
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
-    - scheme: slate
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
       primary: indigo
       accent: indigo
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
   features:
+    - navigation.instant
+    - navigation.instant.progress
     - navigation.sections
     - navigation.top
     - navigation.tracking
     - navigation.indexes
+    - navigation.footer
     - content.code.copy
     - content.code.annotate
+    - content.code.select
+    - content.tabs.link
+    - content.action.edit
     - search.suggest
     - search.highlight
+    - search.share
     - toc.follow
 
 markdown_extensions:
@@ -55,6 +65,12 @@ markdown_extensions:
 
 plugins:
   - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/aryasoni98/alertkube
+      name: AlertKube on GitHub
 
 # Diátaxis: Tutorials (learning) · How-to (tasks) · Reference (lookup) · Explanation (understanding)
 nav:
