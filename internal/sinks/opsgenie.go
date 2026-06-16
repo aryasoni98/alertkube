@@ -37,14 +37,7 @@ func (*OpsgenieSink) Supports(sev alert.Severity) bool {
 
 // ogPriority maps severity to Opsgenie P-levels.
 func ogPriority(s alert.Severity) string {
-	switch s {
-	case alert.SeverityCritical:
-		return "P1"
-	case alert.SeverityWarning:
-		return "P3"
-	default:
-		return "P5"
-	}
+	return severityTier(s, "P1", "P3", "P5")
 }
 
 func (o *OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {

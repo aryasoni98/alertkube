@@ -1,4 +1,4 @@
-// Wooak landing-page UI primitives - shared across sections
+// AlertKube landing-page UI primitives - shared across sections
 // Loaded as a Babel script. Components are exported to window.
 const { motion, AnimatePresence, useScroll, useTransform, useInView, useReducedMotion, useMotionValue, useSpring } = window.FramerMotion || {};
 
@@ -41,16 +41,6 @@ function Icon({ name, size = 18, stroke = 1.75, className = "", style }) {
     github: <path {...p} d="M9 19c-4 1-4-2-6-2m12 4v-3.5c0-1 .1-1.5-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.4 0C6.3 2.8 5.2 3.1 5.2 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 3.8 9.5c0 4.6 2.7 5.7 5.5 6-.6.5-.6 1-.5 2V21"/>,
   };
   return <svg viewBox="0 0 24 24" className={className} style={s} aria-hidden="true">{paths[name] || null}</svg>;
-}
-
-/* --------------------------------- LOGO ----------------------------------- */
-function WLogo({ size = 28, withWord = true, white = false }) {
-  return (
-    <span className="wk-logo" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <img src="../../assets/wooak-logo.png" alt="" style={{ width: size, height: size, filter: white ? "brightness(0) invert(1)" : "none" }} />
-      {withWord && <span style={{ fontWeight: 700, fontSize: size * 0.66, letterSpacing: "-0.02em", color: white ? "#fff" : "var(--fg)" }}>wooak</span>}
-    </span>
-  );
 }
 
 /* ----------------------------- BUTTON --------------------------------- */
@@ -159,4 +149,4 @@ function BlobCursor() {
   );
 }
 
-Object.assign(window, { Icon, WLogo, Button, Reveal, Stagger, BlobCursor, useIOFallback });
+Object.assign(window, { Icon, Button, Reveal, Stagger, BlobCursor, useIOFallback });
