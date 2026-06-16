@@ -28,14 +28,7 @@ func (p *PagerDutySink) Supports(sev alert.Severity) bool {
 // vocabulary so a `warning`-severity alert that opts into PagerDuty
 // (via routing rule) lands at the right tier.
 func pdSeverity(s alert.Severity) string {
-	switch s {
-	case alert.SeverityCritical:
-		return "critical"
-	case alert.SeverityWarning:
-		return "warning"
-	default:
-		return "info"
-	}
+	return severityTier(s, "critical", "warning", "info")
 }
 
 func (p *PagerDutySink) Send(ctx context.Context, a *alert.Alert) error {

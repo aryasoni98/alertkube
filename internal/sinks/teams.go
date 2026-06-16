@@ -28,14 +28,7 @@ func teamsColor(a *alert.Alert) string {
 	if a.Resolved {
 		return "good"
 	}
-	switch a.Severity {
-	case alert.SeverityCritical:
-		return "attention"
-	case alert.SeverityWarning:
-		return "warning"
-	default:
-		return "accent"
-	}
+	return severityTier(a.Severity, "attention", "warning", "accent")
 }
 
 func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
