@@ -48,9 +48,9 @@ slack:
     # -- Channel for critical alerts (bot-token mode only).
     critical: "alerts-critical"
     # -- Channel for warning alerts (bot-token mode only).
-    warning:  "alerts-warning"
+    warning: "alerts-warning"
     # -- Channel for info alerts (bot-token mode only).
-    info:     "alerts-info"
+    info: "alerts-info"
   # External Secret reference (set webhookUrl to "" to use it).
   # -- Secret reference for the webhook URL (`{key, name}`).
   webhookUrlSecretKeyRef: {}
