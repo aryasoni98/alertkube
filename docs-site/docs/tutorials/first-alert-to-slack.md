@@ -17,7 +17,7 @@ Step 2. To change it (or move to bot-token mode), re-run the Helm command.
 ### Option A — incoming webhook (simplest)
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.2 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -35,7 +35,7 @@ For per-severity routing into `alerts-critical` / `alerts-warning` /
 and invite it to each channel, then:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.2 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
   --set cluster=my-cluster \
   --set slack.botToken=xoxb-your-bot-token \
   --set slack.channels.critical=alerts-critical \

@@ -75,13 +75,13 @@ go run .
 Container image (multi-arch, cosign-signed):
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v0.2.2
+docker pull ghcr.io/aryasoni98/alertkube:v0.2.3
 ```
 
 Helm from the published OCI chart:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.2 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \
