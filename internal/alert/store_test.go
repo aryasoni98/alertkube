@@ -62,6 +62,56 @@ func TestSweepResolvedDeletesLastSent(t *testing.T) {
 	}
 }
 
+func TestResolveObjectEmitsAndClears(t *testing.T) {
+	var resolved []*Alert
+	s := NewStore(time.Hour, time.Hour, func(a *Alert) { resolved = append(resolved, a) })
+	// Two alerts for the same object (different reasons) plus an unrelated one.
+	s.ShouldSend(New(KindDeployment, "ns", "web", "DeploymentUnavailable", SeverityWarning))
+	s.ShouldSend(New(KindDeployment, "ns", "web", "ProgressDeadlineExceeded", SeverityCritical))
+	s.ShouldSend(New(KindDeployment, "ns", "other", "DeploymentUnavailable", SeverityWarning))
+
+	s.ResolveObject(KindDeployment, "ns", "web")
+
+	if len(resolved) != 2 {
+		t.Fatalf("expected 2 resolves for ns/web, got %d", len(resolved))
+	}
+	for _, a := range resolved {
+		if !a.Resolved {
+			t.Fatalf("emitted alert must have Resolved=true")
+		}
+		if a.Name != "web" {
+			t.Fatalf("resolved the wrong object: %s", a.Name)
+		}
+	}
+	if s.ActiveCount() != 1 {
+		t.Fatalf("only the unrelated alert should remain active, got %d", s.ActiveCount())
+	}
+}
+
+func TestResolveObjectClearsMuteForReplacement(t *testing.T) {
+	s := NewStore(time.Hour, time.Hour, func(a *Alert) {})
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	s.ShouldSend(a)
+	// Mute window is an hour; without ResolveObject a re-fire would be muted.
+	s.ResolveObject(KindPod, "ns", "p")
+	if !s.ShouldSend(a) {
+		t.Fatalf("a same-identity alert after object deletion must re-page, not stay muted")
+	}
+}
+
+func TestResolveObjectNoMatchNoOp(t *testing.T) {
+	var resolved int
+	s := NewStore(time.Hour, time.Hour, func(a *Alert) { resolved++ })
+	s.ShouldSend(New(KindPod, "ns", "p", "OOMKilled", SeverityCritical))
+	s.ResolveObject(KindPod, "ns", "absent")
+	if resolved != 0 {
+		t.Fatalf("resolving an object with no active alerts must emit nothing, got %d", resolved)
+	}
+	if s.ActiveCount() != 1 {
+		t.Fatalf("unrelated active alert must survive, got %d", s.ActiveCount())
+	}
+}
+
 func TestOnChangeFires(t *testing.T) {
 	var seen int
 	s := NewStore(time.Second, time.Minute, nil)

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -171,7 +171,7 @@ func backoffDelay(p RetryPolicy, attempt int, lastErr error) time.Duration {
 	}
 	d := time.Duration(float64(base) * float64(int(1)<<uint(attempt-1)))
 	d = capDuration(d, p.MaxDelay)
-	jitter := time.Duration(rand.Int63n(int64(d/2 + 1)))
+	jitter := time.Duration(rand.Int64N(int64(d/2 + 1)))
 	return d/2 + jitter
 }
 

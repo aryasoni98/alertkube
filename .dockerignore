@@ -1,0 +1,27 @@
+# Keep the build context minimal and deterministic. The build only needs
+# the Go sources + go.mod/go.sum; everything below is dev/CI cruft that
+# would otherwise bust the layer cache and bloat the context.
+.git
+.github
+.gitignore
+*.md
+!go.mod
+!go.sum
+
+# Build / test / coverage artifacts
+alertkube
+coverage.out
+*.test
+*.out
+dist/
+
+# Tooling and generated output
+docs-site/
+graphify-out/
+test/
+.pre-commit-config.yaml
+.golangci.yml
+helm/
+scripts/
+build.sh
+Makefile

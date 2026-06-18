@@ -40,10 +40,16 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 		},
 	}
 	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
-		Lock:            lock,
-		LeaseDuration:   15 * time.Second,
-		RenewDeadline:   10 * time.Second,
-		RetryPeriod:     2 * time.Second,
+		Lock: lock,
+		// The kube-controller-manager 15/10/2 defaults assume direct etcd
+		// proximity. A workload pod renews through the API server over a
+		// network hop, so transient apiserver latency (upgrades, cert
+		// rotation, etcd compaction) can blow a 10s renew deadline and
+		// trigger a spurious failover. The 30/20/5 profile gives that hop
+		// room while keeping worst-case leaderless time bounded (~30s).
+		LeaseDuration:   30 * time.Second,
+		RenewDeadline:   20 * time.Second,
+		RetryPeriod:     5 * time.Second,
 		ReleaseOnCancel: true,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadCtx context.Context) {

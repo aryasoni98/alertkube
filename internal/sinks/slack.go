@@ -46,9 +46,15 @@ func (s *SlackSink) Supports(_ alert.Severity) bool { return true }
 
 func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	channel := s.routeChannel(a)
+	// explicitChannel is only set when a workload asks for a specific
+	// channel via annotation. Webhook mode must not send the per-severity
+	// default channel: a modern Slack app webhook is bound to one channel
+	// and rejects any other with 404 channel_not_found, dropping the alert.
+	var explicitChannel string
 	if override, ok := a.Annotations["alert-slack-channel"]; ok && override != "" {
 		if channelOverridePattern.MatchString(override) {
 			channel = override
+			explicitChannel = override
 		} else {
 			klog.Warningf("ignoring invalid alert-slack-channel override for %s", a.Fingerprint)
 		}
@@ -72,7 +78,7 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	}
 	msg := &slack.WebhookMessage{
 		Username:    s.username,
-		Channel:     channel,
+		Channel:     explicitChannel,
 		IconEmoji:   ":kubernetes:",
 		Blocks:      &slack.Blocks{BlockSet: blocks},
 		Attachments: []slack.Attachment{attachment},

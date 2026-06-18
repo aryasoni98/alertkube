@@ -35,6 +35,27 @@ func TestRegex(t *testing.T) {
 	}
 }
 
+func TestLiteralPrefixIsNotUnanchoredSubstring(t *testing.T) {
+	// "prod-" is a prefix, not a substring: a name that merely contains it
+	// elsewhere must not match, or the filter silently widens.
+	s := New("prod-")
+	if s.Matches("xprod-api") {
+		t.Fatalf("xprod-api must not match prefix prod-")
+	}
+	if !s.Matches("prod-api") {
+		t.Fatalf("prod-api should still match prefix prod-")
+	}
+}
+
+func TestInvalidRegexFallsBackToPrefix(t *testing.T) {
+	// An unclosed group is not a valid regex; it must degrade to a literal
+	// prefix instead of being silently dropped.
+	s := New("broken(")
+	if !s.Matches("broken(thing") {
+		t.Fatalf("invalid regex should match as a literal prefix")
+	}
+}
+
 func TestBlocks(t *testing.T) {
 	s := New("debug-,test-")
 	if !s.Blocks("debug-tools") {

@@ -34,6 +34,14 @@ func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
 	if a.Resolved {
 		status = "resolved"
 	}
+	// Telegram caps messages at 4096 chars and rejects malformed HTML under
+	// parse_mode=HTML. Truncate the free-form summary (the only unbounded
+	// field) in raw form *before* escaping, so a cut can never land inside an
+	// HTML entity or one of the tags below. The assembled HTML is never cut.
+	summary := a.Summary
+	if len(summary) > 3000 {
+		summary = truncate(summary, 3000) + "…"
+	}
 	text := fmt.Sprintf(
 		"<b>[%s] %s %s/%s: %s</b>\n%s\n<code>cluster=%s fp=%s</code>",
 		html.EscapeString(status),
@@ -41,18 +49,12 @@ func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
 		html.EscapeString(a.Namespace),
 		html.EscapeString(a.Name),
 		html.EscapeString(a.Reason),
-		html.EscapeString(a.Summary),
+		html.EscapeString(summary),
 		html.EscapeString(a.Cluster),
 		html.EscapeString(a.Fingerprint),
 	)
 	if runbook := a.Annotations["runbook-url"]; templates.SafeRunbookURL(runbook) {
 		text += fmt.Sprintf("\n<a href=\"%s\">Runbook</a>", html.EscapeString(runbook))
-	}
-
-	// Telegram caps messages at 4096 chars; summaries with long reasons
-	// could exceed it.
-	if len(text) > 4000 {
-		text = truncate(text, 4000)
 	}
 
 	payload := map[string]any{

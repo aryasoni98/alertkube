@@ -28,6 +28,11 @@ func discordColor(a *alert.Alert) int {
 	if a.Resolved {
 		hex = "#2EB67D"
 	}
+	// Guard the leading-'#' assumption: an unexpected Color() value must not
+	// panic the sink goroutine on hex[1:].
+	if len(hex) != 7 || hex[0] != '#' {
+		return 0
+	}
 	v, err := strconv.ParseInt(hex[1:], 16, 32)
 	if err != nil {
 		return 0

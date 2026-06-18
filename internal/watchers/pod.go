@@ -49,6 +49,23 @@ func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
 
 func (p *PodWatcher) Name() string { return "pod" }
 
+// Drain blocks until in-flight enrichment goroutines finish or ctx expires.
+// Enrichment (events/logs collection) runs off the informer handler in a
+// bounded pool; without draining, a shutdown abandons those goroutines
+// mid-flight and the alerts they were enriching are never emitted.
+func (p *PodWatcher) Drain(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		p.enrichWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		klog.Warning("pod enrichment drain timed out; abandoning in-flight enrichment")
+	}
+}
+
 func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	inf := f.Core().V1().Pods().Informer()
 	register("pod", inf, cache.ResourceEventHandlerFuncs{
@@ -70,6 +87,18 @@ func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactor
 				return
 			}
 			p.evaluate(ctx, oldPod, newPod, emit)
+		},
+		DeleteFunc: func(obj interface{}) {
+			defer recoverHandler("pod.Delete")
+			// A deleted pod's crashloop/oom/imagepull condition is over;
+			// resolve it now instead of waiting out resolveTTL. Pod names are
+			// unique per pod, so a rollout's replacement pod gets a fresh
+			// fingerprint and is unaffected.
+			pod, ok := objFromDelete[*v1.Pod](obj)
+			if !ok || !p.shouldHandle(pod) {
+				return
+			}
+			emitResolve(emit, alert.KindPod, pod.Namespace, pod.Name)
 		},
 	})
 }

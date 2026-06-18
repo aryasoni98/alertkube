@@ -140,6 +140,11 @@ escalations: []
 receiver:
   # -- Accept Alertmanager webhooks on `/api/v1/alerts`.
   enabled: false
+  # -- Run the receiver without a token. Required to enable the receiver with
+  # no token; otherwise startup fails closed (an open endpoint accepts
+  # unauthenticated alert injection). Only set true when the port is locked
+  # down by a NetworkPolicy.
+  allowAnonymous: false
   # -- Optional bearer token guarding the receiver (inline; prefer the Secret ref).
   token: ""
   # -- Secret reference for the receiver token (`{key, name}`).
@@ -343,6 +348,14 @@ networkPolicy:
     cidrs: []
     # -- API server endpoint target port (often 6443 on self-managed).
     port: 443
+  # Sink egress allow-list. When empty, egress on 443/TCP is allowed to
+  # anywhere except link-local and the RFC-1918 private ranges. Set this to
+  # the explicit CIDRs of on-prem / private sinks (self-hosted Alertmanager,
+  # internal webhooks) that the private-range exclusion would otherwise cut
+  # off; doing so replaces the broad rule with a tight allow-list.
+  # -- Sink endpoint CIDRs reachable on 443/TCP (empty = anywhere minus private ranges).
+  sinkCIDRs: []
+    # - 10.20.0.0/24
   # Restrict who can scrape /metrics. Defaults to allow-all when empty.
   # -- Sources allowed to scrape `/metrics` (empty = allow all).
   ingressFrom: []

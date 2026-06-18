@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
@@ -39,6 +40,16 @@ func (c *CronJobWatcher) Setup(_ context.Context, f informers.SharedInformerFact
 				return
 			}
 			c.evaluate(oldCJ, newCJ, emit)
+		},
+		DeleteFunc: func(obj interface{}) {
+			defer recoverHandler("cronjob.Delete")
+			// A deleted CronJob resolves its CronJobSuspended /
+			// CronJobMissingSuccess alerts instead of waiting out resolveTTL.
+			m, ok := objFromDelete[metav1.Object](obj)
+			if !ok || !c.ns.allows(m.GetNamespace()) {
+				return
+			}
+			emitResolve(emit, alert.KindCronJob, m.GetNamespace(), m.GetName())
 		},
 	})
 }

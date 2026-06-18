@@ -42,8 +42,23 @@ spec:
         - port: {{ .Values.networkPolicy.apiServer.port | default 443 }}
           protocol: TCP
     # Outbound HTTPS to sink endpoints (Slack, PagerDuty, Teams, generic webhook).
-    # The exact CIDR / host set is environment-specific; default policy
-    # is "anywhere on 443/TCP". Tighten via networkPolicy.extraEgress.
+    {{- if .Values.networkPolicy.sinkCIDRs }}
+    # Explicit allow-list: only these CIDRs are reachable on 443/TCP. Use
+    # this for on-prem / RFC-1918 sinks (self-hosted Alertmanager, internal
+    # webhooks) that the broad-egress exclusions below would otherwise block.
+    - to:
+        {{- range .Values.networkPolicy.sinkCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: 443
+          protocol: TCP
+    {{- else }}
+    # Default: "anywhere on 443/TCP" minus link-local and the private ranges
+    # (which would otherwise also open every in-cluster service). Set
+    # networkPolicy.sinkCIDRs to allow specific private endpoints, or append
+    # rules via networkPolicy.extraEgress.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -55,6 +70,7 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    {{- end }}
   {{- with .Values.networkPolicy.extraEgress }}
     {{- toYaml . | nindent 4 }}
   {{- end }}

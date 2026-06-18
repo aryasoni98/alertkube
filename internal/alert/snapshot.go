@@ -50,14 +50,28 @@ func (s *Store) Restore(snap *Snapshot) {
 	if snap == nil || snap.Version > SnapshotVersion {
 		return
 	}
+	now := time.Now()
 	s.mu.Lock()
 	for fp, t := range snap.LastSent {
+		// A future send time can only come from a corrupted or poisoned
+		// snapshot. Honoring it would mute the fingerprint forever
+		// (time.Since stays negative, always < muteWindow). Drop it so a
+		// real firing can page.
+		if t.After(now) {
+			continue
+		}
 		if _, ok := s.lastSent[fp]; !ok {
 			s.lastSent[fp] = t
 		}
 	}
 	for _, a := range snap.Active {
 		if a == nil || a.Fingerprint == "" {
+			continue
+		}
+		// Reject snapshot entries with unknown enums: a poisoned snapshot
+		// must not inject arbitrary alerts that the sweep would later emit
+		// as synthetic resolves.
+		if !a.Severity.Valid() || !a.Kind.Valid() {
 			continue
 		}
 		if _, ok := s.active[a.Fingerprint]; !ok {

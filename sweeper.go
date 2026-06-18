@@ -27,7 +27,7 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, per
 		case <-ticker.C:
 			store.SweepResolved()
 			store.CleanOldHistory()
-			runEscalations(ctx, store, reg, cfg)
+			runEscalations(store, reg, cfg)
 			if persister == nil {
 				continue
 			}
@@ -53,7 +53,7 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, per
 // runEscalations re-dispatches still-active alerts that outlived an
 // escalation rule's delay. Store.Overdue marks matches so each rule fires
 // at most once per alert lifetime; marks clear when the alert resolves.
-func runEscalations(ctx context.Context, store *alert.Store, reg *sinks.Registry, cfg *config.Config) {
+func runEscalations(store *alert.Store, reg *sinks.Registry, cfg *config.Config) {
 	for i, esc := range cfg.Escalations {
 		after := time.Duration(esc.AfterMinutes) * time.Minute
 		ruleKey := fmt.Sprintf("rule%d", i)
@@ -69,7 +69,7 @@ func runEscalations(ctx context.Context, store *alert.Store, reg *sinks.Registry
 			a.Summary = "[ESCALATED - unresolved after " + after.String() + "] " + a.Summary
 			metrics.EscalationsTotal.Inc()
 			klog.Infof("escalating %s to %v (%s)", a, esc.Sinks, ruleKey)
-			reg.Dispatch(ctx, a, esc.Sinks)
+			dispatch(reg, a, esc.Sinks)
 		}
 	}
 }

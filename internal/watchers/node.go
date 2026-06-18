@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -41,6 +42,16 @@ func (n *NodeWatcher) Setup(ctx context.Context, f informers.SharedInformerFacto
 				return
 			}
 			n.evaluate(oldN, newN, emit)
+		},
+		DeleteFunc: func(obj interface{}) {
+			defer recoverHandler("node.Delete")
+			// A removed node clears any NotReady/pressure/cordon alert it
+			// held; resolve immediately rather than at resolveTTL.
+			m, ok := objFromDelete[metav1.Object](obj)
+			if !ok {
+				return
+			}
+			emitResolve(emit, alert.KindNode, "", m.GetName())
 		},
 	})
 }

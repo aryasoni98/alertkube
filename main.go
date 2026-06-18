@@ -23,6 +23,11 @@ const (
 	appName       = "alertkube"
 )
 
+// version is overridden at build time via -ldflags "-X main.version=...".
+// Logged at startup so the running image version is observable in pod logs
+// without exec-ing into the container.
+var version = "dev"
+
 // Flags shared between leader-election bootstrap and the controller body.
 type runtimeFlags struct {
 	kubeconfig            string
@@ -35,6 +40,7 @@ type runtimeFlags struct {
 
 func main() {
 	flags := parseFlags()
+	klog.Infof("%s %s starting", appName, version)
 
 	cfg, err := config.Load(flags.configPath)
 	if err != nil {

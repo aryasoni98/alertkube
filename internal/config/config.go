@@ -75,10 +75,14 @@ type Config struct {
 
 	// Receiver exposes POST /api/v1/alerts on the metrics address,
 	// accepting Alertmanager webhook payloads and running them through
-	// the same dedupe/grouping/routing/sink pipeline. Optional bearer
-	// auth via the ALERTKUBE_RECEIVER_TOKEN env var.
+	// the same dedupe/grouping/routing/sink pipeline. Bearer auth via the
+	// ALERTKUBE_RECEIVER_TOKEN env var; without a token the endpoint accepts
+	// unauthenticated alert injection, so an empty token is a fatal error
+	// unless AllowAnonymous is set (e.g. the port is locked down by a
+	// NetworkPolicy).
 	Receiver struct {
-		Enabled bool `yaml:"enabled"`
+		Enabled        bool `yaml:"enabled"`
+		AllowAnonymous bool `yaml:"allowAnonymous"`
 	} `yaml:"receiver"`
 
 	MetricsAddr string `yaml:"metricsAddr"`

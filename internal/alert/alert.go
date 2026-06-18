@@ -41,6 +41,16 @@ func (s Severity) Emoji() string {
 	}
 }
 
+// Valid reports whether s is a known severity. Used to reject untrusted
+// values (e.g. a poisoned persisted snapshot) before they enter the store.
+func (s Severity) Valid() bool {
+	switch s {
+	case SeverityCritical, SeverityWarning, SeverityInfo:
+		return true
+	}
+	return false
+}
+
 // Kind identifies the resource type that produced the alert.
 type Kind string
 
@@ -58,6 +68,17 @@ const (
 	// webhook receiver rather than produced by a watcher.
 	KindExternal Kind = "External"
 )
+
+// Valid reports whether k is a known kind. Used to reject untrusted values
+// (e.g. a poisoned persisted snapshot) before they enter the store.
+func (k Kind) Valid() bool {
+	switch k {
+	case KindPod, KindNode, KindDeployment, KindPVC, KindJob, KindDaemonSet,
+		KindStatefulSet, KindCronJob, KindHPA, KindExternal:
+		return true
+	}
+	return false
+}
 
 // Alert is the canonical event flowing through the pipeline.
 type Alert struct {
