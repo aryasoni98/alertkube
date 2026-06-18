@@ -105,9 +105,21 @@ func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit 
 				return
 			}
 		}
-		if st.LastTerminationState.Terminated != nil && st.LastTerminationState.Terminated.Reason == "OOMKilled" {
-			p.emitContainerAlert(ctx, newPod, st, "OOMKilled", alert.SeverityCritical, emit)
-			return
+		if term := st.LastTerminationState.Terminated; term != nil {
+			if term.Reason == "OOMKilled" {
+				p.emitContainerAlert(ctx, newPod, st, "OOMKilled", alert.SeverityCritical, emit)
+				return
+			}
+			// Non-OOM SIGKILL (exit 137 / signal 9) on a pod that is NOT being
+			// deleted: the container was force-killed while it was meant to be
+			// running - liveness-probe escalation, terminationGracePeriod
+			// exceeded mid-run, or a runtime kill. A SIGKILL during normal pod
+			// teardown (rollout, scale-down, eviction) sets DeletionTimestamp,
+			// so guarding on it keeps graceful shutdowns silent.
+			if (term.ExitCode == 137 || term.Signal == 9) && newPod.DeletionTimestamp == nil {
+				p.emitContainerAlert(ctx, newPod, st, "ContainerKilled", alert.SeverityWarning, emit)
+				return
+			}
 		}
 	}
 
@@ -135,6 +147,9 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 	a.NodeName = pod.Spec.NodeName
 	a.Labels["container"] = st.Name
 	a.Summary = fmt.Sprintf("container %q in pod %s/%s entered %s", st.Name, pod.Namespace, pod.Name, reason)
+	if cause := terminationCause(st); cause != "" {
+		a.Summary += " — last termination: " + cause
+	}
 	a.Annotations = mergeAnnotations(pod)
 
 	// Local enrichment (no API calls) stays on the handler path.
@@ -189,6 +204,48 @@ func (p *PodWatcher) enrich(ctx context.Context, pod *v1.Pod, st v1.ContainerSta
 			a.Details["Node Events"] = nodeEvents
 		}
 	}
+}
+
+// terminationCause renders a container's last-termination signal/exit code
+// in human form ("SIGKILL (exit 137)", "SIGTERM (exit 143)", "exit 1") for
+// the alert summary, so operators see WHY a container died without opening
+// the Container State block. Returns "" when there is no terminated state.
+func terminationCause(st v1.ContainerStatus) string {
+	t := st.LastTerminationState.Terminated
+	if t == nil {
+		return ""
+	}
+	if name := signalName(t.Signal); name != "" {
+		return fmt.Sprintf("%s (exit %d)", name, t.ExitCode)
+	}
+	switch t.ExitCode {
+	case 137:
+		return "SIGKILL (exit 137)"
+	case 143:
+		return "SIGTERM (exit 143)"
+	}
+	if t.Reason != "" {
+		return fmt.Sprintf("%s (exit %d)", t.Reason, t.ExitCode)
+	}
+	return fmt.Sprintf("exit %d", t.ExitCode)
+}
+
+// signalName maps the common termination signals to names; "" for the rest
+// (the exit code still conveys those).
+func signalName(sig int32) string {
+	switch sig {
+	case 2:
+		return "SIGINT"
+	case 6:
+		return "SIGABRT"
+	case 9:
+		return "SIGKILL"
+	case 11:
+		return "SIGSEGV"
+	case 15:
+		return "SIGTERM"
+	}
+	return ""
 }
 
 func totalRestarts(pod *v1.Pod) int {

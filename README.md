@@ -18,7 +18,7 @@ alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in 
 
 | Feature | Notes |
 | --- | --- |
-| Multi-resource watchers | Pod (restart, crashloop, OOM, image-pull), Node (NotReady, MemoryPressure, DiskPressure, PIDPressure, cordon), Deployment (unavailable, progress deadline), PVC (Lost, Pending), Job (Failed), DaemonSet (unavailable), StatefulSet (replica shortfall), CronJob (missing success, suspended), HPA (maxed out) |
+| Multi-resource watchers | Pod (restart, crashloop, OOM, SIGKILL, image-pull), Node (NotReady, MemoryPressure, DiskPressure, PIDPressure, cordon), Deployment (unavailable, progress deadline), PVC (Lost, Pending), Job (Failed), DaemonSet (unavailable), StatefulSet (replica shortfall), CronJob (missing success, suspended), HPA (maxed out) |
 | Severity tiers | `critical`, `warning`, `info` with distinct colors + emoji |
 | Block Kit Slack templates | Header, fields, summary, contextual logs, runbook button |
 | Multi-sink | Slack (webhook or bot token), PagerDuty, Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhook, stdout |

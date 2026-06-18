@@ -20,13 +20,16 @@ circuit; per-restart alerts run only when no waiting/OOM state matched.
 | `ImagePullBackOff` | warning | A container status has `state.waiting.reason == ImagePullBackOff`. |
 | `ErrImagePull` | warning | A container status has `state.waiting.reason == ErrImagePull`. |
 | `OOMKilled` | critical | A container's `lastTerminationState.terminated.reason == OOMKilled`. |
+| `ContainerKilled` | warning | A container's last termination was a non-OOM SIGKILL (`exitCode == 137` or `signal == 9`) **and** the pod is not being deleted (`metadata.deletionTimestamp` unset). Catches liveness-probe escalation, `terminationGracePeriodSeconds` exceeded mid-run, and runtime force-kills. SIGKILL during normal teardown (rollout, scale-down, eviction) sets `deletionTimestamp`, so graceful shutdowns stay silent. |
 | `ContainerRestart` | warning | Total restart count increased on update and is `<= behavior.ignoreRestartCount`; per container with `restartCount > 0`. Skipped if `ignoreRestartsWithExitCodeZero` and the last termination exit code was 0. |
+
+All container alerts append the last-termination cause to the summary when present (e.g. `— last termination: SIGKILL (exit 137)` / `SIGTERM (exit 143)` / `Error (exit 1)`), so the signal/exit code is visible without opening the Container State block.
 
 !!! note "Initial sync skips `ContainerRestart`"
     On the informer's initial sync (`AddFunc`), there is no previous pod to
     compute a restart delta, so only terminal/waiting conditions
-    (`CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `OOMKilled`) are
-    evaluated. `ContainerRestart` fires only on an `UpdateFunc` where the count
+    (`CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `OOMKilled`,
+    `ContainerKilled`) are evaluated. `ContainerRestart` fires only on an `UpdateFunc` where the count
     increased.
 
 ## Node
