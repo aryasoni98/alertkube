@@ -13,5 +13,10 @@ spec:
     matchLabels: {{- include "alertkube.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
+      # Explicit path/scheme: the controller serves plain HTTP /metrics, so a
+      # cluster that defaults scrapes to https would otherwise fail silently.
+      path: /metrics
+      scheme: http
       interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
 {{- end }}

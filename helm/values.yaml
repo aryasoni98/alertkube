@@ -168,6 +168,12 @@ grouping:
 # namespace. A controller restart then still sends pending resolves
 # (no dangling PagerDuty incidents) and does not re-page standing
 # conditions. Adds a namespaced Role for the state ConfigMap.
+#
+# NOTE: the state ConfigMap is created by the controller at runtime, not by
+# Helm, so `helm uninstall` does NOT remove it. A reinstall into the same
+# namespace would then restore stale state (spurious resolves / suppressed
+# alerts for up to resolveTTLSeconds). After uninstall, delete it manually:
+#   kubectl delete configmap <release>-state -n <namespace>
 persistence:
   # -- Snapshot active-alert and mute state to a ConfigMap.
   enabled: true
@@ -226,6 +232,8 @@ metrics:
     enabled: false
     # -- Scrape interval for the ServiceMonitor.
     interval: 30s
+    # -- Per-scrape timeout (must be <= interval).
+    scrapeTimeout: 10s
     # -- Extra labels on the ServiceMonitor.
     labels: {}
 
@@ -305,6 +313,11 @@ fullnameOverride: ""
 # -- Extra annotations on the controller pod.
 podAnnotations: {}
 
+# Graceful shutdown budget. Must exceed the controller's worst-case drain:
+# in-flight pod enrichment + the longest sink send + the final state save.
+# -- Seconds the pod gets to drain before SIGKILL.
+terminationGracePeriodSeconds: 45
+
 # -- Pod-level security context.
 podSecurityContext:
   runAsNonRoot: true
@@ -331,10 +344,17 @@ tolerations: []
 affinity: {}
 
 podDisruptionBudget:
-  # -- Create a PodDisruptionBudget (for HA).
+  # -- Create a PodDisruptionBudget (only meaningful with leader election +
+  # replicaCount > 1; a single-replica controller should not set one).
   enabled: false
-  # -- Minimum available replicas.
-  minAvailable: 1
+  # maxUnavailable is the safe default: it lets a node drain evict the pod
+  # (the Deployment reschedules it) instead of wedging cluster upgrades. Use
+  # minAvailable only with replicaCount > 1 + leader election. Setting
+  # minAvailable: 1 with a single replica blocks ALL voluntary disruptions.
+  # -- Tolerated unavailable replicas during voluntary disruption.
+  maxUnavailable: 1
+  # -- Minimum available replicas (mutually exclusive with maxUnavailable).
+  minAvailable: ""
 
 networkPolicy:
   # -- Restrict metrics ingress and controller egress with a NetworkPolicy.

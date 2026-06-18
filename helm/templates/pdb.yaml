@@ -1,11 +1,19 @@
 {{- if .Values.podDisruptionBudget.enabled }}
+{{- $pdb := .Values.podDisruptionBudget }}
+{{- if and $pdb.minAvailable (eq (int .Values.replicaCount) 1) }}
+{{- fail "podDisruptionBudget.minAvailable with replicaCount=1 blocks all voluntary disruptions (node drains, cluster upgrades). Use maxUnavailable: 1, or raise replicaCount with leaderElection.enabled=true." }}
+{{- end }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 spec:
-  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- if $pdb.minAvailable }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ $pdb.maxUnavailable | default 1 }}
+  {{- end }}
   selector:
     matchLabels: {{- include "alertkube.selectorLabels" . | nindent 6 }}
 {{- end }}

@@ -27,16 +27,25 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      labels: {{- include "alertkube.selectorLabels" . | nindent 8 }}
+      labels:
+        {{- include "alertkube.selectorLabels" . | nindent 8 }}
+        # Non-selector label: surfaces the running version in
+        # `kubectl get pods -L app.kubernetes.io/version` during rollouts.
+        app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "alertkube.fullname" . }}
+      # Bounds graceful shutdown: the controller drains in-flight pod
+      # enrichment, finishes sink sends (up to the per-sink timeout), and
+      # saves final state. Must exceed that worst case so SIGKILL does not
+      # truncate a resolve mid-flight or a state save.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 45 }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: alertkube
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           args:
@@ -112,12 +121,25 @@ spec:
           ports:
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
+          # startupProbe gives the initial informer cache sync up to ~150s on
+          # a large cluster before liveness starts counting, so a slow sync is
+          # not mistaken for a hang. Liveness/readiness then run on tight
+          # periods with explicit thresholds so an apiserver blip needs three
+          # consecutive failures (not one) to act.
+          startupProbe:
+            httpGet: {path: /readyz, port: metrics}
+            periodSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet: {path: /healthz, port: metrics}
-            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet: {path: /readyz, port: metrics}
-            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /etc/alertkube
