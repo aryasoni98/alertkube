@@ -141,7 +141,7 @@ func (w *simple[T]) resolveOnDelete(obj interface{}, emit Emit) {
 // handleCurrent builds Add/Update handlers that type-assert to T, apply
 // the namespace filter, recover panics, and call eval with the current
 // object. Watchers whose evaluation needs only the latest state use it;
-// watchers that diff old vs new (pod, node, cronjob) register manually.
+// watchers that diff old vs new (pod, node, cronjob) use handleDiff.
 func handleCurrent[T interface{ GetNamespace() string }](name string, ns nsFilter, eval func(T)) cache.ResourceEventHandlerFuncs {
 	handle := func(obj interface{}, where string) {
 		defer recoverHandler(where)
@@ -155,4 +155,44 @@ func handleCurrent[T interface{ GetNamespace() string }](name string, ns nsFilte
 		AddFunc:    func(obj interface{}) { handle(obj, name+".Add") },
 		UpdateFunc: func(_, cur interface{}) { handle(cur, name+".Update") },
 	}
+}
+
+// handleDiff builds Add/Update/Delete handlers for watchers that compare old
+// vs new state. It owns the same scaffolding handleCurrent does (type-assert,
+// keep filter, panic recovery) plus the delete-resolve contract:
+//   - keep filters objects (nil accepts all - used by the cluster-scoped node
+//     watcher); it runs on both change and delete events.
+//   - onChange receives (old, cur); old is the zero value (nil pointer) on Add
+//     and whenever the prior object is absent.
+//   - includeAdd toggles whether Add events fire onChange (cronjob only acts on
+//     Updates, where a prior schedule exists to diff against).
+//   - on Delete the object's active alerts resolve immediately rather than
+//     waiting out resolveTTL, and its mute record clears so a same-named
+//     replacement can re-page.
+func handleDiff[T metav1.Object](name string, kind alert.Kind, emit Emit, keep func(T) bool, includeAdd bool, onChange func(old, cur T)) cache.ResourceEventHandlerFuncs {
+	allowed := func(o T) bool { return keep == nil || keep(o) }
+	change := func(old, cur interface{}, where string) {
+		defer recoverHandler(where)
+		c, ok := cur.(T)
+		if !ok || !allowed(c) {
+			return
+		}
+		o, _ := old.(T) // zero value (nil) when the prior object is absent
+		onChange(o, c)
+	}
+	h := cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(old, cur interface{}) { change(old, cur, name+".Update") },
+		DeleteFunc: func(obj interface{}) {
+			defer recoverHandler(name + ".Delete")
+			o, ok := objFromDelete[T](obj)
+			if !ok || !allowed(o) {
+				return
+			}
+			emitResolve(emit, kind, o.GetNamespace(), o.GetName())
+		},
+	}
+	if includeAdd {
+		h.AddFunc = func(obj interface{}) { change(nil, obj, name+".Add") }
+	}
+	return h
 }

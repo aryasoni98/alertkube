@@ -38,7 +38,11 @@ func NodeEvents(ctx context.Context, c kubernetes.Interface, nodeName string) (s
 	return formatEvents(events.Items, nodeName), nil
 }
 
-// formatEvents sorts items by timestamp and renders entries matching involvedObject.Name.
+// formatEvents sorts items by timestamp and renders entries matching
+// involvedObject.Name. The name check is belt-and-suspenders: callers already
+// constrain involvedObject.name server-side via FieldSelector, but it guards
+// against apiservers that only partially honor event field selectors (which
+// would otherwise dump every Warning event in the namespace into the alert).
 func formatEvents(items []v1.Event, name string) string {
 	if len(items) > 1 {
 		sort.Sort(byLastTimestamp(items))

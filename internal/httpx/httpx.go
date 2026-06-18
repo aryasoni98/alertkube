@@ -42,6 +42,20 @@ func PostJSON(ctx context.Context, dest string, payload any) error {
 
 // PostJSONWithRetry is the explicit-policy form of PostJSON.
 func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy RetryPolicy) error {
+	return PostJSONWithHeaders(ctx, dest, payload, policy, nil)
+}
+
+// HeaderFunc sets per-attempt request headers on the JSON POST. It receives
+// the marshaled body so signatures (e.g. HMAC) can be computed over it, and
+// runs on every retry so time-sensitive headers (timestamps, signatures) stay
+// fresh within the receiver's replay window.
+type HeaderFunc func(req *http.Request, body []byte)
+
+// PostJSONWithHeaders is PostJSONWithRetry plus a hook to add per-request
+// headers (auth tokens, HMAC signatures). It owns the marshal + retry +
+// status-handling loop so sinks that need custom headers do not re-implement
+// it. Empty dest is a no-op; header may be nil.
+func PostJSONWithHeaders(ctx context.Context, dest string, payload any, policy RetryPolicy, header HeaderFunc) error {
 	if dest == "" {
 		return nil
 	}
@@ -55,6 +69,9 @@ func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy Ret
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		if header != nil {
+			header(req, body)
+		}
 		resp, err := defaultClient.Do(req)
 		if err != nil {
 			return err

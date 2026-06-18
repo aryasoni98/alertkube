@@ -113,30 +113,68 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		})
 	}))
 
-	if cfg.Receiver.Enabled {
-		receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
-		switch {
-		case receiverToken == "" && !cfg.Receiver.AllowAnonymous:
-			// Fail closed: an open POST /api/v1/alerts lets anyone with
-			// network reach inject arbitrary alerts (and resolves that close
-			// real incidents). Require an explicit opt-in to run without auth.
-			klog.Fatalf("receiver.enabled but no bearer token: POST /api/v1/alerts on %s would accept unauthenticated alert injection. Set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token), or set receiver.allowAnonymous: true if the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
-		case receiverToken == "":
-			klog.Warningf("receiver enabled with receiver.allowAnonymous: POST /api/v1/alerts on %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
-		}
-		metrics.SetReceiverHandler(receiver.New(
-			receiverToken,
-			func(a *alert.Alert) { emit(a) },
-			func(a *alert.Alert) {
-				// Upstream already told the world it resolved; forget our
-				// copy so the TTL sweep does not emit a duplicate resolve.
-				store.Forget(a.Fingerprint)
-				dispatchResolved(a)
-			},
-		))
-		klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+	setupReceiver(cfg, store, emit, dispatchResolved)
+
+	ws := startInformers(ctx, clientset, cfg, watchNamespace, emit)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go runSweeper(ctx, &wg, store, persister, reg, cfg)
+
+	// The grouper runs on its own cancel (not the controller ctx) so the
+	// shutdown sequence can finish in-flight enrichment - which may still
+	// Offer alerts into open windows - BEFORE those windows are flushed.
+	// Tying it to ctx would race the FlushAll against the enrichment drain.
+	grouperCtx, grouperStop := context.WithCancel(context.Background())
+	defer grouperStop()
+	if grouper != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grouper.Run(grouperCtx) // FlushAll on grouperStop drains open windows
+		}()
 	}
 
+	<-ctx.Done()
+	klog.Infof("%s shutting down", appName)
+	shutdown(ws, grouperStop, &wg, persister, store)
+}
+
+// setupReceiver wires the optional Alertmanager-compatible webhook receiver
+// onto the metrics server. Fails closed when enabled without a bearer token
+// unless receiver.allowAnonymous is set.
+func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, dispatchResolved func(*alert.Alert)) {
+	if !cfg.Receiver.Enabled {
+		return
+	}
+	receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
+	switch {
+	case receiverToken == "" && !cfg.Receiver.AllowAnonymous:
+		// Fail closed: an open POST /api/v1/alerts lets anyone with
+		// network reach inject arbitrary alerts (and resolves that close
+		// real incidents). Require an explicit opt-in to run without auth.
+		klog.Fatalf("receiver.enabled but no bearer token: POST /api/v1/alerts on %s would accept unauthenticated alert injection. Set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token), or set receiver.allowAnonymous: true if the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+	case receiverToken == "":
+		klog.Warningf("receiver enabled with receiver.allowAnonymous: POST /api/v1/alerts on %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+	}
+	metrics.SetReceiverHandler(receiver.New(
+		receiverToken,
+		func(a *alert.Alert) { emit(a) },
+		func(a *alert.Alert) {
+			// Upstream already told the world it resolved; forget our
+			// copy so the TTL sweep does not emit a duplicate resolve.
+			store.Forget(a.Fingerprint)
+			dispatchResolved(a)
+		},
+	))
+	klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+}
+
+// startInformers builds the shared informer factory, wires every watcher,
+// starts the informers, and blocks until their caches sync (fatal on failure,
+// which is almost always missing RBAC). Returns the watchers so the caller can
+// drain their background work at shutdown.
+func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string, emit watchers.Emit) []watchers.Watcher {
 	var factoryOpts []informers.SharedInformerOption
 	if watchNamespace != "" {
 		klog.Infof("watching single namespace %q (node alerts disabled)", watchNamespace)
@@ -163,35 +201,19 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	}
 	metrics.MarkReady()
 	klog.Infof("%s started", appName)
+	return ws
+}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go runSweeper(ctx, &wg, store, persister, reg, cfg)
-
-	// The grouper runs on its own cancel (not the controller ctx) so the
-	// shutdown sequence can finish in-flight enrichment - which may still
-	// Offer alerts into open windows - BEFORE those windows are flushed.
-	// Tying it to ctx would race the FlushAll against the enrichment drain.
-	grouperCtx, grouperStop := context.WithCancel(context.Background())
-	defer grouperStop()
-	if grouper != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			grouper.Run(grouperCtx) // FlushAll on grouperStop drains open windows
-		}()
-	}
-
-	<-ctx.Done()
-	klog.Infof("%s shutting down", appName)
-	// Finish in-flight enrichment first: an alert mid-enrichment must reach
-	// the store (and grouper) before we flush groups and save final state,
-	// otherwise it is silently dropped on every rolling update.
+// shutdown runs the controller's drain sequence in the one order that does
+// not drop alerts: finish in-flight pod enrichment first (those alerts must
+// reach the store and grouper), then stop the grouper so it flushes open
+// windows, wait for the sweeper + grouper goroutines, save final state on a
+// fresh deadline (ctx is already cancelled), and finally mark not-ready.
+func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store) {
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()
 	if persister != nil {
-		// ctx is already cancelled; the final save gets its own deadline.
 		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := persister.Save(saveCtx, store.Export()); err != nil {
 			klog.Warningf("final state save: %v", err)

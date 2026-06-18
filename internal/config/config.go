@@ -3,10 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"alertkube/internal/env"
 )
 
 // Config is the YAML-driven runtime configuration.
@@ -305,34 +306,34 @@ func (c *Config) applyEnvDefaults() {
 		c.Filters.IgnoredPodNamePrefixes = os.Getenv("IGNORED_POD_NAME_PREFIXES")
 	}
 	if c.Behavior.MuteSeconds == 0 {
-		c.Behavior.MuteSeconds = atoiOr("MUTE_SECONDS", 600)
+		c.Behavior.MuteSeconds = env.IntOr("MUTE_SECONDS", 600)
 	}
 	if c.Behavior.IgnoreRestartCount == 0 {
-		c.Behavior.IgnoreRestartCount = atoiOr("IGNORE_RESTART_COUNT", 30)
+		c.Behavior.IgnoreRestartCount = env.IntOr("IGNORE_RESTART_COUNT", 30)
 	}
 	if !c.Behavior.IgnoreRestartsWithExitCodeZero {
 		c.Behavior.IgnoreRestartsWithExitCodeZero = os.Getenv("IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO") == "true"
 	}
 	if c.Behavior.ResolveTTLSeconds == 0 {
-		c.Behavior.ResolveTTLSeconds = atoiOr("RESOLVE_TTL_SECONDS", 600)
+		c.Behavior.ResolveTTLSeconds = env.IntOr("RESOLVE_TTL_SECONDS", 600)
 	}
 	if c.Behavior.StartupGraceSeconds == 0 {
-		c.Behavior.StartupGraceSeconds = atoiOr("STARTUP_GRACE_SECONDS", 0)
+		c.Behavior.StartupGraceSeconds = env.IntOr("STARTUP_GRACE_SECONDS", 0)
 	}
 	if c.Behavior.PVCPendingSeconds == 0 {
-		c.Behavior.PVCPendingSeconds = atoiOr("PVC_PENDING_SECONDS", 300)
+		c.Behavior.PVCPendingSeconds = env.IntOr("PVC_PENDING_SECONDS", 300)
 	}
 	if c.Channels.Critical == "" {
-		c.Channels.Critical = envOr("SLACK_CHANNEL_CRITICAL", "alerts-critical")
+		c.Channels.Critical = env.Or("SLACK_CHANNEL_CRITICAL", "alerts-critical")
 	}
 	if c.Channels.Warning == "" {
-		c.Channels.Warning = envOr("SLACK_CHANNEL_WARNING", envOr("SLACK_CHANNEL", "alerts-warning"))
+		c.Channels.Warning = env.Or("SLACK_CHANNEL_WARNING", env.Or("SLACK_CHANNEL", "alerts-warning"))
 	}
 	if c.Channels.Info == "" {
-		c.Channels.Info = envOr("SLACK_CHANNEL_INFO", "alerts-info")
+		c.Channels.Info = env.Or("SLACK_CHANNEL_INFO", "alerts-info")
 	}
 	if c.MetricsAddr == "" {
-		c.MetricsAddr = envOr("METRICS_ADDR", ":9090")
+		c.MetricsAddr = env.Or("METRICS_ADDR", ":9090")
 	}
 	if c.Grouping.WindowSeconds == 0 {
 		c.Grouping.WindowSeconds = 30
@@ -343,18 +344,4 @@ func (c *Config) applyEnvDefaults() {
 	if c.Persistence.Namespace == "" {
 		c.Persistence.Namespace = os.Getenv("POD_NAMESPACE")
 	}
-}
-
-func atoiOr(key string, def int) int {
-	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
-		return v
-	}
-	return def
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

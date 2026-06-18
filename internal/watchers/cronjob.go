@@ -5,9 +5,7 @@ import (
 	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -30,31 +28,22 @@ func NewCronJob(cfg *config.Config) *CronJobWatcher {
 func (*CronJobWatcher) Name() string { return "cronjob" }
 
 func (c *CronJobWatcher) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Batch().V1().CronJobs().Informer()
-	register("cronjob", inf, cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(old, cur interface{}) {
-			defer recoverHandler("cronjob.Update")
-			oldCJ, _ := old.(*batchv1.CronJob)
-			newCJ, ok := cur.(*batchv1.CronJob)
-			if !ok || oldCJ == nil || !c.ns.allows(newCJ.Namespace) {
-				return
-			}
-			c.evaluate(oldCJ, newCJ, emit)
-		},
-		DeleteFunc: func(obj interface{}) {
-			defer recoverHandler("cronjob.Delete")
-			// A deleted CronJob resolves its CronJobSuspended /
-			// CronJobMissingSuccess alerts instead of waiting out resolveTTL.
-			m, ok := objFromDelete[metav1.Object](obj)
-			if !ok || !c.ns.allows(m.GetNamespace()) {
-				return
-			}
-			emitResolve(emit, alert.KindCronJob, m.GetNamespace(), m.GetName())
-		},
-	})
+	// includeAdd is false: a missed-schedule diff needs a prior tick, which
+	// only exists on Update. Delete resolves CronJobSuspended /
+	// CronJobMissingSuccess alerts instead of waiting out resolveTTL.
+	register("cronjob", f.Batch().V1().CronJobs().Informer(),
+		handleDiff("cronjob", alert.KindCronJob, emit,
+			func(cj *batchv1.CronJob) bool { return c.ns.allows(cj.Namespace) },
+			false,
+			func(old, cur *batchv1.CronJob) { c.evaluate(old, cur, emit) }))
 }
 
 func (c *CronJobWatcher) evaluate(oldCJ, newCJ *batchv1.CronJob, emit Emit) {
+	// Update events always carry a prior object; guard defensively so a
+	// missing old never nil-derefs the diff below.
+	if oldCJ == nil {
+		return
+	}
 	// Suspend transition is operator-relevant but not an incident.
 	if newCJ.Spec.Suspend != nil && *newCJ.Spec.Suspend &&
 		(oldCJ.Spec.Suspend == nil || !*oldCJ.Spec.Suspend) {

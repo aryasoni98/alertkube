@@ -9,6 +9,7 @@ import (
 	"alertkube/internal/alert"
 	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
+	"alertkube/internal/textutil"
 )
 
 // telegramAPIBase is a var so tests can point it at a local server.
@@ -40,7 +41,7 @@ func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
 	// HTML entity or one of the tags below. The assembled HTML is never cut.
 	summary := a.Summary
 	if len(summary) > 3000 {
-		summary = truncate(summary, 3000) + "…"
+		summary = textutil.Head(summary, 3000) + "…"
 	}
 	text := fmt.Sprintf(
 		"<b>[%s] %s %s/%s: %s</b>\n%s\n<code>cluster=%s fp=%s</code>",

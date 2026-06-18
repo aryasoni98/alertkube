@@ -15,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/config"
+	"alertkube/internal/env"
 	"alertkube/internal/metrics"
 )
 
@@ -85,28 +86,11 @@ func parseFlags() runtimeFlags {
 	}
 	flag.StringVar(&f.configPath, "config", os.Getenv("ALERTKUBE_CONFIG"), "YAML config path")
 	flag.StringVar(&f.watchNamespace, "watch-namespace", os.Getenv("WATCH_NAMESPACE"), "restrict informers to one namespace (disables node alerts; required for namespace-scoped RBAC)")
-	flag.BoolVar(&f.leaderElect, "leader-elect", envBool("LEADER_ELECT", false), "enable leader election via a Lease (required when replicas > 1)")
-	flag.StringVar(&f.leaderElectionNS, "leader-election-namespace", envOr("LEADER_ELECTION_NAMESPACE", "kube-system"), "namespace holding the Lease object")
+	flag.BoolVar(&f.leaderElect, "leader-elect", env.Bool("LEADER_ELECT", false), "enable leader election via a Lease (required when replicas > 1)")
+	flag.StringVar(&f.leaderElectionNS, "leader-election-namespace", env.Or("LEADER_ELECTION_NAMESPACE", "kube-system"), "namespace holding the Lease object")
 	flag.StringVar(&f.leaderElectionLeaseID, "leader-election-id", os.Getenv("POD_NAME"), "lease holder identity (defaults to POD_NAME or hostname)")
 	flag.Parse()
 	return f
-}
-
-func envBool(key string, def bool) bool {
-	switch os.Getenv(key) {
-	case "1", "true", "TRUE", "yes":
-		return true
-	case "0", "false", "FALSE", "no":
-		return false
-	}
-	return def
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func waitForSignal() {

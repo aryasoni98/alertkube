@@ -10,6 +10,7 @@ import (
 	"alertkube/internal/alert"
 	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
+	"alertkube/internal/textutil"
 )
 
 // DiscordSink posts embeds to a Discord channel webhook.
@@ -26,7 +27,7 @@ func (*DiscordSink) Supports(_ alert.Severity) bool { return true }
 func discordColor(a *alert.Alert) int {
 	hex := a.Severity.Color()
 	if a.Resolved {
-		hex = "#2EB67D"
+		hex = alert.ResolvedColorHex
 	}
 	// Guard the leading-'#' assumption: an unexpected Color() value must not
 	// panic the sink goroutine on hex[1:].
@@ -52,8 +53,8 @@ func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
 		{"name": "Reason", "value": orDash(a.Reason), "inline": true},
 	}
 	embed := map[string]any{
-		"title":       truncate(alertTitle(a), 256),
-		"description": truncate(a.Summary, 4096),
+		"title":       textutil.Head(alertTitle(a), 256),
+		"description": textutil.Head(a.Summary, 4096),
 		"color":       discordColor(a),
 		"fields":      fields,
 		"footer":      map[string]any{"text": fmt.Sprintf("%s | fp=%s", a.Kind, a.Fingerprint)},
