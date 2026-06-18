@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3](https://github.com/aryasoni98/alertkube/compare/v0.2.2...v0.2.3) (2026-06-18)
+
+
+### Added
+
+* **website:** SEO, performance & a11y upgrade for landing + docs site ([41be82e](https://github.com/aryasoni98/alertkube/commit/41be82e0dd88444d8b098b3f733e057606417dea))
+* **website:** SEO, performance, and a11y upgrade for landing + docs site ([ab1d058](https://github.com/aryasoni98/alertkube/commit/ab1d058ae6b7c8f50d40d6d89bb36aae02b9949b))
+
+
+### Fixed
+
+* harden controller shutdown, filtering, receiver, and delete handling ([8ce30ef](https://github.com/aryasoni98/alertkube/commit/8ce30ef6038d63c7bd2a3764faecbe003c0926c1))
+
+
+### Changed
+
+* extract reusable helpers, render all alert details, drop dead code ([5efb9ea](https://github.com/aryasoni98/alertkube/commit/5efb9ead8c66860d1beb7b7d7bc880bd82077935))
+* **sinks:** share severity-tier mapping; drop dead WLogo primitive ([09eab83](https://github.com/aryasoni98/alertkube/commit/09eab83354e975d883b3b59e8ae44b33794b3ee1))
+* **sinks:** share severity-tier mapping; drop dead WLogo primitive ([833d7d7](https://github.com/aryasoni98/alertkube/commit/833d7d724be85b403a114325030ca02992bcc782))
+
 ## [Unreleased]
 
 ## [v0.2.2] - 2026-06-15
