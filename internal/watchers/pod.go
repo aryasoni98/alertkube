@@ -8,7 +8,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
@@ -49,29 +48,33 @@ func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
 
 func (p *PodWatcher) Name() string { return "pod" }
 
+// Drain blocks until in-flight enrichment goroutines finish or ctx expires.
+// Enrichment (events/logs collection) runs off the informer handler in a
+// bounded pool; without draining, a shutdown abandons those goroutines
+// mid-flight and the alerts they were enriching are never emitted.
+func (p *PodWatcher) Drain(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		p.enrichWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		klog.Warning("pod enrichment drain timed out; abandoning in-flight enrichment")
+	}
+}
+
 func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
-	inf := f.Core().V1().Pods().Informer()
-	register("pod", inf, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			defer recoverHandler("pod.Add")
-			newPod, ok := obj.(*v1.Pod)
-			if !ok || !p.shouldHandle(newPod) {
-				return
-			}
-			// Initial-sync: only emit on terminal/waiting conditions; no
-			// restart delta exists yet so ContainerRestart is skipped.
-			p.evaluate(ctx, nil, newPod, emit)
-		},
-		UpdateFunc: func(oldObj, curObj interface{}) {
-			defer recoverHandler("pod.Update")
-			oldPod, _ := oldObj.(*v1.Pod)
-			newPod, ok := curObj.(*v1.Pod)
-			if !ok || !p.shouldHandle(newPod) {
-				return
-			}
-			p.evaluate(ctx, oldPod, newPod, emit)
-		},
-	})
+	// On Add (initial sync) oldPod is nil, so evaluate only emits on
+	// terminal/waiting conditions - no restart delta exists yet. On Delete
+	// the pod's crashloop/oom/imagepull alert resolves now instead of at
+	// resolveTTL; pod names are unique, so a rollout's replacement gets a
+	// fresh fingerprint and is unaffected.
+	register("pod", f.Core().V1().Pods().Informer(),
+		handleDiff("pod", alert.KindPod, emit, p.shouldHandle, true, func(old, cur *v1.Pod) {
+			p.evaluate(ctx, old, cur, emit)
+		}))
 }
 
 // shouldHandle returns true when a pod passes namespace + name include/exclude filters.
@@ -211,11 +214,12 @@ var controlAnnotationKeys = map[string]struct{}{
 }
 
 func mergeAnnotations(pod *v1.Pod) map[string]string {
-	out := map[string]string{}
-	for k, v := range pod.GetAnnotations() {
+	annotations, labels := pod.GetAnnotations(), pod.GetLabels()
+	out := make(map[string]string, len(annotations)+len(labels))
+	for k, v := range annotations {
 		out[k] = v
 	}
-	for k, v := range pod.GetLabels() {
+	for k, v := range labels {
 		if _, control := controlAnnotationKeys[k]; control {
 			continue
 		}

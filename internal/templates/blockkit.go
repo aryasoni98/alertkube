@@ -2,22 +2,25 @@ package templates
 
 import (
 	"fmt"
+	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/slack-go/slack"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/textutil"
 )
 
 // Build composes a Slack message using Block Kit blocks tailored to severity + kind.
 func Build(a *alert.Alert) []slack.Block {
 	title := fmt.Sprintf("%s %s: %s %s", a.Severity.Emoji(), strings.ToUpper(string(a.Severity)), a.Kind, a.Reason)
 	if a.Resolved {
-		title = fmt.Sprintf(":white_check_mark: RESOLVED: %s %s", a.Kind, a.Reason)
+		title = fmt.Sprintf("✅ RESOLVED: %s %s", a.Kind, a.Reason)
 	}
 
-	header := slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, title, false, false))
+	// emoji:true so any :shortcode: in the title also renders; the severity
+	// icons are literal Unicode so they render either way.
+	header := slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, title, true, false))
 
 	fields := []*slack.TextBlockObject{
 		slack.NewTextBlockObject(slack.MarkdownType, "*Cluster:*\n`"+a.Cluster+"`", false, false),
@@ -34,12 +37,12 @@ func Build(a *alert.Alert) []slack.Block {
 
 	blocks := []slack.Block{header, fieldSection, summary}
 
-	for _, key := range orderedDetailKeys() {
-		val, ok := a.Details[key]
-		if !ok || val == "" {
+	for _, key := range orderedDetails(a.Details) {
+		val := a.Details[key]
+		if val == "" {
 			continue
 		}
-		val = truncate(val, 2800)
+		val = textutil.Tail(val, 2800)
 		blocks = append(blocks, slack.NewSectionBlock(
 			slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*%s:*\n```%s```", key, val), false, false),
 			nil, nil,
@@ -61,25 +64,42 @@ func Build(a *alert.Alert) []slack.Block {
 	return blocks
 }
 
+// orderedDetailKeys is the curated render order for the detail blocks every
+// watcher and the grouper can attach. Keys not in this list still render (see
+// orderedDetails), so adding a watcher detail can never silently drop it from
+// the Slack message - it only forgoes a custom position.
 func orderedDetailKeys() []string {
-	return []string{"Pod Status", "Container State", "Pod Events", "Node Events", "Resource Spec", "Pod Logs Before Restart", "Deployment Status", "Job Status"}
+	return []string{
+		"Pod Status", "Container State", "Resource Spec",
+		"Pod Events", "Node Events", "Pod Logs Before Restart",
+		"Deployment Status", "StatefulSet Status", "DaemonSet Status",
+		"Job Status", "CronJob Status", "HPA Status", "Node Status",
+		"Grouped Resources",
+	}
 }
 
-// truncate keeps the tail of s (most recent log lines) within limit bytes.
-// The byte cut can land mid-rune; leading continuation bytes are dropped so
-// the result stays valid UTF-8 - Slack rejects payloads containing invalid
-// UTF-8, which would otherwise fail the whole alert for non-ASCII logs.
-func truncate(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	cut := s[len(s)-limit:]
-	for i := 0; i < len(cut) && i < utf8.UTFMax; i++ {
-		if utf8.RuneStart(cut[i]) {
-			return cut[i:]
+// orderedDetails returns the keys present in details: the curated keys first
+// in their canonical order, then any remaining keys sorted. This keeps the
+// renderer decoupled from the watchers - a watcher can add a detail key
+// without editing this package and still have it rendered.
+func orderedDetails(details map[string]string) []string {
+	known := orderedDetailKeys()
+	seen := make(map[string]struct{}, len(known))
+	out := make([]string, 0, len(details))
+	for _, k := range known {
+		if _, ok := details[k]; ok {
+			out = append(out, k)
+			seen[k] = struct{}{}
 		}
 	}
-	return cut
+	var rest []string
+	for k := range details {
+		if _, ok := seen[k]; !ok {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	return append(out, rest...)
 }
 
 // SafeRunbookURL guards the workload-supplied runbook-url annotation so a

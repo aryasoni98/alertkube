@@ -46,8 +46,16 @@ type Handler struct {
 }
 
 // New builds a Handler. A non-empty token requires
-// `Authorization: Bearer <token>` on every request.
+// `Authorization: Bearer <token>` on every request. Nil callbacks default
+// to no-ops so a misconfiguration cannot panic the (unrecovered) HTTP
+// handler goroutine.
 func New(token string, onFiring, onResolved func(*alert.Alert)) *Handler {
+	if onFiring == nil {
+		onFiring = func(*alert.Alert) {}
+	}
+	if onResolved == nil {
+		onResolved = func(*alert.Alert) {}
+	}
 	return &Handler{token: token, onFiring: onFiring, onResolved: onResolved}
 }
 

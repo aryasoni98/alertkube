@@ -1,13 +1,10 @@
 package sinks
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -19,13 +16,9 @@ import (
 // WebhookSink POSTs the Alert struct as JSON to a generic endpoint.
 // URL and HMAC secret are read on each Send so a Secret rotation is
 // picked up without a process restart.
-type WebhookSink struct {
-	client *http.Client
-}
+type WebhookSink struct{}
 
-func NewWebhook() *WebhookSink {
-	return &WebhookSink{client: &http.Client{Timeout: 10 * time.Second}}
-}
+func NewWebhook() *WebhookSink { return &WebhookSink{} }
 
 func (*WebhookSink) Name() string                   { return "webhook" }
 func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
@@ -36,21 +29,12 @@ func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
 // header to mitigate replay. Transient failures (network, 429, 5xx) are
 // retried with backoff; the timestamp + signature are recomputed per
 // attempt so retries stay within the receiver's replay window.
-func (w *WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
+func (*WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
 	url := os.Getenv("GENERIC_WEBHOOK_URL")
 	if url == "" {
 		return nil
 	}
-	body, err := json.Marshal(a)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
+	return httpx.PostJSONWithHeaders(ctx, url, a, httpx.DefaultRetry, func(req *http.Request, body []byte) {
 		req.Header.Set("User-Agent", "alertkube")
 		ts := time.Now().UTC().Format(time.RFC3339)
 		req.Header.Set("X-Alertkube-Timestamp", ts)
@@ -61,14 +45,5 @@ func (w *WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
 			mac.Write(body)
 			req.Header.Set("X-Alertkube-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 		}
-		resp, err := w.client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			return httpx.NewStatusError(resp.StatusCode, url, resp.Header.Get("Retry-After"))
-		}
-		return nil
 	})
 }

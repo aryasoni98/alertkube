@@ -224,6 +224,7 @@ run `make docs-serve`. Key documents:
 | [TESTING.md](docs/TESTING.md) | Test pyramid, fuzzing, coverage gate |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, load testing, tuning |
 | [ROADMAP.md](docs/ROADMAP.md) | Build pipeline toward CNCF Sandbox |
+| [cncf-readiness-status.md](docs/cncf-readiness-status.md) | CNCF readiness tracker (done vs human-gated) |
 | [decisions/](docs/decisions/) | Architecture Decision Records (ADRs) |
 | [grafana-dashboard.json](docs/grafana-dashboard.json) | Importable Grafana dashboard |
 | [Landing page](docs/index.html) | GitHub Pages site (deployed from `docs/`) |

@@ -11,9 +11,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// PodEvents returns Warning events related to a pod, newest last.
+// PodEvents returns Warning events related to a pod, newest last. The
+// involvedObject selector is applied server-side so a busy namespace does
+// not return (and the client does not scan) every Warning event in it.
 func PodEvents(ctx context.Context, c kubernetes.Interface, ns, name string) (string, error) {
-	events, err := c.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "type!=Normal"})
+	events, err := c.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s,type!=Normal", name),
+	})
 	if err != nil {
 		return "", fmt.Errorf("list pod events: %w", err)
 	}
@@ -34,7 +38,11 @@ func NodeEvents(ctx context.Context, c kubernetes.Interface, nodeName string) (s
 	return formatEvents(events.Items, nodeName), nil
 }
 
-// formatEvents sorts items by timestamp and renders entries matching involvedObject.Name.
+// formatEvents sorts items by timestamp and renders entries matching
+// involvedObject.Name. The name check is belt-and-suspenders: callers already
+// constrain involvedObject.name server-side via FieldSelector, but it guards
+// against apiservers that only partially honor event field selectors (which
+// would otherwise dump every Warning event in the namespace into the alert).
 func formatEvents(items []v1.Event, name string) string {
 	if len(items) > 1 {
 		sort.Sort(byLastTimestamp(items))

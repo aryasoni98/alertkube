@@ -14,7 +14,7 @@ import (
 // NewDaemonSet fires when scheduled pods are unavailable on nodes that
 // should run them.
 func NewDaemonSet(cfg *config.Config) *simple[*appsv1.DaemonSet] {
-	return newSimple("daemonset", cfg,
+	return newSimple("daemonset", alert.KindDaemonSet, cfg,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().DaemonSets().Informer()
 		},

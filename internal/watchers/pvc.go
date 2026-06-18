@@ -18,7 +18,7 @@ func NewPVC(cfg *config.Config) *simple[*v1.PersistentVolumeClaim] {
 	if threshold <= 0 {
 		threshold = 5 * time.Minute
 	}
-	return newSimple("pvc", cfg,
+	return newSimple("pvc", alert.KindPVC, cfg,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Core().V1().PersistentVolumeClaims().Informer()
 		},

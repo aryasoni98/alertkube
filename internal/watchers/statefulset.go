@@ -13,7 +13,7 @@ import (
 
 // NewStatefulSet fires when ready replicas fall below desired.
 func NewStatefulSet(cfg *config.Config) *simple[*appsv1.StatefulSet] {
-	return newSimple("statefulset", cfg,
+	return newSimple("statefulset", alert.KindStatefulSet, cfg,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().StatefulSets().Informer()
 		},

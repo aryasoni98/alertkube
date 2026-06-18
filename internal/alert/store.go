@@ -145,6 +145,45 @@ func (s *Store) SweepResolved() {
 	}
 }
 
+// ResolveObject emits synthetic resolves for every active alert belonging
+// to one object (matched on kind+namespace+name, across all reasons) and
+// clears their dedupe/escalation state. Called when a watched object is
+// deleted: the condition is definitively over, so resolves fire at once
+// instead of waiting out resolveTTL, and the mute record is dropped so a
+// same-named replacement object re-pages immediately rather than being
+// muted by the deleted object's history.
+func (s *Store) ResolveObject(kind Kind, ns, name string) {
+	s.mu.Lock()
+	now := time.Now()
+	var resolved []*Alert
+	for fp, a := range s.active {
+		if a.Kind != kind || a.Namespace != ns || a.Name != name {
+			continue
+		}
+		// Copy before mutating: the stored pointer may still be read by
+		// in-flight sink goroutines (mirrors SweepResolved).
+		cp := *a
+		cp.Resolved = true
+		cp.EndsAt = now
+		resolved = append(resolved, &cp)
+		delete(s.active, fp)
+		delete(s.lastSent, fp)
+		s.dropEscalationsLocked(fp)
+		s.recordRecentLocked(&cp)
+		s.gen++
+	}
+	size, fn := len(s.active), s.onChange
+	s.mu.Unlock()
+	if fn != nil && len(resolved) > 0 {
+		fn(size)
+	}
+	for _, a := range resolved {
+		if s.onResolved != nil {
+			s.onResolved(a)
+		}
+	}
+}
+
 // CleanOldHistory drops mute records older than 2 * muteWindow (or the
 // configured floor, whichever is larger).
 func (s *Store) CleanOldHistory() {

@@ -30,15 +30,33 @@ func (s Severity) Color() string {
 	}
 }
 
+// ResolvedColorHex is the swatch chat sinks use for a resolved alert (green),
+// kept beside the firing palette in Color() so the "resolved is green"
+// decision lives in one place rather than being re-encoded per sink.
+const ResolvedColorHex = "#2EB67D"
+
+// Emoji returns a literal Unicode emoji (not a :shortcode:) so it renders in
+// a Slack `header` block, which only converts shortcodes when emoji:true is
+// set on the text object. Colors mirror Color(): red/amber/blue circles.
 func (s Severity) Emoji() string {
 	switch s {
 	case SeverityCritical:
-		return ":rotating_light:"
+		return "🔴"
 	case SeverityWarning:
-		return ":warning:"
+		return "🟡"
 	default:
-		return ":information_source:"
+		return "🔵"
 	}
+}
+
+// Valid reports whether s is a known severity. Used to reject untrusted
+// values (e.g. a poisoned persisted snapshot) before they enter the store.
+func (s Severity) Valid() bool {
+	switch s {
+	case SeverityCritical, SeverityWarning, SeverityInfo:
+		return true
+	}
+	return false
 }
 
 // Kind identifies the resource type that produced the alert.
@@ -58,6 +76,17 @@ const (
 	// webhook receiver rather than produced by a watcher.
 	KindExternal Kind = "External"
 )
+
+// Valid reports whether k is a known kind. Used to reject untrusted values
+// (e.g. a poisoned persisted snapshot) before they enter the store.
+func (k Kind) Valid() bool {
+	switch k {
+	case KindPod, KindNode, KindDeployment, KindPVC, KindJob, KindDaemonSet,
+		KindStatefulSet, KindCronJob, KindHPA, KindExternal:
+		return true
+	}
+	return false
+}
 
 // Alert is the canonical event flowing through the pipeline.
 type Alert struct {
@@ -148,6 +177,12 @@ func (a *Alert) MatchLabels(want map[string]string) bool {
 	return true
 }
 
+// regexCache memoizes compiled namespace/reason matchers (nil sentinels for
+// invalid patterns) so MatchLabels does not recompile per alert. It is
+// intentionally unbounded: patterns only ever come from config (routing,
+// inhibition, escalation, severity-override matchers), so the key set is
+// bounded by config size, not by untrusted input. If alert-supplied label
+// values ever feed these matchers, add a size cap here.
 var (
 	regexCacheMu sync.RWMutex
 	regexCache   = map[string]*regexp.Regexp{}
@@ -191,7 +226,10 @@ func matchOrRegex(s, pattern string) bool {
 	return re.MatchString(s)
 }
 
-// GroupKey builds a stable key for grouping alerts together.
+// GroupKey builds a stable key for grouping alerts together. The values are
+// sorted (not joined in `by` order) on purpose: it makes the key independent
+// of how the `by` list is ordered in config, so reordering `by` does not
+// silently split previously-grouped alerts. Do not "simplify" the sort away.
 func (a *Alert) GroupKey(by []string) string {
 	parts := make([]string, 0, len(by))
 	for _, k := range by {

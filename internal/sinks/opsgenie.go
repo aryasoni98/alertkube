@@ -1,16 +1,14 @@
 package sinks
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/httpx"
+	"alertkube/internal/textutil"
 )
 
 // OpsgenieSink creates and closes alerts via the Alert API v2. The alert
@@ -18,13 +16,9 @@ import (
 // closes the right alert. API key is read on each Send so Secret rotation
 // is honored. Set OPSGENIE_API_URL=https://api.eu.opsgenie.com for EU
 // accounts.
-type OpsgenieSink struct {
-	client *http.Client
-}
+type OpsgenieSink struct{}
 
-func NewOpsgenie() *OpsgenieSink {
-	return &OpsgenieSink{client: &http.Client{Timeout: 10 * time.Second}}
-}
+func NewOpsgenie() *OpsgenieSink { return &OpsgenieSink{} }
 
 func (*OpsgenieSink) Name() string { return "opsgenie" }
 
@@ -40,7 +34,7 @@ func ogPriority(s alert.Severity) string {
 	return severityTier(s, "P1", "P3", "P5")
 }
 
-func (o *OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
+func (*OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 	apiKey := os.Getenv("OPSGENIE_API_KEY")
 	if apiKey == "" {
 		return nil
@@ -68,9 +62,9 @@ func (o *OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 			"reason":    a.Reason,
 		}
 		payload = map[string]any{
-			"message":     truncate(alertTitle(a), 130),
+			"message":     textutil.Head(alertTitle(a), 130),
 			"alias":       a.Fingerprint,
-			"description": truncate(a.Summary, 15000),
+			"description": textutil.Head(a.Summary, 15000),
 			"priority":    ogPriority(a.Severity),
 			"source":      a.Cluster,
 			"entity":      fmt.Sprintf("%s/%s", a.Namespace, a.Name),
@@ -79,25 +73,7 @@ func (o *OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 		}
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
+	return httpx.PostJSONWithHeaders(ctx, url, payload, httpx.DefaultRetry, func(req *http.Request, _ []byte) {
 		req.Header.Set("Authorization", "GenieKey "+apiKey)
-		resp, err := o.client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			return httpx.NewStatusError(resp.StatusCode, url, resp.Header.Get("Retry-After"))
-		}
-		return nil
 	})
 }

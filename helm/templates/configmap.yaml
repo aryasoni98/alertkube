@@ -27,6 +27,7 @@ data:
     {{- end }}
     receiver:
       enabled: {{ .Values.receiver.enabled | default false }}
+      allowAnonymous: {{ .Values.receiver.allowAnonymous | default false }}
     grouping:
       enabled: {{ .Values.grouping.enabled | default false }}
       windowSeconds: {{ .Values.grouping.windowSeconds | default 30 }}

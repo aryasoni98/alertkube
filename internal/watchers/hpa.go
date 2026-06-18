@@ -16,7 +16,7 @@ import (
 // wanting to scale up - the workload is saturated and the only remedies
 // (raise max, add capacity) need a human.
 func NewHPA(cfg *config.Config) *simple[*autoscalingv2.HorizontalPodAutoscaler] {
-	return newSimple("hpa", cfg,
+	return newSimple("hpa", alert.KindHPA, cfg,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
 		},

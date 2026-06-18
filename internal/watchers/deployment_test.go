@@ -6,6 +6,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
@@ -94,6 +95,50 @@ func TestDeploymentEvaluate(t *testing.T) {
 				t.Errorf("kind: got %q, want %q", got[0].Kind, alert.KindDeployment)
 			}
 		})
+	}
+}
+
+func TestSimpleResolveOnDelete(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Filters.IgnoredNamespaces = "kube-system"
+	w := NewDeployment(cfg)
+
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "web"}}
+
+	// Direct object → resolve marker for the right identity.
+	got := &[]*alert.Alert{}
+	emit := func(a *alert.Alert) { *got = append(*got, a) }
+	w.resolveOnDelete(dep, emit)
+	if len(*got) != 1 {
+		t.Fatalf("expected 1 resolve marker, got %d", len(*got))
+	}
+	m := (*got)[0]
+	if !m.Resolved || m.Kind != alert.KindDeployment || m.Namespace != "ns" || m.Name != "web" {
+		t.Fatalf("unexpected marker: %+v", m)
+	}
+
+	// Tombstone (DeletedFinalStateUnknown) is unwrapped.
+	got = &[]*alert.Alert{}
+	emit = func(a *alert.Alert) { *got = append(*got, a) }
+	w.resolveOnDelete(cache.DeletedFinalStateUnknown{Key: "ns/web", Obj: dep}, emit)
+	if len(*got) != 1 {
+		t.Fatalf("tombstone should still resolve, got %d markers", len(*got))
+	}
+
+	// Ignored namespace → no marker.
+	got = &[]*alert.Alert{}
+	emit = func(a *alert.Alert) { *got = append(*got, a) }
+	w.resolveOnDelete(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "x"}}, emit)
+	if len(*got) != 0 {
+		t.Fatalf("ignored namespace must not emit a resolve, got %d", len(*got))
+	}
+
+	// Unknown type → no marker, no panic.
+	got = &[]*alert.Alert{}
+	emit = func(a *alert.Alert) { *got = append(*got, a) }
+	w.resolveOnDelete("not-an-object", emit)
+	if len(*got) != 0 {
+		t.Fatalf("non-object delete must be ignored, got %d", len(*got))
 	}
 }
 

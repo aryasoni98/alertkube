@@ -23,6 +23,13 @@ import (
 	"alertkube/internal/watchers"
 )
 
+// informerResyncPeriod is how often cached objects are re-delivered as
+// synthetic Update events. Kept below the default resolveTTL/mute window
+// (behavior.resolveTTLSeconds / muteSeconds, both 600s) so a still-firing
+// standing condition is re-touched before its TTL elapses; see the resync
+// rationale at the factory construction site.
+const informerResyncPeriod = 5 * time.Minute
+
 // runController wires the watchers, sweeper, and dispatch path.
 // Returns when ctx is cancelled (signal received OR leader election lost).
 // A non-empty watchNamespace scopes every informer to that namespace and
@@ -44,10 +51,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 			if len(route) == 0 {
 				return
 			}
-			// Detached ctx so the shutdown drain can still deliver.
-			fctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			reg.Dispatch(fctx, s, route)
+			dispatch(reg, s, route)
 		})
 	}
 
@@ -67,7 +71,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 				return
 			}
 		}
-		reg.Dispatch(ctx, a, route)
+		dispatch(reg, a, route)
 	}
 
 	store := alert.NewStore(
@@ -96,7 +100,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		}
 	}
 
-	emit := makeEmitter(ctx, store, r, reg, cfg, grouper)
+	emit := makeEmitter(store, r, reg, cfg, grouper)
 
 	// Read-only view of the active set + recent history for dashboards
 	// and debugging. Reachable on the metrics address; gate with the
@@ -109,31 +113,83 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		})
 	}))
 
-	if cfg.Receiver.Enabled {
-		receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
-		if receiverToken == "" {
-			klog.Warningf("receiver enabled WITHOUT a bearer token: POST /api/v1/alerts on %s accepts unauthenticated alert injection - set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
-		}
-		metrics.SetReceiverHandler(receiver.New(
-			receiverToken,
-			func(a *alert.Alert) { emit(a) },
-			func(a *alert.Alert) {
-				// Upstream already told the world it resolved; forget our
-				// copy so the TTL sweep does not emit a duplicate resolve.
-				store.Forget(a.Fingerprint)
-				dispatchResolved(a)
-			},
-		))
-		klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+	setupReceiver(cfg, store, emit, dispatchResolved)
+
+	ws := startInformers(ctx, clientset, cfg, watchNamespace, emit)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go runSweeper(ctx, &wg, store, persister, reg, cfg)
+
+	// The grouper runs on its own cancel (not the controller ctx) so the
+	// shutdown sequence can finish in-flight enrichment - which may still
+	// Offer alerts into open windows - BEFORE those windows are flushed.
+	// Tying it to ctx would race the FlushAll against the enrichment drain.
+	grouperCtx, grouperStop := context.WithCancel(context.Background())
+	defer grouperStop()
+	if grouper != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grouper.Run(grouperCtx) // FlushAll on grouperStop drains open windows
+		}()
 	}
 
+	<-ctx.Done()
+	klog.Infof("%s shutting down", appName)
+	shutdown(ws, grouperStop, &wg, persister, store)
+}
+
+// setupReceiver wires the optional Alertmanager-compatible webhook receiver
+// onto the metrics server. Fails closed when enabled without a bearer token
+// unless receiver.allowAnonymous is set.
+func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, dispatchResolved func(*alert.Alert)) {
+	if !cfg.Receiver.Enabled {
+		return
+	}
+	receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
+	switch {
+	case receiverToken == "" && !cfg.Receiver.AllowAnonymous:
+		// Fail closed: an open POST /api/v1/alerts lets anyone with
+		// network reach inject arbitrary alerts (and resolves that close
+		// real incidents). Require an explicit opt-in to run without auth.
+		klog.Fatalf("receiver.enabled but no bearer token: POST /api/v1/alerts on %s would accept unauthenticated alert injection. Set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token), or set receiver.allowAnonymous: true if the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+	case receiverToken == "":
+		klog.Warningf("receiver enabled with receiver.allowAnonymous: POST /api/v1/alerts on %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+	}
+	metrics.SetReceiverHandler(receiver.New(
+		receiverToken,
+		func(a *alert.Alert) { emit(a) },
+		func(a *alert.Alert) {
+			// Upstream already told the world it resolved; forget our
+			// copy so the TTL sweep does not emit a duplicate resolve.
+			store.Forget(a.Fingerprint)
+			dispatchResolved(a)
+		},
+	))
+	klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+}
+
+// startInformers builds the shared informer factory, wires every watcher,
+// starts the informers, and blocks until their caches sync (fatal on failure,
+// which is almost always missing RBAC). Returns the watchers so the caller can
+// drain their background work at shutdown.
+func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string, emit watchers.Emit) []watchers.Watcher {
 	var factoryOpts []informers.SharedInformerOption
 	if watchNamespace != "" {
 		klog.Infof("watching single namespace %q (node alerts disabled)", watchNamespace)
 		factoryOpts = append(factoryOpts, informers.WithNamespace(watchNamespace))
 	}
-	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 0, factoryOpts...)
-	for _, w := range buildWatchers(clientset, cfg, watchNamespace) {
+	// A non-zero resync re-delivers every cached object as a synthetic
+	// Update on a fixed period. This re-evaluates standing conditions so a
+	// stuck-but-stable problem (e.g. a Deployment with unavailable replicas
+	// whose status stops changing) keeps its alert alive via store.Touch
+	// instead of false-resolving when its resolveTTL elapses with no real
+	// watch event. Kept under the default resolveTTL/mute window (600s) so
+	// the re-fire lands before expiry; resync re-fires are muted, not paged.
+	factory := informers.NewSharedInformerFactoryWithOptions(clientset, informerResyncPeriod, factoryOpts...)
+	ws := buildWatchers(clientset, cfg, watchNamespace)
+	for _, w := range ws {
 		w.Setup(ctx, factory, emit)
 	}
 
@@ -145,23 +201,19 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	}
 	metrics.MarkReady()
 	klog.Infof("%s started", appName)
+	return ws
+}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go runSweeper(ctx, &wg, store, persister, reg, cfg)
-	if grouper != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			grouper.Run(ctx) // drains open windows on shutdown
-		}()
-	}
-
-	<-ctx.Done()
-	klog.Infof("%s shutting down", appName)
+// shutdown runs the controller's drain sequence in the one order that does
+// not drop alerts: finish in-flight pod enrichment first (those alerts must
+// reach the store and grouper), then stop the grouper so it flushes open
+// windows, wait for the sweeper + grouper goroutines, save final state on a
+// fresh deadline (ctx is already cancelled), and finally mark not-ready.
+func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store) {
+	drainWatchers(ws, enrichDrainTimeout)
+	grouperStop()
 	wg.Wait()
 	if persister != nil {
-		// ctx is already cancelled; the final save gets its own deadline.
 		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := persister.Save(saveCtx, store.Export()); err != nil {
 			klog.Warningf("final state save: %v", err)
@@ -195,10 +247,49 @@ func keepStateful(route []string) []string {
 	return filterRoute(route, func(s string) bool { return statefulSinks[s] })
 }
 
-func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper) watchers.Emit {
+// dispatchTimeout bounds one fan-out across a route. It is detached from the
+// controller ctx on purpose: a resolve (or an alert drained at shutdown) must
+// still reach its sinks after ctx is cancelled. Registry.Dispatch applies its
+// own, tighter per-sink timeout inside this budget.
+const dispatchTimeout = 20 * time.Second
+
+// enrichDrainTimeout caps how long shutdown waits for in-flight pod
+// enrichment before giving up and saving state anyway.
+const enrichDrainTimeout = 10 * time.Second
+
+// dispatch fans an alert to a route on a detached, time-bounded context so
+// delivery survives controller-ctx cancellation during shutdown.
+func dispatch(reg *sinks.Registry, a *alert.Alert, route []string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), dispatchTimeout)
+	defer cancel()
+	return reg.Dispatch(ctx, a, route)
+}
+
+// drainWatchers waits for watchers with background work (pod enrichment) to
+// finish, bounded by timeout, so alerts mid-enrichment are delivered and
+// persisted instead of abandoned on shutdown.
+func drainWatchers(ws []watchers.Watcher, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for _, w := range ws {
+		if d, ok := w.(watchers.Drainer); ok {
+			d.Drain(ctx)
+		}
+	}
+}
+
+func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper) watchers.Emit {
 	controllerStart := time.Now()
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
+		// Resolve marker from a watcher Delete (see emitResolve): the object
+		// is gone, so clear every active alert for it regardless of reason
+		// and let the store fan synthetic resolves to the sinks. Bypasses the
+		// firing pipeline (severity/grace/dedupe/route) entirely.
+		if a.Resolved {
+			store.ResolveObject(a.Kind, a.Namespace, a.Name)
+			return
+		}
 		a.Cluster = cfg.Cluster
 		// Severity overrides run before metrics, dedupe, and routing so
 		// every downstream decision sees the remapped severity.
@@ -240,7 +331,7 @@ func makeEmitter(ctx context.Context, store *alert.Store, r *router.Router, reg 
 		// Dispatch a copy: the original is retained in the store and its
 		// EndsAt is mutated by Touch while sink goroutines read the alert.
 		cp := *a
-		if !reg.Dispatch(ctx, &cp, route) {
+		if !dispatch(reg, &cp, route) {
 			store.MarkFailed(a.Fingerprint)
 		}
 	}

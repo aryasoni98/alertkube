@@ -13,9 +13,20 @@ metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 rules:
+# persistentvolumes is omitted: only PVCs are watched (NewPVC), never the
+# cluster-scoped PV objects. pods/log is granted separately below so it can
+# be dropped entirely when log collection is disabled.
 - apiGroups: [""]
-  resources: ["nodes", "pods", "pods/log", "events", "persistentvolumeclaims", "persistentvolumes"]
+  resources: ["nodes", "pods", "events", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
+{{- if not .Values.behavior.disableLogCollection }}
+# Log enrichment reads the prior-container log stream (GetLogs = GET on the
+# pods/log subresource). When behavior.disableLogCollection=true this grant
+# disappears, so a compromised controller cannot read any pod's logs.
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+{{- end }}
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets", "daemonsets"]
   verbs: ["get", "list", "watch"]
@@ -48,8 +59,13 @@ metadata:
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 rules:
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "events", "persistentvolumeclaims"]
+  resources: ["pods", "events", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
+{{- if not .Values.behavior.disableLogCollection }}
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+{{- end }}
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets", "daemonsets"]
   verbs: ["get", "list", "watch"]
@@ -84,9 +100,13 @@ metadata:
   namespace: {{ .Values.leaderElection.namespace | default .Release.Namespace | quote }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 rules:
+# client-go leader election operates on a single named Lease: it Gets,
+# Creates (first acquisition), and Updates/Patches (renewal). It never
+# lists, watches, or deletes leases, so those verbs are withheld - delete
+# in particular would let a compromised pod force re-elections.
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  verbs: ["get", "create", "update", "patch"]
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]

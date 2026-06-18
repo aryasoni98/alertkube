@@ -140,6 +140,11 @@ escalations: []
 receiver:
   # -- Accept Alertmanager webhooks on `/api/v1/alerts`.
   enabled: false
+  # -- Run the receiver without a token. Required to enable the receiver with
+  # no token; otherwise startup fails closed (an open endpoint accepts
+  # unauthenticated alert injection). Only set true when the port is locked
+  # down by a NetworkPolicy.
+  allowAnonymous: false
   # -- Optional bearer token guarding the receiver (inline; prefer the Secret ref).
   token: ""
   # -- Secret reference for the receiver token (`{key, name}`).
@@ -163,6 +168,12 @@ grouping:
 # namespace. A controller restart then still sends pending resolves
 # (no dangling PagerDuty incidents) and does not re-page standing
 # conditions. Adds a namespaced Role for the state ConfigMap.
+#
+# NOTE: the state ConfigMap is created by the controller at runtime, not by
+# Helm, so `helm uninstall` does NOT remove it. A reinstall into the same
+# namespace would then restore stale state (spurious resolves / suppressed
+# alerts for up to resolveTTLSeconds). After uninstall, delete it manually:
+#   kubectl delete configmap <release>-state -n <namespace>
 persistence:
   # -- Snapshot active-alert and mute state to a ConfigMap.
   enabled: true
@@ -221,6 +232,8 @@ metrics:
     enabled: false
     # -- Scrape interval for the ServiceMonitor.
     interval: 30s
+    # -- Per-scrape timeout (must be <= interval).
+    scrapeTimeout: 10s
     # -- Extra labels on the ServiceMonitor.
     labels: {}
 
@@ -300,6 +313,11 @@ fullnameOverride: ""
 # -- Extra annotations on the controller pod.
 podAnnotations: {}
 
+# Graceful shutdown budget. Must exceed the controller's worst-case drain:
+# in-flight pod enrichment + the longest sink send + the final state save.
+# -- Seconds the pod gets to drain before SIGKILL.
+terminationGracePeriodSeconds: 45
+
 # -- Pod-level security context.
 podSecurityContext:
   runAsNonRoot: true
@@ -326,10 +344,17 @@ tolerations: []
 affinity: {}
 
 podDisruptionBudget:
-  # -- Create a PodDisruptionBudget (for HA).
+  # -- Create a PodDisruptionBudget (only meaningful with leader election +
+  # replicaCount > 1; a single-replica controller should not set one).
   enabled: false
-  # -- Minimum available replicas.
-  minAvailable: 1
+  # maxUnavailable is the safe default: it lets a node drain evict the pod
+  # (the Deployment reschedules it) instead of wedging cluster upgrades. Use
+  # minAvailable only with replicaCount > 1 + leader election. Setting
+  # minAvailable: 1 with a single replica blocks ALL voluntary disruptions.
+  # -- Tolerated unavailable replicas during voluntary disruption.
+  maxUnavailable: 1
+  # -- Minimum available replicas (mutually exclusive with maxUnavailable).
+  minAvailable: ""
 
 networkPolicy:
   # -- Restrict metrics ingress and controller egress with a NetworkPolicy.
@@ -343,6 +368,14 @@ networkPolicy:
     cidrs: []
     # -- API server endpoint target port (often 6443 on self-managed).
     port: 443
+  # Sink egress allow-list. When empty, egress on 443/TCP is allowed to
+  # anywhere except link-local and the RFC-1918 private ranges. Set this to
+  # the explicit CIDRs of on-prem / private sinks (self-hosted Alertmanager,
+  # internal webhooks) that the private-range exclusion would otherwise cut
+  # off; doing so replaces the broad rule with a tight allow-list.
+  # -- Sink endpoint CIDRs reachable on 443/TCP (empty = anywhere minus private ranges).
+  sinkCIDRs: []
+    # - 10.20.0.0/24
   # Restrict who can scrape /metrics. Defaults to allow-all when empty.
   # -- Sources allowed to scrape `/metrics` (empty = allow all).
   ingressFrom: []

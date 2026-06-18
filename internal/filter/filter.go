@@ -3,6 +3,8 @@ package filter
 import (
 	"regexp"
 	"strings"
+
+	"k8s.io/klog/v2"
 )
 
 // Set evaluates whether a string matches any of the include patterns
@@ -10,6 +12,17 @@ import (
 type Set struct {
 	patterns []*regexp.Regexp
 	literals []string
+}
+
+// isRegex reports whether a pattern uses regex syntax. A pattern with no
+// metacharacters is a literal prefix (the documented pod-name-prefix
+// behavior); one with metacharacters is a regex (the documented namespace
+// behavior). The old code applied a pattern as BOTH a regex and an
+// unanchored prefix, so the broader of the two won - e.g. the prefix-intended
+// "prod-" also compiled to an unanchored regex that matched "xprod-api",
+// silently widening an operator's filter.
+func isRegex(p string) bool {
+	return strings.ContainsAny(p, `^$.*+?()[]{}|\`)
 }
 
 func New(raw string) *Set {
@@ -22,11 +35,17 @@ func New(raw string) *Set {
 		if p == "" {
 			continue
 		}
-		re, err := regexp.Compile(p)
-		if err == nil {
-			s.patterns = append(s.patterns, re)
+		if !isRegex(p) {
+			s.literals = append(s.literals, p)
+			continue
 		}
-		s.literals = append(s.literals, p)
+		re, err := regexp.Compile(p)
+		if err != nil {
+			klog.Warningf("filter: %q is not a valid regex (%v); treating it as a literal prefix", p, err)
+			s.literals = append(s.literals, p)
+			continue
+		}
+		s.patterns = append(s.patterns, re)
 	}
 	return s
 }

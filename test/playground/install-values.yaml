@@ -1,0 +1,56 @@
+# Helm values for the local Docker Desktop end-to-end playground.
+# NOT for production — tuned for fast, visible alerts on a disposable cluster.
+cluster: docker-desktop-demo
+
+image:
+  repository: alertkube
+  tag: e2e
+  pullPolicy: Never        # use the locally-built image, never pull from a registry
+
+rbac:
+  scope: cluster           # watch all namespaces + nodes
+
+# Slack webhook is injected at install time via --set so it never lands in git.
+slack:
+  username: alertkube-demo
+  channels:
+    critical: alerts-critical
+    warning: alerts-warning
+    info: alerts-info
+
+# Accept Alertmanager webhooks too, guarded by a bearer token.
+receiver:
+  enabled: true
+  token: demo-receiver-token
+
+# Snapshot state so a controller restart still emits pending resolves.
+persistence:
+  enabled: true
+
+# Tuned fast so the demo shows alerts + resolves within minutes, not the
+# 5-10 minute production defaults.
+behavior:
+  startupGraceSeconds: 0   # fire standing conditions immediately on first sync
+  resolveTTLSeconds: 60    # synthesize a resolve 60s after a condition stops firing
+  pvcPendingSeconds: 30    # alert on a Pending PVC after 30s
+  muteSeconds: 120         # re-alert window for a still-firing condition
+
+# Send everything to Slack AND stdout so alerts are visible in the pod logs.
+routing:
+  - match: {severity: critical}
+    sinks: [slack, stdout]
+  - match: {severity: warning}
+    sinks: [slack, stdout]
+  - match: {severity: info}
+    sinks: [slack, stdout]
+
+# NodeNotReady inhibits Pod alerts on the same node (default rule kept).
+inhibitions:
+  - source: {kind: Node, reason: NodeNotReady}
+    target: {kind: Pod}
+    equal: [node]
+    duration: 10m
+
+metrics:
+  enabled: true
+  port: 9090

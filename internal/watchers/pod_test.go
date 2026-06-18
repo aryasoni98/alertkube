@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -222,6 +223,59 @@ func TestPodShouldHandle(t *testing.T) {
 				t.Errorf("shouldHandle(ns=%q): got %v, want %v", tc.namespace, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDrainWaitsForInflightEnrichment(t *testing.T) {
+	cfg := podTestConfig()
+	w := NewPod(fake.NewSimpleClientset(), cfg)
+
+	var mu sync.Mutex
+	var got []*alert.Alert
+	emit := func(a *alert.Alert) {
+		mu.Lock()
+		got = append(got, a)
+		mu.Unlock()
+	}
+
+	crash := makePod(v1.ContainerStatus{
+		Name:  "c",
+		State: v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+	})
+	w.evaluate(context.Background(), nil, crash, emit)
+
+	// Drain must block until the async enrichment goroutine has emitted.
+	w.Drain(context.Background())
+
+	mu.Lock()
+	n := len(got)
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("Drain returned before enrichment emitted: got %d alerts, want 1", n)
+	}
+}
+
+func TestDrainRespectsTimeout(t *testing.T) {
+	w := NewPod(fake.NewSimpleClientset(), podTestConfig())
+
+	// Simulate a stuck enrichment goroutine so Drain cannot complete on its
+	// own; Drain must still return when ctx expires instead of hanging.
+	w.enrichWG.Add(1)
+	defer w.enrichWG.Done()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		w.Drain(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Drain ignored ctx timeout and hung on a stuck enrichment goroutine")
 	}
 }
 
