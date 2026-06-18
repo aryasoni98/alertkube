@@ -8,5 +8,8 @@ chart-repos: []
 charts:
   - helm
 helm-extra-args: --timeout 180s
-validate-maintainers: true
+# Disabled: ct validates each maintainer `name` as a GitHub username, but
+# Chart.yaml uses a human display name ("Arya Soni") with the GitHub profile
+# in the `url` field, which is the conventional, Artifact-Hub-friendly form.
+validate-maintainers: false
 check-version-increment: false # release-please / manual bumps own the version

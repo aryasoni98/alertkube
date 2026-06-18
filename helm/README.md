@@ -83,12 +83,14 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator `ServiceMonitor`. |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval for the ServiceMonitor. |
 | metrics.serviceMonitor.labels | object | `{}` | Extra labels on the ServiceMonitor. |
+| metrics.serviceMonitor.scrapeTimeout | string | `"10s"` | Per-scrape timeout (must be <= interval). |
 | nameOverride | string | `""` | Override the chart name portion of resource names. |
 | networkPolicy.apiServer.cidrs | list | `[]` | API server endpoint CIDRs (e.g. `["10.0.0.2/32"]`); required when enabled. |
 | networkPolicy.apiServer.port | int | `443` | API server endpoint target port (often 6443 on self-managed). |
 | networkPolicy.enabled | bool | `false` | Restrict metrics ingress and controller egress with a NetworkPolicy. |
 | networkPolicy.extraEgress | list | `[]` | Extra egress rules appended verbatim. |
 | networkPolicy.ingressFrom | list | `[]` | Sources allowed to scrape `/metrics` (empty = allow all). |
+| networkPolicy.sinkCIDRs | list | `[]` | Sink endpoint CIDRs reachable on 443/TCP (empty = anywhere minus private ranges). |
 | nodeSelector | object | `{}` | Node selector for scheduling. |
 | opsgenie.apiKey | string | `""` | Opsgenie Alert API key (inline; prefer the Secret ref). |
 | opsgenie.apiKeySecretKeyRef | object | `{}` | Secret reference for the Opsgenie API key (`{key, name}`). |
@@ -98,8 +100,9 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | persistence.configMapName | string | `""` | State ConfigMap name (defaults to `<fullname>-state`). |
 | persistence.enabled | bool | `true` | Snapshot active-alert and mute state to a ConfigMap. |
 | podAnnotations | object | `{}` | Extra annotations on the controller pod. |
-| podDisruptionBudget.enabled | bool | `false` | Create a PodDisruptionBudget (for HA). |
-| podDisruptionBudget.minAvailable | int | `1` | Minimum available replicas. |
+| podDisruptionBudget.enabled | bool | `false` | Create a PodDisruptionBudget (only meaningful with leader election + replicaCount > 1; a single-replica controller should not set one). |
+| podDisruptionBudget.maxUnavailable | int | `1` | Tolerated unavailable replicas during voluntary disruption. |
+| podDisruptionBudget.minAvailable | string | `""` | Minimum available replicas (mutually exclusive with maxUnavailable). |
 | podSecurityContext | object | `{"fsGroup":65532,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level security context. |
 | prometheusRule.absentFor | string | `"10m"` | How long alertkube metrics may be absent before `AlertkubeAbsent` fires. |
 | prometheusRule.additionalRules | list | `[]` | Extra PrometheusRule entries appended verbatim. |
@@ -107,6 +110,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | prometheusRule.enabled | bool | `false` | Create a self-health `PrometheusRule` (requires the Prometheus Operator). |
 | prometheusRule.labels | object | `{}` | Extra labels so your Prometheus selects the rule. |
 | rbac.scope | string | `"cluster"` | RBAC scope: `cluster` (all namespaces + nodes) or `namespace`. |
+| receiver.allowAnonymous | bool | `false` | Run the receiver without a token. Required to enable the receiver with no token; otherwise startup fails closed (an open endpoint accepts unauthenticated alert injection). Only set true when the port is locked down by a NetworkPolicy. |
 | receiver.enabled | bool | `false` | Accept Alertmanager webhooks on `/api/v1/alerts`. |
 | receiver.token | string | `""` | Optional bearer token guarding the receiver (inline; prefer the Secret ref). |
 | receiver.tokenSecretKeyRef | object | `{}` | Secret reference for the receiver token (`{key, name}`). |
@@ -131,6 +135,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | telegram.botToken | string | `""` | Telegram bot token from @BotFather (inline; prefer the Secret ref). |
 | telegram.botTokenSecretKeyRef | object | `{}` | Secret reference for the Telegram bot token (`{key, name}`). |
 | telegram.chatId | string | `""` | Target chat/channel id (not secret). |
+| terminationGracePeriodSeconds | int | `45` | Seconds the pod gets to drain before SIGKILL. |
 | tolerations | list | `[]` | Tolerations for scheduling. |
 
 ## Full reference
