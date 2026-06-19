@@ -173,7 +173,7 @@ function AKFinalCTA() {
         <Reveal delay={0.16}>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <Button size="lg" variant="grad" href="#install" trailing={<Icon name="arrow" size={16} />}>Install with Helm</Button>
-            <Button size="lg" variant="ghost" href="#" icon={<Icon name="github" size={16} />}>Star on GitHub</Button>
+            <Button size="lg" variant="ghost" href="https://github.com/aryasoni98/alertkube" icon={<Icon name="github" size={16} />} trailing={null}>Star on GitHub</Button>
           </div>
         </Reveal>
       </div>
@@ -213,16 +213,15 @@ function AKFooterSec() {
           </div>
           <div className="wk-footer__col">
             <h4>Project</h4>
-            <a href="#">GitHub</a>
-            <a href="#">Grafana dashboard</a>
-            <a href="#">Runbooks</a>
+            <a href="https://github.com/aryasoni98/alertkube" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://github.com/aryasoni98/alertkube/blob/master/docs/grafana-dashboard.json" target="_blank" rel="noopener noreferrer">Grafana dashboard</a>
+            <a href="https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md" target="_blank" rel="noopener noreferrer">Operations guide</a>
           </div>
         </div>
         <div className="wk-footer__bot">
           <span className="copy">© 2026 AlertKube · Apache-2.0 · Built by Arya Soni, on caffeine and kubectl</span>
           <div className="social">
-            <a href="#" aria-label="GitHub"><Icon name="github" size={17} /></a>
-            <a href="#" aria-label="Twitter"><Icon name="twitter" size={17} /></a>
+            <a href="https://github.com/aryasoni98/alertkube" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><Icon name="github" size={17} /></a>
           </div>
         </div>
       </div>

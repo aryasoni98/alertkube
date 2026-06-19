@@ -12,6 +12,43 @@ function AKNav({ theme, setTheme }) {
     { label: "Install", href: "#install" },
     { label: "Changelog", href: "#changelog" },
   ];
+
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const drawerRef = React.useRef(null);
+  const hamburgerRef = React.useRef(null);
+  const drawerId = "ak-nav-drawer";
+
+  // Close on Escape
+  React.useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setDrawerOpen(false);
+        hamburgerRef.current && hamburgerRef.current.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
+
+  // Trap focus inside open drawer and move focus in
+  React.useEffect(() => {
+    if (!drawerOpen || !drawerRef.current) return;
+    const firstFocusable = drawerRef.current.querySelector("a, button");
+    firstFocusable && firstFocusable.focus();
+  }, [drawerOpen]);
+
+  // Prevent body scroll while drawer open
+  React.useEffect(() => {
+    document.body.style.overflow = drawerOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [drawerOpen]);
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    hamburgerRef.current && hamburgerRef.current.focus();
+  };
+
   return (
     <nav className="wk-nav">
       <div className="wk-wrap wk-nav__inner">
@@ -30,9 +67,80 @@ function AKNav({ theme, setTheme }) {
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
           </button>
-          <a className="ak-iconbtn" href="#" aria-label="GitHub"><Icon name="github" size={17} /></a>
+          <a className="ak-iconbtn" href="https://github.com/aryasoni98/alertkube" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><Icon name="github" size={17} /></a>
           <span className="wk-nav__divider"></span>
           <Button size="sm" variant="grad" href="#install">Install</Button>
+          {/* Hamburger — visible only below 880px via CSS */}
+          <button
+            ref={hamburgerRef}
+            className="ak-hamburger"
+            aria-label={drawerOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={drawerOpen}
+            aria-controls={drawerId}
+            onClick={() => setDrawerOpen((o) => !o)}
+          >
+            <span className={`ak-hamburger__icon ${drawerOpen ? "ak-hamburger__icon--open" : ""}`} aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Backdrop */}
+      <div
+        className={`ak-drawer-backdrop ${drawerOpen ? "ak-drawer-backdrop--visible" : ""}`}
+        aria-hidden="true"
+        onClick={closeDrawer}
+      />
+
+      {/* Drawer */}
+      <div
+        id={drawerId}
+        ref={drawerRef}
+        className={`ak-drawer ${drawerOpen ? "ak-drawer--open" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+      >
+        <div className="ak-drawer__header">
+          <AKLogo />
+          <button
+            className="ak-iconbtn"
+            aria-label="Close navigation menu"
+            onClick={closeDrawer}
+          >
+            {/* X icon inline */}
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <nav aria-label="Site navigation" className="ak-drawer__nav">
+          {links.map((l) => (
+            <a
+              key={l.label}
+              className="ak-drawer__link"
+              href={l.href}
+              onClick={closeDrawer}
+            >
+              {l.label}
+            </a>
+          ))}
+          <a
+            className="ak-drawer__link"
+            href="https://github.com/aryasoni98/alertkube"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={closeDrawer}
+          >
+            <Icon name="github" size={16} />
+            GitHub
+          </a>
+        </nav>
+        <div className="ak-drawer__footer">
+          <Button size="md" variant="grad" href="#install" onClick={closeDrawer} trailing={<Icon name="arrow" size={15} />}>
+            Install with Helm
+          </Button>
         </div>
       </div>
     </nav>

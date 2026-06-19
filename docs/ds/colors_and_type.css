@@ -1,6 +1,6 @@
 /* =========================================================
-   WOOAK DESIGN SYSTEM - Tokens
-   Brand: Wooak - all-in-one HR & people operations
+   ALERTKUBE DESIGN SYSTEM - Tokens
+   Brand: AlertKube - Kubernetes multi-resource alerting controller
    ========================================================= */
 
 /* ---------- WEBFONTS ---------- */
@@ -128,28 +128,33 @@
 
 /* ---------- DARK THEME - intentional, not inverted ---------- */
 .theme-dark, [data-theme="dark"] {
-  --bg:          #0A0F1A;            /* deep blue-ink, not pure black */
-  --bg-elevated: #111827;
-  --bg-muted:    #0F172A;
+  --bg:          #0B1220;            /* matches theme-color meta, deep blue-ink */
+  --bg-elevated: #111c2e;            /* one step up from bg */
+  --bg-muted:    #0d1729;            /* slightly lighter than bg for subtle contrast */
   --bg-inverse:  var(--wk-paper);
-  --fg:          #F4F4EE;
-  --fg-muted:    rgba(244,244,238,0.66);
-  --fg-subtle:   rgba(244,244,238,0.42);
-  --border:      rgba(244,244,238,0.10);
-  --border-soft: rgba(244,244,238,0.06);
-  --border-strong: rgba(244,244,238,0.20);
+  --fg:          #E8EEF8;            /* cooler white - reads clearly on deep blue */
+  --fg-muted:    rgba(232,238,248,0.65);
+  --fg-subtle:   rgba(232,238,248,0.38);
+  --border:      rgba(232,238,248,0.10);
+  --border-soft: rgba(232,238,248,0.06);
+  --border-strong: rgba(232,238,248,0.22);
 
-  --wk-gradient-soft: linear-gradient(135deg, rgba(74,156,255,0.18) 0%, rgba(74,222,128,0.18) 100%);
+  --wk-gradient-soft: linear-gradient(135deg, rgba(74,156,255,0.16) 0%, rgba(74,222,128,0.16) 100%);
 
-  --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.36), 0 1px 2px rgba(0,0,0,0.24);
-  --shadow-md: 0 6px 16px -4px rgba(0,0,0,0.50), 0 2px 6px rgba(0,0,0,0.30);
-  --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.60), 0 4px 12px rgba(0,0,0,0.30);
-  --shadow-xl: 0 32px 64px -16px rgba(0,0,0,0.70), 0 8px 24px rgba(0,0,0,0.36);
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.44), 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-md: 0 6px 16px -4px rgba(0,0,0,0.58), 0 2px 6px rgba(0,0,0,0.36);
+  --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.68), 0 4px 12px rgba(0,0,0,0.36);
+  --shadow-xl: 0 32px 64px -16px rgba(0,0,0,0.76), 0 8px 24px rgba(0,0,0,0.42);
+
+  /* glow utilities lift on dark bg */
+  --shadow-glow-blue:  0 0 0 3px rgba(74,156,255,0.22);
+  --shadow-glow-green: 0 0 0 3px rgba(74,222,128,0.20);
+  --shadow-glow-spark: 0 0 0 3px rgba(249,115,22,0.24);
 
   /* Spark surface re-tinted for dark - keep warm + readable */
-  --wk-spark-wash: rgba(249,115,22,0.12);
-  --wk-spark-wash-border: rgba(249,115,22,0.30);
+  --wk-spark-wash: rgba(249,115,22,0.14);
+  --wk-spark-wash-border: rgba(249,115,22,0.32);
   --wk-spark-text: #FDBA74;
 }
 
@@ -187,7 +192,7 @@ body { font-family: var(--font-sans); font-weight: 400; font-size: 16px; line-he
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  background-size: 200% 100%;
+  background-size: 300% 100%;  /* wide enough for the shift to be visible */
 }
 .wk-text-gradient--animate {
   animation: wk-gradient-shift 8s ease-in-out infinite;

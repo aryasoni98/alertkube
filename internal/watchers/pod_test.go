@@ -84,6 +84,36 @@ func TestPodEvaluate(t *testing.T) {
 			wantSeverity: alert.SeverityCritical,
 		},
 		{
+			name:   "non-OOM SIGKILL (exit 137) on a running pod fires ContainerKilled warning",
+			oldPod: nil,
+			newPod: makePod(v1.ContainerStatus{
+				Name:         "app",
+				RestartCount: 1,
+				LastTerminationState: v1.ContainerState{
+					Terminated: &v1.ContainerStateTerminated{Reason: "Error", ExitCode: 137},
+				},
+			}),
+			wantReason:   "ContainerKilled",
+			wantSeverity: alert.SeverityWarning,
+		},
+		{
+			name:   "SIGKILL during pod deletion stays silent (graceful teardown)",
+			oldPod: nil,
+			newPod: func() *v1.Pod {
+				p := makePod(v1.ContainerStatus{
+					Name:         "app",
+					RestartCount: 0,
+					LastTerminationState: v1.ContainerState{
+						Terminated: &v1.ContainerStateTerminated{ExitCode: 137},
+					},
+				})
+				now := metav1.Now()
+				p.DeletionTimestamp = &now
+				return p
+			}(),
+			wantNone: true,
+		},
+		{
 			name: "restart delta fires ContainerRestart warning",
 			oldPod: makePod(v1.ContainerStatus{
 				Name:         "app",
@@ -170,6 +200,34 @@ func TestPodEvaluate(t *testing.T) {
 			}
 			if a.Namespace != "default" || a.Name != "app-1" {
 				t.Errorf("identity: got %s/%s, want default/app-1", a.Namespace, a.Name)
+			}
+		})
+	}
+}
+
+func TestTerminationCause(t *testing.T) {
+	term := func(sig, code int32, reason string) v1.ContainerStatus {
+		return v1.ContainerStatus{LastTerminationState: v1.ContainerState{
+			Terminated: &v1.ContainerStateTerminated{Signal: sig, ExitCode: code, Reason: reason},
+		}}
+	}
+	cases := []struct {
+		name string
+		st   v1.ContainerStatus
+		want string
+	}{
+		{"no termination", v1.ContainerStatus{}, ""},
+		{"sigkill by signal", term(9, 137, ""), "SIGKILL (exit 137)"},
+		{"sigterm by signal", term(15, 143, ""), "SIGTERM (exit 143)"},
+		{"sigkill by exit code", term(0, 137, "Error"), "SIGKILL (exit 137)"},
+		{"sigterm by exit code", term(0, 143, "Error"), "SIGTERM (exit 143)"},
+		{"plain error exit", term(0, 1, "Error"), "Error (exit 1)"},
+		{"bare exit code", term(0, 2, ""), "exit 2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := terminationCause(tc.st); got != tc.want {
+				t.Errorf("terminationCause: got %q, want %q", got, tc.want)
 			}
 		})
 	}

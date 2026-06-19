@@ -3,7 +3,7 @@ const appFM = window.FramerMotion || {};
 const mApp = appFM.motion;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "light",
+  "theme": "dark",
   "liveFeed": true,
   "blobCursor": true
 }/*EDITMODE-END*/;
