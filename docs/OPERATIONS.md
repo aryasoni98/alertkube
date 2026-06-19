@@ -76,14 +76,14 @@ sinkRates:
   slack: {rps: 5, burst: 20}
 ```
 
-## Upgrade procedure (v0.1 → v0.2)
+## Upgrade procedure
 
 1. Read [MIGRATION-FROM-V1.md](./MIGRATION-FROM-V1.md) if migrating from k8s-pod-restart-info-collector.
 2. Review CHANGELOG for fingerprint (sha256) behavior - one extra page possible for standing conditions.
 3. Upgrade Helm chart; checksum annotation triggers a rolling restart:
 
 ```bash
-helm upgrade alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.0 \
+helm upgrade alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
   --reuse-values
 ```
 

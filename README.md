@@ -12,7 +12,7 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/alertkube)](https://artifacthub.io/packages/helm/alertkube/alertkube)
 -->
 
-alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit, webhook or bot token), PagerDuty (Events API v2), Microsoft Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhooks, or stdout for local dev.
+alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, Jobs, DaemonSets, StatefulSets, CronJobs, and HorizontalPodAutoscalers in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit, webhook or bot token), PagerDuty (Events API v2), Microsoft Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhooks, or stdout for local dev.
 
 ## Features
 
@@ -41,7 +41,7 @@ alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, and Jobs in 
 
 ```
                 ┌──────────────┐
-                │  Watchers    │  Pod, Node, Deployment, PVC, Job
+                │  Watchers    │  Pod, Node, Deployment, PVC, Job, DaemonSet, StatefulSet, CronJob, HPA
                 └──────┬───────┘
                        ▼
                  ┌─────────────┐
@@ -72,16 +72,18 @@ go run .
 
 ## Install
 
+Latest release: **[v0.2.4](https://github.com/aryasoni98/alertkube/releases/latest)** — see [CHANGELOG.md](CHANGELOG.md) for what changed.
+
 Container image (multi-arch, cosign-signed):
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v0.2.3
+docker pull ghcr.io/aryasoni98/alertkube:v0.2.4
 ```
 
 Helm from the published OCI chart:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \

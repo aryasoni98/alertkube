@@ -37,7 +37,7 @@ Add your PagerDuty routing key and tell alertkube to send critical alerts to
 both Slack and PagerDuty:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set pagerduty.routingKey=R0UT1NGK3Y0000000000000000000000

@@ -38,7 +38,7 @@ directly from the OCI reference — no `helm repo add` needed.
 Replace the webhook URL and cluster name with your own values:
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.3 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \
