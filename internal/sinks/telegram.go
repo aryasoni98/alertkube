@@ -54,7 +54,7 @@ func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
 		html.EscapeString(a.Cluster),
 		html.EscapeString(a.Fingerprint),
 	)
-	if runbook := a.Annotations["runbook-url"]; templates.SafeRunbookURL(runbook) {
+	if runbook := a.Annotations[alert.AnnotationRunbookURL]; templates.SafeRunbookURL(runbook) {
 		text += fmt.Sprintf("\n<a href=\"%s\">Runbook</a>", html.EscapeString(runbook))
 	}
 

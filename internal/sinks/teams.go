@@ -73,7 +73,7 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 		"msteams": map[string]any{"width": "Full"},
 		"body":    body,
 	}
-	if runbook := a.Annotations["runbook-url"]; templates.SafeRunbookURL(runbook) {
+	if runbook := a.Annotations[alert.AnnotationRunbookURL]; templates.SafeRunbookURL(runbook) {
 		card["actions"] = []map[string]any{
 			{"type": "Action.OpenUrl", "title": "Runbook", "url": runbook},
 		}

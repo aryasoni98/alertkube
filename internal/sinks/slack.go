@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"time"
 
 	"github.com/slack-go/slack"
 	"k8s.io/klog/v2"
@@ -36,7 +35,7 @@ func NewSlack(cluster, username string, channels map[alert.Severity]string) *Sla
 		username:   username,
 		cluster:    cluster,
 		channels:   channels,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{Timeout: httpx.DefaultTimeout},
 	}
 }
 
@@ -51,7 +50,7 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	// default channel: a modern Slack app webhook is bound to one channel
 	// and rejects any other with 404 channel_not_found, dropping the alert.
 	var explicitChannel string
-	if override, ok := a.Annotations["alert-slack-channel"]; ok && override != "" {
+	if override, ok := a.Annotations[alert.AnnotationSlackChannel]; ok && override != "" {
 		if channelOverridePattern.MatchString(override) {
 			channel = override
 			explicitChannel = override

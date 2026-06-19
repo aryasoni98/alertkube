@@ -88,6 +88,21 @@ func (k Kind) Valid() bool {
 	return false
 }
 
+// Control annotation keys change alertkube behavior (silencing, channel
+// routing, rendered links). They are defined here, in one place, so the pod
+// watcher's allow-list - which blocks lower-privilege labels from back-filling
+// them - and every consumer below cannot drift apart. A mismatch would be a
+// privilege bug: a label-writer could silence their own alerts or inject a
+// runbook link the allow-list was meant to reject.
+const (
+	// AnnotationSilenceUntil suppresses an alert until the RFC3339 time it holds.
+	AnnotationSilenceUntil = "alert-silence-until"
+	// AnnotationSlackChannel overrides the Slack channel for an alert.
+	AnnotationSlackChannel = "alert-slack-channel"
+	// AnnotationRunbookURL is the runbook link rendered by chat sinks.
+	AnnotationRunbookURL = "runbook-url"
+)
+
 // Alert is the canonical event flowing through the pipeline.
 type Alert struct {
 	Fingerprint string

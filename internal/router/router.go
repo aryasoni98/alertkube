@@ -81,7 +81,7 @@ func (r *Router) SetDisableAnnotationSilences(disabled bool) {
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
-	if until, ok := a.Annotations["alert-silence-until"]; ok && !r.disableAnnotationSilences {
+	if until, ok := a.Annotations[alert.AnnotationSilenceUntil]; ok && !r.disableAnnotationSilences {
 		if t, err := time.Parse(time.RFC3339, until); err == nil && now.Before(t) {
 			return true
 		}

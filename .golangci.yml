@@ -61,7 +61,6 @@ linters:
         path: _test\.go
     paths:
       - vendor
-      - shell-version-for-poc
       - third_party$
       - builtin$
       - examples$
@@ -73,7 +72,6 @@ formatters:
     generated: lax
     paths:
       - vendor
-      - shell-version-for-poc
       - third_party$
       - builtin$
       - examples$
