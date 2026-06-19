@@ -47,6 +47,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
+| api.token | string | `""` | Optional bearer token guarding `/api/alerts` (inline; prefer the Secret ref). |
+| api.tokenSecretKeyRef | object | `{}` | Secret reference for the API token (`{key, name}`). |
 | behavior.disableAnnotationSilences | bool | `false` | Ignore `alert-silence-until` pod annotations (anti-self-silence). |
 | behavior.disableLogCollection | bool | `false` | Disable previous-container log collection for alert enrichment. |
 | behavior.ignoreRestartCount | int | `30` | Restart count above which CrashLoopBackOff stops re-alerting. |

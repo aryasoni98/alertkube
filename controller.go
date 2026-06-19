@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,11 +26,12 @@ import (
 )
 
 // informerResyncPeriod is how often cached objects are re-delivered as
-// synthetic Update events. Kept below the default resolveTTL/mute window
-// (behavior.resolveTTLSeconds / muteSeconds, both 600s) so a still-firing
-// standing condition is re-touched before its TTL elapses; see the resync
-// rationale at the factory construction site.
-const informerResyncPeriod = 5 * time.Minute
+// synthetic Update events. Kept below the resolveTTL/mute windows so a
+// still-firing standing condition is re-touched before its TTL elapses;
+// config.Validate rejects configs that violate that relationship, and the
+// resync rationale is at the factory construction site. Sourced from the
+// config package so the validation and the runtime use one number.
+const informerResyncPeriod = config.InformerResyncSeconds * time.Second
 
 // runController wires the watchers, sweeper, and dispatch path.
 // Returns when ctx is cancelled (signal received OR leader election lost).
@@ -102,10 +105,24 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 
 	emit := makeEmitter(store, r, reg, cfg, grouper)
 
-	// Read-only view of the active set + recent history for dashboards
-	// and debugging. Reachable on the metrics address; gate with the
-	// chart's NetworkPolicy ingressFrom when the cluster is multi-tenant.
-	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// Read-only view of the active set + recent history for dashboards and
+	// debugging. It dumps alert contents (names, namespaces, summaries), so
+	// an optional bearer token guards it: set ALERTKUBE_API_TOKEN and the
+	// endpoint requires `Authorization: Bearer <token>`. Without a token it
+	// stays open (current behavior) - lock the port down with the chart's
+	// NetworkPolicy instead.
+	apiToken := os.Getenv("ALERTKUBE_API_TOKEN")
+	if apiToken == "" {
+		klog.Warningf("/api/alerts on %s is UNAUTHENTICATED and exposes active alert contents; set ALERTKUBE_API_TOKEN (helm: api.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
+	}
+	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiToken != "" {
+			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(got), []byte(apiToken)) != 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"active": store.ActiveList(),

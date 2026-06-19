@@ -152,6 +152,18 @@ receiver:
     # key: receiverToken
     # name: alertkube-receiver
 
+# api guards the read-only /api/alerts introspection endpoint (active +
+# recent alert contents) served on the metrics port. Set a token to require
+# bearer auth; left empty the endpoint is open, so restrict the metrics port
+# with networkPolicy instead.
+api:
+  # -- Optional bearer token guarding `/api/alerts` (inline; prefer the Secret ref).
+  token: ""
+  # -- Secret reference for the API token (`{key, name}`).
+  tokenSecretKeyRef: {}
+    # key: apiToken
+    # name: alertkube-api
+
 # Fold alert storms: first alert of a group dispatches immediately,
 # later same-group alerts within the window collapse into one summary
 # ("4 more Pod CrashLoopBackOff alerts ..."). PagerDuty/Opsgenie still

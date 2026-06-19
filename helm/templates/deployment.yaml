@@ -107,6 +107,9 @@ spec:
               valueFrom:
               {{- include "alertkube.receiverToken" . | indent 14 }}
             {{- end }}
+            - name: ALERTKUBE_API_TOKEN
+              valueFrom:
+              {{- include "alertkube.apiToken" . | indent 14 }}
             - name: PAGERDUTY_ROUTING_KEY
               valueFrom:
               {{- include "alertkube.pagerdutyRoutingKey" . | indent 14 }}
