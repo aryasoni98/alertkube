@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 
 	"alertkube/internal/alert"
 )
@@ -58,6 +59,13 @@ func (p *ConfigMapStore) Load(ctx context.Context) (*alert.Snapshot, error) {
 }
 
 // Save writes the snapshot, creating the ConfigMap on first use.
+//
+// The read-modify-write is retried on conflict: during a leader handoff the
+// outgoing and incoming leaders can briefly both write, and a bare
+// Get-then-Update would let one silently clobber the other's snapshot
+// (last-write-wins). RetryOnConflict re-reads and re-applies on a 409; the
+// AlreadyExists case from a lost create race is funnelled into the same retry
+// so the second iteration finds the object and Updates it.
 func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 	body, err := json.Marshal(snap)
 	if err != nil {
@@ -67,35 +75,37 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 		return fmt.Errorf("snapshot is %d bytes (limit %d); skipping save", len(body), maxSnapshotBytes)
 	}
 	cms := p.client.CoreV1().ConfigMaps(p.namespace)
-	cm, err := cms.Get(ctx, p.name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		_, err = cms.Create(ctx, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      p.name,
-				Namespace: p.namespace,
-				Labels:    map[string]string{"app.kubernetes.io/managed-by": "alertkube"},
-			},
-			Data: map[string]string{dataKey: string(body)},
-		}, metav1.CreateOptions{})
-		if apierrors.IsAlreadyExists(err) {
-			// Lost a create race (e.g. brief dual-leader window); the other
-			// writer's state is as good as ours - next sweep retries.
-			return nil
+	retryable := func(err error) bool {
+		return apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err)
+	}
+	err = retry.OnError(retry.DefaultRetry, retryable, func() error {
+		cm, err := cms.Get(ctx, p.name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			_, err = cms.Create(ctx, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      p.name,
+					Namespace: p.namespace,
+					Labels:    map[string]string{"app.kubernetes.io/managed-by": "alertkube"},
+				},
+				Data: map[string]string{dataKey: string(body)},
+			}, metav1.CreateOptions{})
+			// AlreadyExists (concurrent first writer won the create race) is
+			// retryable: the next iteration Gets the now-existing object and
+			// Updates it instead of dropping our snapshot.
+			return err
 		}
 		if err != nil {
-			return fmt.Errorf("create state configmap %s/%s: %w", p.namespace, p.name, err)
+			return err
 		}
-		return nil
-	}
+		if cm.Data == nil {
+			cm.Data = map[string]string{}
+		}
+		cm.Data[dataKey] = string(body)
+		_, err = cms.Update(ctx, cm, metav1.UpdateOptions{})
+		return err
+	})
 	if err != nil {
-		return fmt.Errorf("get state configmap %s/%s: %w", p.namespace, p.name, err)
-	}
-	if cm.Data == nil {
-		cm.Data = map[string]string{}
-	}
-	cm.Data[dataKey] = string(body)
-	if _, err := cms.Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update state configmap %s/%s: %w", p.namespace, p.name, err)
+		return fmt.Errorf("save state configmap %s/%s: %w", p.namespace, p.name, err)
 	}
 	return nil
 }
