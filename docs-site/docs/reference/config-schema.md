@@ -15,7 +15,7 @@ hard error — the controller does not boot on env defaults alone.
     `false`). A legitimately-zero numeric value cannot be expressed for keys
     that have a non-zero default — e.g. setting `behavior.muteSeconds: 0`
     triggers the `MUTE_SECONDS` lookup and then fails validation
-    (`muteSeconds must be positive`).
+    (`muteSeconds (...) must exceed the informer resync period (300s)`).
 
 ## Top-level
 
@@ -40,10 +40,10 @@ filter set (comma-separated literals and/or regex, depending on the matcher).
 
 | Path | Type | Default | Env fallback | Validation | Description |
 | --- | --- | --- | --- | --- | --- |
-| `behavior.muteSeconds` | int | `600` | `MUTE_SECONDS` | must be `> 0` | Dedupe mute window: a repeated fingerprint is suppressed for this many seconds. |
+| `behavior.muteSeconds` | int | `600` | `MUTE_SECONDS` | must be `> 300` | Dedupe mute window: a repeated fingerprint is suppressed for this many seconds. Must exceed the 300s informer resync period. |
 | `behavior.ignoreRestartCount` | int | `30` | `IGNORE_RESTART_COUNT` | must be `>= 0` | Stop per-restart `ContainerRestart` alerts once a pod's total restart count exceeds this (CrashLoopBackOff detection still fires). |
 | `behavior.ignoreRestartsWithExitCodeZero` | bool | `false` | `IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO == "true"` | — | Skip `ContainerRestart` alerts whose previous termination exit code was 0. |
-| `behavior.resolveTTLSeconds` | int | `600` | `RESOLVE_TTL_SECONDS` | must be `> 0` | A fingerprint that stops firing for this long emits a synthetic resolved alert. |
+| `behavior.resolveTTLSeconds` | int | `600` | `RESOLVE_TTL_SECONDS` | must be `> 300` | A fingerprint that stops firing for this long emits a synthetic resolved alert. Must exceed the 300s informer resync period. |
 | `behavior.startupGraceSeconds` | int | `0` | `STARTUP_GRACE_SECONDS` | must be `>= 0` | Suppress alerts fired during the first N seconds after start (mutes informer initial-sync re-fires of standing conditions). `0` disables. |
 | `behavior.pvcPendingSeconds` | int | `300` | `PVC_PENDING_SECONDS` | must be `> 0` | How long a PVC may stay `Pending` before a `PVCPending` alert fires. |
 | `behavior.disableLogCollection` | bool | `false` | — | — | Stop fetching previous-container logs for alert enrichment (redaction is pattern-based and best-effort). |
@@ -195,10 +195,10 @@ filters:
   ignoredPodNamePrefixes: "debug-,test-"     # comma-separated prefixes
 
 behavior:
-  muteSeconds: 600                  # dedupe mute window (>0)
+  muteSeconds: 600                  # dedupe mute window (>300)
   ignoreRestartCount: 30            # stop per-restart alerts past this count
   ignoreRestartsWithExitCodeZero: false
-  resolveTTLSeconds: 600            # synthetic resolve after this idle period (>0)
+  resolveTTLSeconds: 600            # synthetic resolve after this idle period (>300)
   startupGraceSeconds: 30           # mute initial-sync re-fires; 0 disables
   pvcPendingSeconds: 300            # PVC Pending tolerance before alerting (>0)
   disableLogCollection: false       # skip previous-container log enrichment

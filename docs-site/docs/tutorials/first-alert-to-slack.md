@@ -106,8 +106,9 @@ Once the fingerprint stops firing for `behavior.resolveTTLSeconds` (default
 that the condition cleared.
 
 !!! tip "Don't want to wait 10 minutes for the resolve?"
-    Lower the TTL temporarily for testing:
-    `helm upgrade --install alertkube ... --set behavior.resolveTTLSeconds=30`.
+    Lower the TTL for testing — but it must stay above the 300s informer resync
+    period (the controller rejects `resolveTTLSeconds <= 300` at startup):
+    `helm upgrade --install alertkube ... --set behavior.resolveTTLSeconds=360`.
 
 ## Next steps
 
