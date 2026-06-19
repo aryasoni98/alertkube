@@ -64,7 +64,7 @@ sinkRates:
     perSecond: 2
     burst: 10
 behavior:
-  muteSeconds: 300
+  muteSeconds: 900
   startupGraceSeconds: 45
   pvcPendingSeconds: 120
 `)
@@ -72,8 +72,8 @@ behavior:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Behavior.MuteSeconds != 300 {
-		t.Errorf("muteSeconds = %d, want 300 (yaml should win over env default)", c.Behavior.MuteSeconds)
+	if c.Behavior.MuteSeconds != 900 {
+		t.Errorf("muteSeconds = %d, want 900 (yaml should win over env default)", c.Behavior.MuteSeconds)
 	}
 	if c.Behavior.StartupGraceSeconds != 45 {
 		t.Errorf("startupGraceSeconds = %d, want 45", c.Behavior.StartupGraceSeconds)
@@ -116,6 +116,16 @@ func TestValidateRejects(t *testing.T) {
 			name:    "negative muteSeconds",
 			yaml:    "behavior:\n  muteSeconds: -5\n",
 			errPart: "muteSeconds",
+		},
+		{
+			name:    "muteSeconds equals resync floor",
+			yaml:    "behavior:\n  muteSeconds: 300\n",
+			errPart: "must exceed the informer resync period",
+		},
+		{
+			name:    "resolveTTLSeconds below resync floor",
+			yaml:    "behavior:\n  resolveTTLSeconds: 120\n",
+			errPart: "resolveTTLSeconds",
 		},
 		{
 			name:    "negative startupGraceSeconds",

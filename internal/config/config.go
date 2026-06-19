@@ -183,6 +183,14 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
+// InformerResyncSeconds is the fixed informer resync period the controller
+// runs with (controller.go derives informerResyncPeriod from it). A resync
+// re-delivers every cached object as a synthetic Update, re-touching standing
+// conditions so they do not false-resolve. The resolveTTL and mute windows
+// must therefore exceed it, or a still-firing condition expires between
+// resyncs and re-pages every cycle; Validate enforces that relationship.
+const InformerResyncSeconds = 300
+
 // KnownSinks lists the sink names registered at startup; routing rules may
 // only reference these. Kept here so Validate can fail fast on typos
 // instead of dispatch silently skipping an unknown name.
@@ -245,11 +253,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("silences[%d]: until must be RFC3339: %w", i, err)
 		}
 	}
-	if c.Behavior.MuteSeconds <= 0 {
-		return fmt.Errorf("behavior.muteSeconds must be positive, got %d", c.Behavior.MuteSeconds)
+	if c.Behavior.MuteSeconds <= InformerResyncSeconds {
+		return fmt.Errorf("behavior.muteSeconds (%d) must exceed the informer resync period (%ds): a shorter mute lets a standing condition re-page when the mute lapses before the next resync re-fire", c.Behavior.MuteSeconds, InformerResyncSeconds)
 	}
-	if c.Behavior.ResolveTTLSeconds <= 0 {
-		return fmt.Errorf("behavior.resolveTTLSeconds must be positive, got %d", c.Behavior.ResolveTTLSeconds)
+	if c.Behavior.ResolveTTLSeconds <= InformerResyncSeconds {
+		return fmt.Errorf("behavior.resolveTTLSeconds (%d) must exceed the informer resync period (%ds): a shorter TTL false-resolves still-firing standing conditions between resyncs, re-paging every cycle", c.Behavior.ResolveTTLSeconds, InformerResyncSeconds)
 	}
 	if c.Behavior.IgnoreRestartCount < 0 {
 		return fmt.Errorf("behavior.ignoreRestartCount must be >= 0, got %d", c.Behavior.IgnoreRestartCount)
