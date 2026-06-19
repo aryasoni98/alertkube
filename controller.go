@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/authz"
 	"alertkube/internal/config"
 	"alertkube/internal/group"
 	"alertkube/internal/metrics"
@@ -115,13 +114,10 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	if apiToken == "" {
 		klog.Warningf("/api/alerts on %s is UNAUTHENTICATED and exposes active alert contents; set ALERTKUBE_API_TOKEN (helm: api.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
 	}
-	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if apiToken != "" {
-			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if subtle.ConstantTimeCompare([]byte(got), []byte(apiToken)) != 1 {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
+	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if apiToken != "" && !authz.BearerEqual(req.Header.Get("Authorization"), apiToken) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
