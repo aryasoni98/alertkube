@@ -12,15 +12,22 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   fs-scan:
     name: Filesystem scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Run Trivy (filesystem)
-        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -42,11 +49,14 @@ jobs:
   config-scan:
     name: Misconfig scan (IaC)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Run Trivy (config)
-        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: .

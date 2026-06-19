@@ -1,3 +1,7 @@
+<!-- PR title must be a Conventional Commit: type(scope): subject
+     e.g. fix(persist): retry state save on conflict
+     Types feed the changelog: feat, fix, perf, refactor, revert, docs, chore, ci, build, test -->
+
 ## Summary
 
 <!-- One or two sentences. What changes and why. -->

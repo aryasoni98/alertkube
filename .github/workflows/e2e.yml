@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   IMAGE: alertkube:e2e
   CLUSTER: alertkube-e2e
@@ -31,6 +35,7 @@ jobs:
   smoke:
     name: Smoke (k8s ${{ matrix.k8s }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -38,6 +43,8 @@ jobs:
         k8s: ["v1.29.14", "v1.30.13", "v1.31.9"]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Build controller image
         run: docker build -t "${IMAGE}" .
@@ -104,8 +111,11 @@ jobs:
   ha:
     name: HA leader election
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Build controller image
         run: docker build -t "${IMAGE}" .

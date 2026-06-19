@@ -20,12 +20,29 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=512]
 
-  - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
+  # Go hooks run the locally-installed toolchain (language: system) rather than
+  # a third-party hook repo, so there is no external rev to pin or let drift
+  # (the old dnephin/pre-commit-golang is unmaintained) and versions always
+  # match your `go` install. Mirrors the cheap CI checks.
+  - repo: local
     hooks:
       - id: go-fmt
+        name: go fmt
+        entry: gofmt -l -w
+        language: system
+        types: [go]
       - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
       - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        files: '^(go\.mod|go\.sum)$'
+        pass_filenames: false
 
   - repo: https://github.com/gruntwork-io/pre-commit
     rev: v0.1.25

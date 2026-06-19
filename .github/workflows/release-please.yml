@@ -19,6 +19,7 @@ jobs:
   release-please:
     name: Manage release PR
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
