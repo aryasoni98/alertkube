@@ -5,7 +5,9 @@
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine@sha256:523c3effe300580ed375e43f43b1c9b091b68e935a7c3a92bfcc4e7ed55b18c2 AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+# Cache the module download across builds so a go.sum change does not refetch
+# the whole graph (the multi-arch release otherwise pays this per arch).
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 
 ARG TARGETOS
@@ -14,7 +16,8 @@ ARG VERSION=dev
 # CGO off + static link so the binary runs on the distroless/static base.
 # -trimpath drops local path prefixes; -X stamps the image version into the
 # binary for the `alertkube` startup log line and build provenance.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/alertkube .
 
@@ -26,4 +29,8 @@ FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb0147
 COPY --from=builder /out/alertkube /usr/local/bin/alertkube
 USER 65532:65532
 EXPOSE 9090
+# No HEALTHCHECK: distroless has no shell/curl, and health is owned by the
+# Kubernetes startup/liveness/readiness probes against /healthz and /readyz
+# (see helm/templates/deployment.yaml). Add a binary `healthcheck` subcommand
+# if standalone `docker run` health ever matters.
 ENTRYPOINT ["/usr/local/bin/alertkube"]
