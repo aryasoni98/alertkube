@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/aryasoni98/alertkube/compare/v0.2.3...v0.2.4) (2026-06-19)
+
+
+### Added
+
+* **watchers:** alert on non-OOM SIGKILL (ContainerKilled) + termination cause ([#17](https://github.com/aryasoni98/alertkube/issues/17)) ([b7da111](https://github.com/aryasoni98/alertkube/commit/b7da111274dd59df3158a0742bd33cbf3a63fa6e))
+
 ## [0.2.3](https://github.com/aryasoni98/alertkube/compare/v0.2.2...v0.2.3) (2026-06-18)
 
 
