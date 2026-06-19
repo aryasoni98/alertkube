@@ -44,7 +44,9 @@ jobs:
         run: |
           chart_ver="$(grep -E '^version:' helm/Chart.yaml | awk '{print $2}')"
           app_ver="$(grep -E '^appVersion:' helm/Chart.yaml | awk '{print $2}' | tr -d '"')"
-          img_tag="$(grep -oE 'alertkube:v[0-9]+\.[0-9]+\.[0-9]+' helm/Chart.yaml | head -1 | sed 's/.*://')"
+          # `|| true`: a missing/reformatted annotation must yield an empty tag
+          # and trip the explicit check below, not abort the step under pipefail.
+          img_tag="$(grep -oE 'alertkube:v[0-9]+\.[0-9]+\.[0-9]+' helm/Chart.yaml | head -1 | sed 's/.*://' || true)"
           echo "version=$chart_ver appVersion=$app_ver imageTag=$img_tag"
           if [ "$app_ver" != "$chart_ver" ]; then
             echo "::error::Chart.yaml appVersion ($app_ver) != version ($chart_ver)" >&2; exit 1
