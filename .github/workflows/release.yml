@@ -20,10 +20,17 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
+# Serialize releases of the same ref; never cancel a half-finished publish
+# (the image/chart push must not be interrupted mid-flight).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   docker:
     name: Build & Push Docker
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       image: ${{ steps.meta.outputs.tags }}
       digest: ${{ steps.build.outputs.digest }}
@@ -58,7 +65,9 @@ jobs:
             type=raw,value=${{ env.TAG }}
             type=semver,pattern={{version}},value=${{ env.TAG }}
             type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
-            type=raw,value=latest
+            # latest only moves on a real tag push of a non-prerelease, so a
+            # workflow_dispatch re-publish of an old tag cannot regress it.
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(env.TAG, '-') }}
 
       - name: Build & push
         id: build
@@ -69,6 +78,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.TAG }}
+          # SLSA build provenance attestation alongside the signed image.
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -87,12 +101,15 @@ jobs:
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: docker
     steps:
       - name: Generate SBOM (syft)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          # Pin to the immutable digest the docker job signed, not the
+          # mutable tag, so the SBOM inventories exactly the signed artifact.
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.docker.outputs.digest }}
           format: spdx-json
           output-file: alertkube-sbom.spdx.json
           registry-username: ${{ github.actor }}
@@ -108,6 +125,7 @@ jobs:
   trivy:
     name: Scan image (Trivy)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: docker
     permissions:
       contents: read
@@ -121,13 +139,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Trivy scan
-        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master
+      - name: Run Trivy scan (SARIF, non-gating)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          # Scan the immutable signed digest, not the mutable tag.
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.docker.outputs.digest }}
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
@@ -141,9 +160,26 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+      - name: Run Trivy scan (gate on fixable CRITICAL)
+        # Fails the release if the signed image has a fixable CRITICAL CVE.
+        # Runs after the SARIF upload so the security dashboard is populated
+        # even when this gate trips. Matches the SECURITY-INSIGHTS claim that
+        # the image scan gates the release.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.docker.outputs.digest }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   helm:
     name: Push Helm chart (OCI)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: docker
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -171,7 +207,17 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [docker, trivy, helm, sbom]
+    # The image, signature, and chart are already published by the gating jobs
+    # below. Create the human-facing Release as long as those succeeded, even
+    # if the (non-critical) SBOM job flaked - the SBOM is then simply omitted
+    # rather than blocking the Release. docker/trivy/helm remain hard gates.
+    if: >-
+      ${{ !cancelled()
+      && needs.docker.result == 'success'
+      && needs.trivy.result == 'success'
+      && needs.helm.result == 'success' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -185,6 +231,8 @@ jobs:
           path: dist
 
       - name: Download SBOM artifact
+        # Best-effort: a flaked SBOM job must not block the Release (see job if:).
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom
@@ -199,6 +247,8 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           generate_release_notes: true
+          # Do not fail the Release if the SBOM is absent (best-effort upload).
+          fail_on_unmatched_files: false
           files: |
             dist/*.tgz
             dist/alertkube-sbom.spdx.json
@@ -209,10 +259,12 @@ jobs:
             ```
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
             ```
+            Digest: `${{ needs.docker.outputs.digest }}`
 
-            Image is signed with cosign (keyless). Verify:
+            Image is signed with cosign (keyless) and carries SLSA build
+            provenance. Verify the exact signed digest:
             ```
-            cosign verify ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} \
+            cosign verify ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.docker.outputs.digest }} \
               --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@.+' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com
             ```
