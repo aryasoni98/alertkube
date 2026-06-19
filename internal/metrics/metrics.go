@@ -53,6 +53,13 @@ var (
 	EscalationsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{Name: "alertkube_escalations_total", Help: "Alerts re-dispatched by escalation rules."},
 	)
+	// EnrichmentSaturated counts pod alerts shipped without events/logs
+	// because the bounded enrichment pool was full. A rising value means
+	// alerts are pages arriving "skinny" under storm load - the signal that
+	// the enrichWorkers pool is the bottleneck and should be widened.
+	EnrichmentSaturated = prometheus.NewCounter(
+		prometheus.CounterOpts{Name: "alertkube_enrichment_saturated_total", Help: "Pod alerts emitted without enrichment because the pool was full."},
+	)
 	ReceivedAlerts = prometheus.NewCounterVec(
 		prometheus.CounterOpts{Name: "alertkube_received_alerts_total", Help: "Alerts accepted by the webhook receiver, by status."},
 		[]string{"status"},
@@ -60,7 +67,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, ReceivedAlerts)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts)
 }
 
 // alertsHandler and receiverHandler are installed after the server

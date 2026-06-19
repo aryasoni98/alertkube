@@ -14,6 +14,7 @@ import (
 	"alertkube/internal/collectors"
 	"alertkube/internal/config"
 	"alertkube/internal/filter"
+	"alertkube/internal/metrics"
 )
 
 // enrichWorkers bounds concurrent enrichment API calls (events, logs).
@@ -184,6 +185,7 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 			emit(a)
 		}()
 	default:
+		metrics.EnrichmentSaturated.Inc()
 		klog.Warningf("enrichment pool saturated; emitting %s without events/logs", a)
 		emit(a)
 	}
