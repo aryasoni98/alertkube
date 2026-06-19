@@ -71,18 +71,18 @@ function AKConfig() {
 
 /* ----------------------------- INSTALL ----------------------------- */
 const AK_HELM = `helm upgrade --install alertkube \\
-  oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.1 \\
+  oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \\
   --namespace monitoring --create-namespace \\
   --set cluster=prod-eu-west-1 \\
   --set slack.webhookUrl=$SLACK_WEBHOOK_URL \\
   --set pagerduty.routingKey=$PD_ROUTING_KEY`;
 
-const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:v0.2.1
+const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:v0.2.4
 docker run --rm \\
   -e SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL \\
   -e CLUSTER_NAME=local-dev \\
   -v $HOME/.kube/config:/root/.kube/config \\
-  ghcr.io/aryasoni98/alertkube:v0.2.1`;
+  ghcr.io/aryasoni98/alertkube:v0.2.4`;
 
 function AKInstall() {
   return (
@@ -105,7 +105,19 @@ function AKInstall() {
 /* ----------------------------- CHANGELOG ----------------------------- */
 const AK_RELEASES = [
   {
-    v: "v0.2.1", date: "2026-06-12", tag: "Launch", latest: true,
+    v: "v0.2.4", date: "2026-06-19", tag: "Watchers", latest: true,
+    items: ["Alert on non-OOM SIGKILL (ContainerKilled) with termination cause", "Clearer pod termination reporting"],
+  },
+  {
+    v: "v0.2.3", date: "2026-06-18", tag: "Hardening",
+    items: ["Hardened controller shutdown, filtering, receiver, and delete handling", "Shared severity-tier mapping across sinks; dead code removed", "Landing + docs site SEO, performance, and a11y upgrade"],
+  },
+  {
+    v: "v0.2.2", date: "2026-06-15", tag: "CNCF readiness",
+    items: ["Governance, issue/PR templates, DCO, and security insights", "Project-maturity work — no controller behavior change"],
+  },
+  {
+    v: "v0.2.1", date: "2026-06-12", tag: "Launch",
     items: ["Operations, troubleshooting, and migration docs", "Landing page and README aligned to v0.2.1", "Watcher and sink code cleanup"],
   },
   {
@@ -194,7 +206,7 @@ function AKFooterSec() {
               quiet until it shouldn't be.
             </p>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> v0.2.1</span>
+              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> v0.2.4</span>
               <span className="ak-tag">Apache-2.0</span>
             </div>
           </div>

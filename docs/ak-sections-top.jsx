@@ -59,7 +59,7 @@ function AKNav({ theme, setTheme }) {
           ))}
         </div>
         <div className="wk-nav__right">
-          <span className="ak-ver">v0.2.1</span>
+          <span className="ak-ver">v0.2.4</span>
           <button
             className="ak-iconbtn"
             aria-label="Toggle theme"
@@ -199,7 +199,7 @@ function AKHero({ live }) {
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                v0.2.1 - escalations, grouping, persistence
+                v0.2.4 - non-OOM SIGKILL (ContainerKilled) detection
               </span>
             </Reveal>
             <Reveal delay={0.06}>

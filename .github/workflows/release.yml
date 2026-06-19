@@ -44,7 +44,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PAGE }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
@@ -96,7 +96,7 @@ jobs:
           format: spdx-json
           output-file: alertkube-sbom.spdx.json
           registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GH_PAGE }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
           upload-artifact: false
 
       - name: Upload SBOM artifact
@@ -119,13 +119,13 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PAGE }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy scan
         uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master
         env:
           TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GH_PAGE }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
           format: sarif
@@ -152,7 +152,7 @@ jobs:
 
       - name: Log in to GHCR (Helm)
         run: |
-          echo "${{ secrets.GH_PAGE }}" | \
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
             helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
       - name: Package & push chart
