@@ -1,6 +1,6 @@
 # Operations Guide
 
-Runbook for operating alertkube in production.
+Production runbook for alertkube.
 
 ## SLOs (suggested)
 
@@ -12,7 +12,7 @@ Runbook for operating alertkube in production.
 
 ## Dashboard
 
-Import `docs/grafana-dashboard.json` into Grafana. Panels cover:
+Import `docs/grafana-dashboard.json`. It covers:
 
 - Active alerts, escalations, sink errors
 - Alert rate by severity
@@ -69,17 +69,17 @@ spec:
 | 500–5k pods | 250m CPU, 256Mi RAM | Enable grouping if storm-prone |
 | > 5k pods | 500m CPU, 512Mi RAM | Tune `sinkRates`, enable leader election for HA |
 
-Watch `alertkube_dispatch_inflight` during incidents. Sustained high values mean the default 1 rps / burst 5 per-sink limiter is dropping messages - raise limits in config:
+Watch `alertkube_dispatch_inflight`. Sustained high values mean sinks are backing up or rate-limiting; raise limits or enable grouping:
 
 ```yaml
 sinkRates:
   slack: {rps: 5, burst: 20}
 ```
 
-## Upgrade procedure
+## Upgrade
 
-1. Read [MIGRATION-FROM-V1.md](./MIGRATION-FROM-V1.md) if migrating from k8s-pod-restart-info-collector.
-2. Review CHANGELOG for fingerprint (sha256) behavior - one extra page possible for standing conditions.
+1. Read [MIGRATION-FROM-V1.md](./MIGRATION-FROM-V1.md) if migrating from `k8s-pod-restart-info-collector`.
+2. Review [CHANGELOG.md](../CHANGELOG.md), especially fingerprint changes.
 3. Upgrade Helm chart; checksum annotation triggers a rolling restart:
 
 ```bash
@@ -88,7 +88,7 @@ helm upgrade alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4
 ```
 
 4. Verify `/readyz` returns 200 and `alertkube_active_alerts` stabilizes.
-5. Confirm a test resolve closes any open PagerDuty incident (state persistence should prevent duplicates).
+5. Confirm a test resolve closes any PagerDuty incident.
 
 ## HA deployment
 
@@ -100,16 +100,16 @@ leaderElection:
   enabled: true
 ```
 
-Followers serve metrics and health but `/readyz` is 503 until they hold the lease. RollingUpdate with `maxUnavailable: 0` is safe.
+Followers serve metrics and health; `/readyz` is 503 until they hold the lease.
 
 ## Persistence
 
-State snapshots to a ConfigMap (enabled by default). Ensures pending resolves fire after restart and standing conditions do not re-page. Requires Role permissions on the ConfigMap - the chart adds these automatically.
+State snapshots to a ConfigMap, enabled by default in Helm. This preserves pending resolves and prevents restart re-pages. The chart adds the needed ConfigMap permissions.
 
 ## NetworkPolicy
 
-When `networkPolicy.enabled=true`, set `apiServer.cidrs` to your control-plane endpoint CIDRs. The default deny rule otherwise blocks API access.
+When `networkPolicy.enabled=true`, set `apiServer.cidrs` to control-plane endpoint CIDRs. The default deny rule otherwise blocks API access.
 
 ## Alerts API
 
-`GET /api/alerts` returns active alerts and a 200-entry recent history. Restrict ingress via NetworkPolicy `ingressFrom` on multi-tenant clusters.
+`GET /api/alerts` returns active alerts and recent history. Restrict ingress with NetworkPolicy `ingressFrom` on multi-tenant clusters.

@@ -1,12 +1,10 @@
-# Tune the mute window and storm folding
+# Tune Mute and Grouping
 
-Control how aggressively alertkube deduplicates repeated alerts and folds alert storms into summaries, so a busy cluster stays signal and a quiet cluster stays responsive.
-
-Three knobs shape volume: `behavior.muteSeconds` (the per-fingerprint dedupe window), `behavior.resolveTTLSeconds` (how long a quiet fingerprint waits before a synthetic resolve), and the `grouping:` block (storm folding across many fingerprints).
+Three knobs control alert volume: `behavior.muteSeconds`, `behavior.resolveTTLSeconds`, and `grouping`.
 
 ## Step 1 — set the mute (dedupe) window
 
-A fingerprint is `sha256(kind|namespace|name|reason)`. After an alert for a fingerprint dispatches, repeats of the **same** fingerprint are muted for `muteSeconds`. This is what stops a single crashlooping pod from paging you every few seconds.
+`muteSeconds` dedupes repeated fires of the same fingerprint.
 
 ```yaml
 behavior:
@@ -15,14 +13,11 @@ behavior:
                           # stops firing for this long
 ```
 
-!!! warning "Both must exceed the informer resync period (300s)"
-    `muteSeconds` and `resolveTTLSeconds` must be **greater than 300** — they have to outlast the 300s informer resync that re-touches standing conditions, or a still-firing condition false-resolves and re-pages every cycle. A value `<= 300` is a hard config error and the controller will not start. The default for each is `600` seconds.
-
-`resolveTTLSeconds` is the resolve detector: when a fingerprint goes quiet for this long, alertkube emits a synthetic resolved alert so stateful sinks (PagerDuty, Opsgenie) close the incident. Set it close to `muteSeconds` — too short and a still-firing-but-muted condition looks resolved; too long and incidents linger open.
+Both values must be greater than the 300s informer resync period. `resolveTTLSeconds` controls synthetic resolves for quiet fingerprints; keep it close to or above `muteSeconds`.
 
 ## Step 2 — enable storm folding (grouping)
 
-Grouping collapses an *avalanche* of different-but-related alerts. The first alert of a group dispatches immediately; later alerts in the same group, within `windowSeconds`, collapse into one summary message ("4 more Pod CrashLoopBackOff alerts…").
+Grouping folds different-but-related alerts. The first alert sends immediately; later same-group alerts in the window become a summary.
 
 ```yaml
 grouping:
@@ -31,16 +26,7 @@ grouping:
   by: [kind, namespace, reason, severity]   # the group identity (default)
 ```
 
-- **`enabled`** — off by default.
-- **`windowSeconds`** — must be positive when grouping is enabled; defaults to `30`.
-- **`by`** — the alert fields that define a group's identity. The default is `[kind, namespace, reason, severity]`, so all `CrashLoopBackOff` warnings in one namespace fold together. Narrow it (e.g. drop `namespace`) to fold across namespaces; widen it for finer groups.
-
-### First-alert-passes, rest-absorbed
-
-The model is deliberately *not* "wait and batch." The first member of a group always goes out instantly — you never trade latency for tidiness on the leading edge. Only the *flood behind it* is absorbed into a single summary per window. Resolves fold into their own summaries the same way.
-
-!!! warning "Stateful sinks never receive summaries"
-    PagerDuty and Opsgenie are incident-stateful: they must see every individual fire and resolve so each incident opens and closes correctly. They therefore **bypass grouping entirely** — they get every member alert and every member resolve, never a folded summary. Grouping only quiets chat-style sinks (Slack, Teams, Discord, Telegram, webhook, stdout).
+PagerDuty and Opsgenie bypass grouping: they receive every individual fire and resolve.
 
 ## Tuning guidance
 
@@ -50,8 +36,7 @@ The model is deliberately *not* "wait and batch." The first member of a group al
 | **Quiet / small (<500 pods)** | `360`–`600` | `enabled: false` | Each alert is meaningful; you want it promptly and individually, not summarized. (Floor is 300 — see the warning above.) |
 | **Latency-sensitive paging** | keep default | `enabled: true` (does not affect PagerDuty/Opsgenie) | Folding quiets chat without delaying or batching the page. |
 
-!!! tip "Watch the storm indicator"
-    `alertkube_dispatch_inflight` pins high right before the per-sink rate limiter starts dropping messages. Sustained high values during incidents are the signal to enable (or tighten) grouping — and possibly raise per-sink `sinkRates`. See the [OPERATIONS guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md) capacity planning.
+Watch `alertkube_dispatch_inflight`. Sustained high values mean grouping or `sinkRates` need tuning.
 
 ## Verify
 
@@ -66,7 +51,7 @@ The model is deliberately *not* "wait and batch." The first member of a group al
 - Trigger several same-group alerts within `windowSeconds` and confirm chat sinks receive one alert plus one summary, while any PagerDuty/Opsgenie route receives each individual alert.
 - Stop the firing condition and confirm a resolved alert arrives after roughly `resolveTTLSeconds`.
 
-## See also
+## See Also
 
 - [Suppress dependent alerts with inhibitions](configure-inhibition.md) — suppress by cause.
 - [Silence alerts for a time window](add-a-silence.md) — suppress by time.

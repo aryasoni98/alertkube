@@ -6,88 +6,79 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
-> Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.
+> Kubernetes multi-resource alerting with deterministic routing, suppression, dedupe, resolves, and multi-sink delivery.
 
 [![CI](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/aryasoni98/alertkube/badge)](https://scorecard.dev/viewer/?uri=github.com/aryasoni98/alertkube)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aryasoni98/alertkube)](https://goreportcard.com/report/github.com/aryasoni98/alertkube)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-<!-- Earned after registering at bestpractices.dev / Artifact Hub — see docs/security/openssf-best-practices.md
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/PROJECT_ID/badge)](https://www.bestpractices.dev/projects/PROJECT_ID)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/alertkube)](https://artifacthub.io/packages/helm/alertkube/alertkube)
--->
 
-alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, Jobs, DaemonSets, StatefulSets, CronJobs, and HorizontalPodAutoscalers in your cluster, classifies each event by severity (`critical` / `warning` / `info`), and routes it to one or more sinks - Slack (Block Kit, webhook or bot token), PagerDuty (Events API v2), Microsoft Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhooks, or stdout for local dev.
-
-## Features
-
-| Feature | Notes |
-| --- | --- |
-| Multi-resource watchers | Pod (restart, crashloop, OOM, SIGKILL, image-pull), Node (NotReady, MemoryPressure, DiskPressure, PIDPressure, cordon), Deployment (unavailable, progress deadline), PVC (Lost, Pending), Job (Failed), DaemonSet (unavailable), StatefulSet (replica shortfall), CronJob (missing success, suspended), HPA (maxed out) |
-| Severity tiers | `critical`, `warning`, `info` with distinct colors + emoji |
-| Block Kit Slack templates | Header, fields, summary, contextual logs, runbook button |
-| Multi-sink | Slack (webhook or bot token), PagerDuty, Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhook, stdout |
-| YAML routing | Match by severity / kind / namespace / reason → sinks list |
-| Alert grouping | Storm folding: first alert dispatches immediately, the rest collapse into one summary per window |
-| Fingerprint dedupe | `sha256(kind\|ns\|name\|reason)` mute window |
-| Resolve detection | Synthetic resolved alert when fingerprint stops firing past TTL |
-| Inhibitions | Suppress dependent alerts (e.g. NodeNotReady silences Pod alerts on that node) |
-| Silences | Time-bounded matchers from config or `alert-silence-until: RFC3339` annotation (annotation form can be disabled) |
-| State persistence | Active alerts + mute history snapshot to a ConfigMap - restarts still send pending resolves and do not re-page standing conditions |
-| Prometheus metrics | `alertkube_alerts_total`, `alertkube_alerts_suppressed_total`, `alertkube_sink_send_seconds`, `alertkube_sink_errors_total`, `alertkube_active_alerts`, `alertkube_dispatch_inflight` |
-| Escalations | Re-dispatch still-unresolved alerts to extra sinks after a delay (once per alert) |
-| Alertmanager receiver | `POST /api/v1/alerts` accepts Alertmanager webhook payloads into the same pipeline (optional bearer auth) |
-| Alerts API | `GET /api/alerts` - JSON of active alerts + recent history |
-| Health endpoints | `/healthz`, `/readyz` |
-| ServiceMonitor | Optional Prometheus Operator integration via Helm |
-| Grafana dashboard | `docs/grafana-dashboard.json` |
-
-## Architecture
-
-![AlertKube architecture](.github/alertkube.png)
-
-## Local dev
-
-```bash
-export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxxxx/xxxxx
-export CLUSTER_NAME=my-cluster
-go run .
-```
+alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences/inhibitions/grouping, and sends alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, webhooks, or stdout.
 
 ## Install
 
-Latest release: **[v0.2.4](https://github.com/aryasoni98/alertkube/releases/latest)** — see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Latest release: [v0.2.4](https://github.com/aryasoni98/alertkube/releases/latest).
 
-Container image (multi-arch, cosign-signed):
+```bash
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
+  --set cluster=my-cluster \
+  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
+```
+
+From a checkout:
+
+```bash
+helm upgrade --install alertkube ./helm \
+  --set cluster=my-cluster \
+  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
+```
+
+Image:
 
 ```bash
 docker pull ghcr.io/aryasoni98/alertkube:v0.2.4
 ```
 
-Helm from the published OCI chart:
+## Key Capabilities
 
-```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
-  --set cluster=my-cluster \
-  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
-  --set slack.channels.critical=alerts-critical \
-  --set slack.channels.warning=alerts-warning \
-  --set slack.channels.info=alerts-info
+- **Watchers:** pod restarts/crashloops/OOM/SIGKILL/image-pull, node readiness/pressure/cordon, workload availability, failed jobs, missed CronJobs, maxed HPAs, lost/pending PVCs.
+- **Routing:** match by severity, kind, namespace, reason, name, node, or labels.
+- **Suppression:** fingerprint mute window, time-bounded silences, source/target inhibitions, optional storm grouping.
+- **State:** ConfigMap persistence preserves active alerts and mute history across restarts.
+- **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, generic webhook, stdout, and Alertmanager webhook receiver.
+- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, Grafana dashboard.
+
+## Minimal Config
+
+```yaml
+cluster: prod-us-east-1
+
+behavior:
+  muteSeconds: 600
+  resolveTTLSeconds: 600
+  startupGraceSeconds: 30
+
+routing:
+  - match: {severity: critical}
+    sinks: [slack, pagerduty]
+  - match: {severity: warning}
+    sinks: [slack]
+  - match: {severity: info}
+    sinks: [slack]
+
+inhibitions:
+  - source: {kind: Node, reason: NodeNotReady}
+    target: {kind: Pod}
+    equal: [node]
+    duration: 10m
+
+silences:
+  - matchers: {namespace: kube-system}
+    until: "2026-06-15T00:00:00Z"
 ```
 
-Or from a git checkout:
-
-```bash
-helm upgrade --install alertkube ./helm \
-  --set cluster=my-cluster \
-  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
-  --set slack.channels.critical=alerts-critical \
-  --set slack.channels.warning=alerts-warning \
-  --set slack.channels.info=alerts-info
-```
-
-Optional flags:
+Useful Helm values:
 
 ```bash
 --set pagerduty.routingKey=...
@@ -101,150 +92,34 @@ Optional flags:
 --set metrics.serviceMonitor.enabled=true
 ```
 
-## Config reference
+Slack note: modern incoming webhooks ignore per-channel routing. Use `slack.botToken` with `chat:write` for real severity/channel routing.
 
-`config.yaml` (mounted from ConfigMap):
+## Local Dev
 
-```yaml
-cluster: prod-us-east-1
-metricsAddr: ":9090"
-
-filters:
-  watchedNamespaces: "^(prod|staging)-.*"
-  ignoredPodNamePrefixes: "debug-,test-"
-
-behavior:
-  muteSeconds: 600
-  ignoreRestartCount: 30          # stop per-restart alerts past this count (crashloop alerts still fire)
-  ignoreRestartsWithExitCodeZero: false
-  resolveTTLSeconds: 600
-  startupGraceSeconds: 30         # mute re-fires of standing conditions after a controller restart; 0 = off
-  pvcPendingSeconds: 300          # how long a PVC may stay Pending before alerting
-  disableLogCollection: false     # skip previous-container log enrichment (redaction is best-effort)
-  disableAnnotationSilences: false # ignore alert-silence-until annotations (workload self-silencing)
-
-# Snapshot active alerts + mute history to a ConfigMap so restarts still
-# send pending resolves. Namespace defaults to POD_NAMESPACE; requires
-# get/create/update on the ConfigMap (the Helm chart adds the Role).
-persistence:
-  enabled: true
-  configMapName: alertkube-state
-
-channels:
-  critical: alerts-critical
-  warning:  alerts-warning
-  info:     alerts-info
-
-routing:
-  - match: {severity: critical}
-    sinks: [slack, pagerduty]      # also: teams, opsgenie, discord, telegram, webhook, stdout
-  - match: {severity: warning, namespace: prod-.*}
-    sinks: [slack]
-  - match: {severity: info}
-    sinks: [slack]
-
-# Fold alert storms: first alert of a group dispatches immediately, later
-# same-group alerts within the window collapse into one summary message.
-# PagerDuty/Opsgenie still receive every resolve and never get summaries.
-grouping:
-  enabled: false
-  windowSeconds: 30
-  by: [kind, namespace, reason, severity]
-
-# Re-dispatch still-unresolved alerts to extra sinks after a delay.
-# Each rule fires at most once per alert lifetime.
-escalations:
-  - match: {severity: critical}
-    afterMinutes: 15
-    sinks: [pagerduty]
-
-# Accept Alertmanager webhook payloads on POST /api/v1/alerts (metrics
-# port). Set ALERTKUBE_RECEIVER_TOKEN for bearer auth. Point an
-# Alertmanager webhook_config at it:
-#   url: http://alertkube.monitoring:9090/api/v1/alerts
-receiver:
-  enabled: false
-
-# Remap severities before dedupe/routing (first match wins). Same match
-# semantics as routing: namespace/reason accept anchored regexes.
-severityOverrides:
-  - match: {kind: Pod, reason: ImagePullBackOff, namespace: dev-.*}
-    severity: info
-
-inhibitions:
-  - source: {kind: Node, reason: NodeNotReady}
-    target: {kind: Pod}
-    equal: [node]
-    duration: 10m
-
-silences:
-  - matchers: {namespace: kube-system}
-    until: "2026-06-15T00:00:00Z"
+```bash
+export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxxxx/xxxxx
+export CLUSTER_NAME=my-cluster
+go run .
 ```
-
-## Per-resource annotations
-
-| Annotation | Effect |
-| --- | --- |
-| `alert-slack-channel: my-channel` | Override Slack channel for this resource |
-| `alert-silence-until: 2026-06-15T00:00:00Z` | Silence alerts until RFC3339 timestamp |
-| `runbook-url: https://wiki/runbooks/foo` | Renders a Runbook button in Slack |
-
-> **Slack channel routing:** webhook mode sets the `channel` field, which
-> Slack honors only for **legacy** incoming webhooks - modern-app webhooks
-> post to the install-time channel and ignore it. For real per-severity
-> channel routing, use **bot-token mode**: set `slack.botToken` (scope
-> `chat:write`, bot invited to each channel). When `SLACK_BOT_TOKEN` is
-> set it takes precedence over the webhook URL.
 
 ## Documentation
 
-Start here: [**📖 alertkube Manual** (MkDocs)](https://aryasoni98.github.io/alertkube/manual/)
+- Manual: [alertkube Manual](https://aryasoni98.github.io/alertkube/manual/)
+- Operations: [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- Migration: [docs/MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md)
+- Testing: [docs/TESTING.md](docs/TESTING.md)
+- Performance: [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+- ADRs: [docs/decisions/](docs/decisions/)
 
-The manual is built from [`docs-site/docs/`](docs-site/docs/) and organized by [Diátaxis](https://diataxis.fr/):
-
-| Section | Purpose | Examples |
-| --- | --- | --- |
-| **[Tutorials](https://aryasoni98.github.io/alertkube/manual/tutorials/install-with-helm/)** | Learning-oriented | Install with Helm, get your first alert, integrate PagerDuty |
-| **[How-to guides](https://aryasoni98.github.io/alertkube/manual/how-to/walk-through-config/)** | Task-oriented recipes | Configure sinks, set up silences & inhibitions, tune dedup, troubleshoot with metrics |
-| **[Reference](https://aryasoni98.github.io/alertkube/manual/reference/config-schema/)** | Lookup tables | Full config schema, watcher conditions, sink credentials, all metrics |
-| **[Explanation](https://aryasoni98.github.io/alertkube/manual/explanation/what-makes-alertkube-deterministic/)** | Understanding | Why determinism matters, fingerprint model, suppression mechanisms |
-
-**Other resources:**
-
-| Doc | Description |
-| --- | --- |
-| [OPERATIONS.md](docs/OPERATIONS.md) | SLOs, dashboards, PrometheusRule, upgrades, HA |
-| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix (in-depth) |
-| [MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md) | Upgrade from k8s-pod-restart-info-collector |
-| [TESTING.md](docs/TESTING.md) | Test pyramid, fuzzing, coverage gate |
-| [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, load testing, tuning |
-| [ROADMAP.md](docs/ROADMAP.md) | Build pipeline toward CNCF Sandbox |
-| [decisions/](docs/decisions/) | Architecture Decision Records (ADRs) |
-| [Grafana dashboard](docs/grafana-dashboard.json) | Importable dashboard for metrics |
-
-**Build the manual locally:**
+Build docs locally:
 
 ```bash
 make docs-serve
-# Open http://localhost:8000
 ```
 
-## Community & governance
+## Community
 
-alertkube is open to contributors and run under a lightweight, neutral governance
-model.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), [ADOPTERS.md](ADOPTERS.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
 
-| | |
-| --- | --- |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, DCO, Conventional Commits |
-| [Good first issues](docs/good-first-issues.md) | Curated starter tasks |
-| [GOVERNANCE.md](GOVERNANCE.md) | Roles, decision making, contribution ladder |
-| [MAINTAINERS.md](MAINTAINERS.md) | Who maintains the project (we're looking for more!) |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | CNCF Community Code of Conduct |
-| [ADOPTERS.md](ADOPTERS.md) | Who uses alertkube — add yourself! |
-| [SECURITY.md](SECURITY.md) | Report a vulnerability privately |
-
-## License
-
-Apache-2.0 - see `LICENSE`.
+Apache-2.0. See [LICENSE](LICENSE).
