@@ -10,7 +10,11 @@
   "packages": {
     ".": {
       "package-name": "alertkube",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        { "type": "yaml", "path": "helm/Chart.yaml", "jsonpath": "$.version" },
+        { "type": "yaml", "path": "helm/Chart.yaml", "jsonpath": "$.appVersion" }
+      ]
     }
   },
   "changelog-sections": [

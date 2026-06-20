@@ -150,3 +150,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     optional: true
 {{- end }}
 {{- end }}
+
+{{- define "alertkube.apiToken" -}}
+{{- if .Values.api.tokenSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.api.tokenSecretKeyRef.key }}
+    name: {{ .Values.api.tokenSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: apiToken
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
