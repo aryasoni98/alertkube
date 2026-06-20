@@ -113,7 +113,7 @@ may be escalated to the CNCF Code of Conduct Committee.
 
 ## Intellectual property and licensing
 
-alertkube is licensed under [Apache-2.0](LICENSE-2.0.txt). All contributions are
+alertkube is licensed under [Apache-2.0](LICENSE). All contributions are
 accepted under that license via the DCO; the project does not require a separate
 CLA. The maintainers intend, should alertkube be accepted into a foundation
 (e.g. CNCF Sandbox), to transfer the project's trademark, domain, and

@@ -54,7 +54,7 @@ func Build(a *alert.Alert) []slack.Block {
 	}
 	blocks = append(blocks, slack.NewContextBlock("", context...))
 
-	if runbook := a.Annotations["runbook-url"]; SafeRunbookURL(runbook) {
+	if runbook := a.Annotations[alert.AnnotationRunbookURL]; SafeRunbookURL(runbook) {
 		blocks = append(blocks, slack.NewActionBlock("",
 			slack.NewButtonBlockElement("runbook", "open",
 				slack.NewTextBlockObject(slack.PlainTextType, "📖 Runbook", false, false)).WithURL(runbook),

@@ -4,14 +4,20 @@ const mT = topFM.motion;
 
 /* ----------------------------- NAV ----------------------------- */
 function AKNav({ theme, setTheme }) {
+  // In-page section anchors. "Docs" is a real destination (the MkDocs manual
+  // deployed at /alertkube/manual/), kept separate from the anchors below.
   const links = [
     { label: "Pipeline", href: "#pipeline" },
+    { label: "Architecture", href: "#architecture" },
     { label: "Severity", href: "#severity" },
     { label: "Watchers", href: "#watchers" },
     { label: "Sinks", href: "#sinks" },
     { label: "Install", href: "#install" },
     { label: "Changelog", href: "#changelog" },
   ];
+  // Relative so it tracks the canonical base (https://aryasoni98.github.io/alertkube/);
+  // resolves to /alertkube/manual/ on the deployed site.
+  const docsHref = "manual/";
 
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const drawerRef = React.useRef(null);
@@ -57,6 +63,7 @@ function AKNav({ theme, setTheme }) {
           {links.map((l) => (
             <a key={l.label} className="wk-nav__link" href={l.href}>{l.label}</a>
           ))}
+          <a className="wk-nav__link" href={docsHref}>Docs</a>
         </div>
         <div className="wk-nav__right">
           <span className="ak-ver">v0.2.4</span>
@@ -126,6 +133,14 @@ function AKNav({ theme, setTheme }) {
               {l.label}
             </a>
           ))}
+          <a
+            className="ak-drawer__link"
+            href={docsHref}
+            onClick={closeDrawer}
+          >
+            <Icon name="book" size={16} />
+            Docs
+          </a>
           <a
             className="ak-drawer__link"
             href="https://github.com/aryasoni98/alertkube"

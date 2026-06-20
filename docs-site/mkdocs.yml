@@ -1,7 +1,7 @@
 site_name: alertkube
 site_description: Kubernetes multi-resource alerting controller — severity tiers, multi-sink routing, dedupe, inhibitions, silences, Prometheus metrics.
 site_author: AlertKube
-site_url: https://aryasoni98.github.io/alertkube/
+site_url: https://aryasoni98.github.io/alertkube/manual/
 repo_url: https://github.com/aryasoni98/alertkube
 repo_name: aryasoni98/alertkube
 edit_uri: edit/master/docs-site/docs/
@@ -81,16 +81,21 @@ nav:
       - tutorials/first-alert-to-slack.md
       - tutorials/pagerduty-open-close.md
   - How-to guides:
+      - how-to/walk-through-config.md
+      - how-to/configure-sinks.md
+      - how-to/configure-receivers-and-webhooks.md
       - how-to/add-a-silence.md
       - how-to/configure-inhibition.md
       - how-to/tune-mute-and-grouping.md
       - how-to/ha-leader-election.md
+      - how-to/troubleshoot-with-metrics.md
   - Reference:
       - reference/config-schema.md
       - reference/watcher-conditions.md
       - reference/sink-credentials.md
       - reference/metrics.md
   - Explanation:
+      - explanation/what-makes-alertkube-deterministic.md
       - explanation/fingerprint-and-dedup.md
       - explanation/silence-vs-inhibition-vs-mute.md
       - explanation/deterministic-design.md

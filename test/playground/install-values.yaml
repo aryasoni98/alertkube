@@ -27,13 +27,14 @@ receiver:
 persistence:
   enabled: true
 
-# Tuned fast so the demo shows alerts + resolves within minutes, not the
-# 5-10 minute production defaults.
+# Tuned as fast as validation allows: muteSeconds/resolveTTLSeconds must exceed
+# the 300s informer resync period (config rejects anything <=300), so the demo
+# shows a resolve after ~6 min rather than the 10-min production defaults.
 behavior:
   startupGraceSeconds: 0   # fire standing conditions immediately on first sync
-  resolveTTLSeconds: 60    # synthesize a resolve 60s after a condition stops firing
+  resolveTTLSeconds: 360   # synthesize a resolve ~6 min after a condition stops firing (floor is 300)
   pvcPendingSeconds: 30    # alert on a Pending PVC after 30s
-  muteSeconds: 120         # re-alert window for a still-firing condition
+  muteSeconds: 360         # re-alert window for a still-firing condition (floor is 300)
 
 # Send everything to Slack AND stdout so alerts are visible in the pod logs.
 routing:

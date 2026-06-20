@@ -14,7 +14,7 @@ maintainer must create the project entry there (that step is account-gated).
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Project website/README explains what it does | ✅ | `README.md` |
-| OSS license (OSI) | ✅ | Apache-2.0, `LICENSE-2.0.txt` |
+| OSS license (OSI) | ✅ | Apache-2.0, `LICENSE` |
 | License in standard location | ✅ | repo root |
 | Contribution guide | ✅ | `CONTRIBUTING.md` |
 | Code of Conduct | ✅ | `CODE_OF_CONDUCT.md` (CNCF CoC) |

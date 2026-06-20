@@ -15,9 +15,13 @@ import (
 	"time"
 )
 
-// defaultClient bounds every webhook POST in time. The 10s budget covers
+// DefaultTimeout bounds every webhook POST in time. The 10s budget covers
 // dial + TLS + body upload and is well within Slack/Teams rate-limit hints.
-var defaultClient = &http.Client{Timeout: 10 * time.Second}
+// Exported so sinks that must inject their own *http.Client (e.g. slack-go)
+// share the same per-request ceiling instead of redefining the constant.
+const DefaultTimeout = 10 * time.Second
+
+var defaultClient = &http.Client{Timeout: DefaultTimeout}
 
 // RetryPolicy controls how PostJSON retries transient failures.
 type RetryPolicy struct {

@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [0.2.4](https://github.com/aryasoni98/alertkube/compare/v0.2.3...v0.2.4) (2026-06-19)
 
 
@@ -31,8 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * extract reusable helpers, render all alert details, drop dead code ([5efb9ea](https://github.com/aryasoni98/alertkube/commit/5efb9ead8c66860d1beb7b7d7bc880bd82077935))
 * **sinks:** share severity-tier mapping; drop dead WLogo primitive ([09eab83](https://github.com/aryasoni98/alertkube/commit/09eab83354e975d883b3b59e8ae44b33794b3ee1))
 * **sinks:** share severity-tier mapping; drop dead WLogo primitive ([833d7d7](https://github.com/aryasoni98/alertkube/commit/833d7d724be85b403a114325030ca02992bcc782))
-
-## [Unreleased]
 
 ## [v0.2.2] - 2026-06-15
 

@@ -37,7 +37,7 @@ Legend: ✅ done in-repo · 🔶 partial (code done, action needed) · 👤 huma
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| 1.1.1 Coverage gate | ✅ | CI gate at 50% (actual 57.1%), ratchet documented; `internal/metrics` now covered (96.8%) |
+| 1.1.1 Coverage gate | ✅ | CI gate at 53% (actual 57.1%), ratchet documented; `internal/metrics` now covered (96.8%) |
 | 1.1.2 Fuzz fingerprint | ✅ | `FuzzComputeFingerprint` (+ `FuzzMatchOrRegex`) — ran clean |
 | 1.1.3 Fuzz config parse | ✅ | `FuzzLoad` — ran clean |
 | 1.1.4 / 1.1.5 Mocks / envtest | ✅ | fake-clientset integration (per ADR-0001 we avoid controller-runtime/envtest); see `docs/TESTING.md` |

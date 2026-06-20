@@ -6,13 +6,12 @@
 package receiver
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/authz"
 	"alertkube/internal/metrics"
 )
 
@@ -64,12 +63,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if h.token != "" {
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(h.token)) != 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+	if h.token != "" && !authz.BearerEqual(r.Header.Get("Authorization"), h.token) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
 	}
 	var p Payload
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))

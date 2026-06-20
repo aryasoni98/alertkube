@@ -267,9 +267,9 @@ func totalRestarts(pod *v1.Pod) int {
 // annotations, and back-filling them would let a label-writer silence their
 // own alerts or inject runbook links.
 var controlAnnotationKeys = map[string]struct{}{
-	"alert-silence-until": {},
-	"alert-slack-channel": {},
-	"runbook-url":         {},
+	alert.AnnotationSilenceUntil: {},
+	alert.AnnotationSlackChannel: {},
+	alert.AnnotationRunbookURL:   {},
 }
 
 func mergeAnnotations(pod *v1.Pod) map[string]string {

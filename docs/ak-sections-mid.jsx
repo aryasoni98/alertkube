@@ -1,6 +1,138 @@
 // AlertKube - Watchers grid, Metrics band, Sinks table
 const midFM = window.FramerMotion || {};
 
+/* ----------------------------- ARCHITECTURE ----------------------------- */
+const AK_ARCH_IMAGE = "https://raw.githubusercontent.com/aryasoni98/alertkube/master/.github/alertkube.png";
+
+const AK_ARCH_RESOURCES = ["Pods", "Nodes", "Deployments", "PVCs", "Jobs", "CronJobs", "StatefulSets", "DaemonSets", "HPA"];
+const AK_ARCH_STEPS = [
+  ["Watch", "shared informers stream resource state"],
+  ["Collect", "events + describe payloads become alerts"],
+  ["Route", "silence, inhibition, mute, severity override"],
+  ["Group", "storm folding before notification"],
+  ["Dispatch", "sink registry sends with retries"],
+];
+const AK_ARCH_SINKS = ["Slack", "Discord", "PagerDuty", "Opsgenie", "Teams", "Telegram", "Webhook", "stdout"];
+const AK_ARCH_STATE = ["ConfigMap state snapshot", "ConfigMap config", "Secret sink credentials", "Prometheus metrics"];
+
+function AKArchNode({ icon, title, sub, tone = "info", compact = false }) {
+  return (
+    <div className={`ak-arch-node ak-arch-node--${tone} ${compact ? "ak-arch-node--compact" : ""}`}>
+      <span className="ak-arch-node__icon"><Icon name={icon} size={16} /></span>
+      <span>
+        <span className="ak-arch-node__title">{title}</span>
+        {sub && <span className="ak-arch-node__sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
+
+function AKArchitecture() {
+  return (
+    <section id="architecture" className="wk-section ak-arch-section" data-screen-label="Architecture">
+      <div className="wk-wrap">
+        <AKHead
+          eyebrow="Architecture"
+          title="Watch, route, dispatch - with state and security built in"
+          sub="The diagram is now a live landing-page workflow: Kubernetes signals enter through read-only watches, pass through AlertKube's routing core, and leave through controlled sink dispatch."
+        />
+        <Reveal>
+          <div className="ak-arch-layout">
+            <div className="ak-arch-board" role="img" aria-label="Animated AlertKube architecture workflow from cluster sources to sinks and storage">
+              <div className="ak-arch-glow ak-arch-glow--blue" aria-hidden="true"></div>
+              <div className="ak-arch-glow ak-arch-glow--green" aria-hidden="true"></div>
+
+              <div className="ak-arch-row ak-arch-row--sources">
+                <div className="ak-arch-band-label">
+                  <span>01</span>
+                  Cluster sources
+                </div>
+                <div className="ak-arch-entry">
+                  <AKArchNode icon="target" title="Operator / kubectl" sub="read-only intent" compact />
+                  <span className="ak-arch-arrow" aria-hidden="true"></span>
+                  <AKArchNode icon="grid" title="Kubernetes API Server" sub="watch streams" tone="kube" />
+                </div>
+                <div className="ak-arch-resource-cloud">
+                  {AK_ARCH_RESOURCES.map((r) => <span key={r} className="ak-arch-chip">{r}</span>)}
+                </div>
+              </div>
+
+              <div className="ak-arch-row ak-arch-row--controller">
+                <div className="ak-arch-band-label">
+                  <span>02</span>
+                  Application layer
+                </div>
+                <div className="ak-arch-receiver">
+                  <AKArchNode icon="bell" title="Alertmanager Receiver" sub="external webhook, bearer-authenticated" tone="critical" />
+                  <AKArchNode icon="shield" title="authz.BearerEqual" sub="constant-time token compare" tone="security" compact />
+                </div>
+                <ol className="ak-arch-steps" aria-label="AlertKube controller pipeline">
+                  {AK_ARCH_STEPS.map(([title, sub], i) => (
+                    <li key={title} className="ak-arch-step" style={{ "--i": i }}>
+                      <span className="ak-arch-step__num">{String(i + 1).padStart(2, "0")}</span>
+                      <span>
+                        <span className="ak-arch-step__title">{title}</span>
+                        <span className="ak-arch-step__sub">{sub}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="ak-arch-sweeper">
+                  <Icon name="check" size={15} />
+                  Sweeper resolves stale alerts
+                </div>
+              </div>
+
+              <div className="ak-arch-row ak-arch-row--storage">
+                <div className="ak-arch-band-label">
+                  <span>03</span>
+                  Sinks and storage
+                </div>
+                <div className="ak-arch-sinks">
+                  {AK_ARCH_SINKS.map((sink, i) => (
+                    <span key={sink} className="ak-arch-sink" style={{ "--i": i }}>{sink}</span>
+                  ))}
+                </div>
+                <div className="ak-arch-state">
+                  {AK_ARCH_STATE.map((s) => (
+                    <span key={s} className="ak-arch-state__item">
+                      <Icon name={s.includes("Secret") ? "shield" : s.includes("Prometheus") ? "chart" : "book"} size={14} />
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <span className="ak-arch-packet ak-arch-packet--one" aria-hidden="true"></span>
+              <span className="ak-arch-packet ak-arch-packet--two" aria-hidden="true"></span>
+              <span className="ak-arch-packet ak-arch-packet--three" aria-hidden="true"></span>
+            </div>
+
+            <aside className="ak-arch-side" aria-label="Architecture reference and posture">
+              <div className="ak-arch-ref">
+                <div className="ak-arch-ref__bar">
+                  <span>Reference blueprint</span>
+                  <a href={AK_ARCH_IMAGE} target="_blank" rel="noopener noreferrer">Open image</a>
+                </div>
+                <img src={AK_ARCH_IMAGE} alt="AlertKube architecture diagram reference" loading="lazy" />
+              </div>
+              <div className="ak-arch-posture">
+                <h3>Security posture</h3>
+                <ul>
+                  <li><Icon name="shield" size={15} />Least-privilege read-only RBAC for watches</li>
+                  <li><Icon name="shield" size={15} />Bearer token webhook auth with constant-time compare</li>
+                  <li><Icon name="shield" size={15} />Sink credentials stay in Kubernetes Secrets</li>
+                  <li><Icon name="chart" size={15} />Prometheus metrics expose controller health</li>
+                </ul>
+              </div>
+            </aside>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 /* ----------------------------- WATCHERS ----------------------------- */
 const AK_WATCHERS = [
   { n: "Deployment", icon: "target", file: "watchers/deployment.go", d: "Unavailable replicas and ProgressDeadlineExceeded, with desired / ready / updated counts.", tags: ["Unavailable", "ProgressDeadline"] },
@@ -194,4 +326,4 @@ function AKSinks() {
   );
 }
 
-Object.assign(window, { AKWatchers, AKMetricsBand, AKSinks });
+Object.assign(window, { AKArchitecture, AKWatchers, AKMetricsBand, AKSinks });

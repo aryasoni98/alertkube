@@ -15,8 +15,8 @@ behavior:
                           # stops firing for this long
 ```
 
-!!! warning "Both must be positive"
-    `muteSeconds` and `resolveTTLSeconds` must be greater than zero — a non-positive value is a hard config error and the controller will not start. The default for each is `600` seconds.
+!!! warning "Both must exceed the informer resync period (300s)"
+    `muteSeconds` and `resolveTTLSeconds` must be **greater than 300** — they have to outlast the 300s informer resync that re-touches standing conditions, or a still-firing condition false-resolves and re-pages every cycle. A value `<= 300` is a hard config error and the controller will not start. The default for each is `600` seconds.
 
 `resolveTTLSeconds` is the resolve detector: when a fingerprint goes quiet for this long, alertkube emits a synthetic resolved alert so stateful sinks (PagerDuty, Opsgenie) close the incident. Set it close to `muteSeconds` — too short and a still-firing-but-muted condition looks resolved; too long and incidents linger open.
 
@@ -47,7 +47,7 @@ The model is deliberately *not* "wait and batch." The first member of a group al
 | Cluster profile | `muteSeconds` | `grouping` | Rationale |
 | --- | --- | --- | --- |
 | **Noisy / large (>5k pods, storm-prone)** | `900`–`1800` | `enabled: true`, `windowSeconds: 30`–`60` | Longer mute cuts per-fingerprint repeats; grouping folds mass events (node drain, namespace rollout) into a summary. |
-| **Quiet / small (<500 pods)** | `300`–`600` | `enabled: false` | Each alert is meaningful; you want it promptly and individually, not summarized. |
+| **Quiet / small (<500 pods)** | `360`–`600` | `enabled: false` | Each alert is meaningful; you want it promptly and individually, not summarized. (Floor is 300 — see the warning above.) |
 | **Latency-sensitive paging** | keep default | `enabled: true` (does not affect PagerDuty/Opsgenie) | Folding quiets chat without delaying or batching the page. |
 
 !!! tip "Watch the storm indicator"

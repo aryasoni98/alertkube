@@ -20,6 +20,7 @@ function Icon({ name, size = 18, stroke = 1.75, className = "", style }) {
     zap: <path {...p} d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>,
     bell: <><path {...p} d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path {...p} d="M10 21a2 2 0 0 0 4 0"/></>,
     layers: <path {...p} d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>,
+    book: <><path {...p} d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path {...p} d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
     target: <><circle {...p} cx="12" cy="12" r="9"/><circle {...p} cx="12" cy="12" r="5"/><circle {...p} cx="12" cy="12" r="1" fill="currentColor"/></>,
     shield: <path {...p} d="M12 2l8 4v6c0 5-4 9-8 10-4-1-8-5-8-10V6l8-4z"/>,
     msg: <path {...p} d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,

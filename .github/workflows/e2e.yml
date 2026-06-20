@@ -73,7 +73,6 @@ jobs:
             --set image.pullPolicy=Never \
             --set persistence.enabled=false \
             --set behavior.startupGraceSeconds=0 \
-            --set behavior.muteSeconds=5 \
             --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
             --wait --timeout 180s
 
