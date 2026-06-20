@@ -1,8 +1,4 @@
-# Contributing to alertkube
-
-Thanks for your interest in contributing! This project follows a lightweight,
-open governance model — see [`GOVERNANCE.md`](GOVERNANCE.md) and
-[`MAINTAINERS.md`](MAINTAINERS.md).
+# Contributing
 
 ## Where to start
 
@@ -12,7 +8,7 @@ open governance model — see [`GOVERNANCE.md`](GOVERNANCE.md) and
   [GitHub Discussions](https://github.com/aryasoni98/alertkube/discussions).
 - Found a security issue? Do **not** open a public issue — see [`SECURITY.md`](SECURITY.md).
 
-## Getting started
+## Local Setup
 
 ```bash
 git clone https://github.com/aryasoni98/alertkube.git
@@ -21,24 +17,17 @@ go test ./...
 go run .
 ```
 
-Local dev with the stdout sink (no real cluster credentials needed for the sink):
-
-```bash
-export CLUSTER_NAME=local-dev
-go run .
-```
-
-## Development workflow
+## Workflow
 
 1. Fork the repository and create a feature branch from `master`.
 2. Make focused changes — one concern per PR.
 3. Add or update tests for behavior changes.
 4. Run `go test -race ./...` and `golangci-lint run` (CI pins v2.12.2).
 5. Update `CHANGELOG.md` under `[Unreleased]` if the change is user-facing.
-6. **Sign off** every commit (`git commit -s`) — see [DCO](#developer-certificate-of-origin-dco).
+6. **Sign off** every commit (`git commit -s`) — see [DCO](#dco).
 7. Open a pull request using the PR template.
 
-## Code conventions
+## Code Conventions
 
 - Match existing naming and package layout under `internal/`.
 - Watchers implement `Name() / Setup(ctx, factory, emit)` — see `internal/watchers/watcher.go`.
@@ -46,27 +35,25 @@ go run .
 - Keep diffs minimal; avoid drive-by refactors.
 - Security-sensitive paths (annotations, log redaction, credential handling) need tests.
 
-## Adding a watcher
+## Add a Watcher
 
 1. Create `internal/watchers/<kind>.go` (use `newSimple` if evaluation only needs the latest object state).
 2. Register in `buildWatchers` in `builders.go`.
 3. Add RBAC rules in `helm/templates/rbac.yaml` if a new API resource.
 4. Add table-driven tests in `internal/watchers/<kind>_test.go`.
 
-## Adding a sink
+## Add a Sink
 
 1. Create `internal/sinks/<name>.go`.
 2. Register in `buildSinks` in `builders.go`.
 3. Add Helm values and Secret wiring in `helm/`.
 4. Document env vars in the README.
 
-## Commit messages (Conventional Commits)
+## Commit Messages
 
-alertkube uses [Conventional Commits](https://www.conventionalcommits.org/). The
-release tooling derives the changelog and the next version from commit types, so
-this matters.
+alertkube uses [Conventional Commits](https://www.conventionalcommits.org/) for release-please changelog/versioning.
 
-```
+```text
 <type>(<optional scope>): <description>
 
 [optional body]
@@ -75,51 +62,30 @@ this matters.
 Signed-off-by: Your Name <you@example.com>
 ```
 
-Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`,
-`build`, `perf`. Scopes mirror the [areas](MAINTAINERS.md#areas), e.g.
-`feat(sinks): add Google Chat sink`. A breaking change uses `!`
-(`feat(config)!: ...`) or a `BREAKING CHANGE:` footer.
+Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`. Scopes mirror [areas](MAINTAINERS.md#areas), e.g. `feat(sinks): add Google Chat sink`. Breaking changes use `!` or a `BREAKING CHANGE:` footer.
 
-## Developer Certificate of Origin (DCO)
+## DCO
 
-Every commit must be signed off, certifying you wrote the patch or otherwise have
-the right to submit it under the project's Apache-2.0 license. This is the
-[Developer Certificate of Origin](https://developercertificate.org/) — there is
-no separate CLA.
-
-Sign off by adding a `Signed-off-by` trailer (Git does this for you):
+Every commit must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/). There is no separate CLA.
 
 ```bash
 git commit -s -m "fix(router): re-arm inhibition on muted source re-fire"
 ```
 
-This appends:
-
-```
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-The name/email must match your Git author identity. A CI check
-([`dco.yml`](.github/workflows/dco.yml)) fails the PR if any commit lacks a
-sign-off. To fix a branch retroactively:
+The trailer name/email must match your Git author identity. To fix a branch:
 
 ```bash
 git rebase --signoff origin/master
 git push --force-with-lease
 ```
 
-## Response times
+## Response Times
 
-This is a small project maintained by volunteers. We aim to give a **first
-response to new issues and pull requests within 3 business days**. If yours has
-gone quiet longer than that, a polite ping on the thread is welcome.
+This is a small volunteer-maintained project. We aim for first response within 3 business days; a polite ping is welcome after that.
 
-## Contributor ladder
+## Contributor Ladder
 
-Sustained, quality contributions can lead to reviewer and then maintainer status.
-The path and criteria are in
-[`GOVERNANCE.md`](GOVERNANCE.md#contribution-ladder). We are actively looking to
-grow the maintainer team.
+Sustained contributions can lead to reviewer and maintainer status. See [`GOVERNANCE.md`](GOVERNANCE.md#contribution-ladder).
 
 ## Code of Conduct
 

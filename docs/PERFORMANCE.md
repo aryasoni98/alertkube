@@ -1,13 +1,10 @@
-# Performance & scaling
+# Performance and Scaling
 
-This page records benchmark baselines, how to load-test alertkube, and how to
-tune the informer and leader-election parameters.
+Benchmark baselines, load-test notes, and tuning knobs.
 
 ## Microbenchmark baselines
 
-Run with `make bench` (`go test -bench=. -benchmem ./internal/alert ./internal/router`).
-Indicative numbers on an Apple M-series laptop (go 1.25+) — use them to catch
-regressions, not as absolute targets:
+Run `make bench`. Use these numbers to catch regressions, not as absolute targets:
 
 | Benchmark | Time/op | Allocs/op | Notes |
 | --- | --- | --- | --- |
@@ -18,20 +15,11 @@ regressions, not as absolute targets:
 | `Route` (matched) | ~180 ns | 2 | silence + inhibition + arm + route match |
 | `Route` (silenced) | ~100 ns | 0 | dropped before route matching |
 
-The fingerprint and matching paths are allocation-light and run per alert; they
-are not the bottleneck. Real-world throughput is bounded by sink latency and the
-per-sink rate limiter, not CPU.
-
-!!! note "Regex cache"
-    `matchOrRegex` compiles each distinct pattern once and caches it
-    (`internal/alert/alert.go`). The regex benchmark measures the cache-hit path,
-    which is the steady state.
+Fingerprinting and matching are not the usual bottleneck. Real throughput is bounded by sink latency and per-sink rate limits. Regex matchers are cached after first compile.
 
 ## Load testing
 
-`test/load/generate-pods.sh` creates N crash-looping pods with distinct names
-(hence distinct fingerprints) to stress the dedup map, the active-alert set, the
-enrichment pool, and sink rate limiting.
+`test/load/generate-pods.sh` creates N crash-looping pods with distinct fingerprints.
 
 ```bash
 # On a disposable cluster (kind/minikube), with alertkube installed:
@@ -46,7 +34,7 @@ curl -s localhost:9090/metrics | \
 kubectl delete ns alertkube-loadtest
 ```
 
-What to watch:
+Watch:
 
 - **`alertkube_active_alerts`** should track the number of distinct failing pods.
 - **`alertkube_dispatch_inflight`** pinning high means the rate limiter is the
@@ -60,32 +48,7 @@ What to watch:
 
 ## Tuning
 
-### Informer QPS / burst
-
-alertkube uses `client-go` shared informers. On very large clusters, raise the
-client QPS/burst so initial list/watch sync is not throttled. These are exposed
-through the standard kube client config; document the flags you expose here as
-they are added. The default client-go QPS (5) / burst (10) is adequate for small
-and mid-size clusters.
-
-### Resync period
-
-Informers resync periodically; on resync, standing conditions re-fire. The
-`behavior.startupGraceSeconds` window (and the mute window) suppress these
-re-fires so a resync does not re-page. Keep `startupGraceSeconds` ≥ your typical
-cache sync time on restart.
-
-### Leader-election timing
-
-With `leaderElection.enabled=true`, the Lease uses 15s lease / 10s renew / 2s
-retry by default. Failover (leader loss → a follower acquiring the lease and
-becoming Ready) completes in well under 30s. Lower the durations for faster
-failover at the cost of more API writes; raise them on API-server-constrained
-clusters. See [run alertkube in HA](https://github.com/aryasoni98/alertkube/blob/master/docs-site/docs/how-to/ha-leader-election.md).
-
-### Sink rate limits
-
-The per-sink token bucket defaults to 1 rps / burst 5 (Slack's published webhook
-limit). Override per sink with `sinkRates` in config when a sink can take more
-(e.g. an internal webhook). A too-low limit drops messages under storm; a
-too-high limit risks the sink throttling you.
+- **Informer QPS/burst:** defaults are fine for small and mid-size clusters; raise them only if initial list/watch sync is throttled.
+- **Resync/startup grace:** keep `behavior.startupGraceSeconds` at or above typical cache sync time so restarts do not re-page standing conditions.
+- **Leader election:** default Lease timing is 15s lease / 10s renew / 2s retry; lower for faster failover, raise for API-server-constrained clusters.
+- **Sink rates:** defaults are 1 rps / burst 5. Raise `sinkRates` for sinks that can handle more, or enable grouping to reduce storms.

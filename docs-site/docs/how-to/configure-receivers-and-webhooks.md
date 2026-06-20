@@ -1,17 +1,13 @@
-# Configure Alertmanager webhook receiver and API endpoints
+# Configure Receiver and API Endpoints
 
-alertkube exposes two HTTP API endpoints on the metrics address for receiving alerts and introspecting state:
+alertkube exposes two HTTP endpoints on `metricsAddr`:
 
 - **`POST /api/v1/alerts`** — Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
 - **`GET /api/alerts`** — Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
 
-Both endpoints serve on `metricsAddr` (default `:9090`) and return `503 Service Unavailable` until their handlers are installed (after the controller starts or the handler is explicitly registered).
+Both return `503` until the controller installs their handlers.
 
-## Enable the Alertmanager receiver
-
-The receiver accepts Alertmanager webhook payloads without requiring any Kubernetes resource. Set `receiver.enabled: true` in your config and optionally configure bearer authentication.
-
-### Step 1 — Enable in the config
+## Enable the Receiver
 
 ```yaml
 receiver:
@@ -19,12 +15,7 @@ receiver:
   allowAnonymous: false   # require a bearer token
 ```
 
-!!! warning "Anonymous receiver requires explicit opt-in"
-    By default, if `receiver.enabled: true` and no bearer token is set, the controller **refuses to start** — an open endpoint that accepts unauthenticated alerts is a security risk. Set `allowAnonymous: true` only if the metrics port is locked down by a NetworkPolicy or firewall rule.
-
-### Step 2 — Set a bearer token (optional)
-
-If you want to require bearer authentication, set the `ALERTKUBE_RECEIVER_TOKEN` environment variable (or the Helm `receiver.token` value):
+If `receiver.enabled: true` and no token is configured, the controller refuses to start unless `allowAnonymous: true`. Use anonymous mode only behind NetworkPolicy or a firewall.
 
 === "Helm (via values)"
     ```yaml
@@ -40,20 +31,9 @@ If you want to require bearer authentication, set the `ALERTKUBE_RECEIVER_TOKEN`
       --set receiver.token="your-secret-token-here"
     ```
 
-=== "Docker (env var)"
-    ```bash
-    docker run -e ALERTKUBE_RECEIVER_TOKEN="your-secret-token-here" \
-      ghcr.io/aryasoni98/alertkube:v0.2.4
-    ```
+The token is read on every request, so Secret rotation does not require a restart. Alertmanager must send `Authorization: Bearer <token>`.
 
-When a token is set, the receiver requires an `Authorization: Bearer <token>` header on all requests. Without it, requests are rejected with `401 Unauthorized`.
-
-!!! tip "Rotate the token without downtime"
-    The receiver reads the token on every request, not at startup. Update the Secret and the new value takes effect on the next alert without restarting the controller.
-
-### Step 3 — Point Alertmanager at the receiver
-
-Configure your Alertmanager's `webhook_config` to send webhooks to alertkube:
+Point Alertmanager at alertkube:
 
 ```yaml
 # prometheus.yml or alertmanager.yml
@@ -75,14 +55,11 @@ receivers:
           Authorization: 'Bearer your-secret-token-here'
 ```
 
-!!! note "Alerts routed through alertkube appear as `kind: External`"
-    When an alert arrives via the receiver, the `kind` label is set to `External` to distinguish it from Kubernetes-native alerts. Use `kind: External` in routing rules if you want to treat Alertmanager-sourced alerts differently.
+Receiver alerts use `kind: External`, so routing can treat them separately.
 
-## Query the `/api/alerts` introspection endpoint
+## Query `/api/alerts`
 
-The `/api/alerts` endpoint serves a read-only snapshot of active alerts and recent history as JSON. It is always available (once the controller starts) regardless of the `receiver.enabled` setting.
-
-### GET /api/alerts
+`/api/alerts` returns active alerts and recent history as JSON.
 
 ```bash
 # Without authentication
@@ -93,9 +70,7 @@ curl -H "Authorization: Bearer your-secret-token-here" \
   http://localhost:9090/api/alerts
 ```
 
-### Response format
-
-The response is a JSON object with two keys:
+Response shape:
 
 ```json
 {
@@ -131,9 +106,7 @@ The response is a JSON object with two keys:
 - **`active`** — alerts currently firing (unresolved).
 - **`recent`** — recently resolved or muted alerts (historical window for correlation).
 
-### Protect the API endpoint
-
-By default, `/api/alerts` is unauthenticated. Two ways to protect it:
+Protect it with a bearer token or NetworkPolicy. When `api.token` is empty, the endpoint is unauthenticated.
 
 === "Bearer token"
     ```yaml
@@ -145,31 +118,7 @@ By default, `/api/alerts` is unauthenticated. Two ways to protect it:
     
     Then require the `Authorization: Bearer <token>` header on all requests.
 
-=== "NetworkPolicy"
-    ```yaml
-    apiVersion: networking.k8s.io/v1
-    kind: NetworkPolicy
-    metadata:
-      name: alertkube-api-restrict
-    spec:
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: alertkube
-      policyTypes:
-        - Ingress
-      ingress:
-        - from:
-            - podSelector:
-                matchLabels:
-                  role: monitoring  # only pods with this label can query
-          ports:
-            - protocol: TCP
-              port: 9090
-    ```
-
-## Configuration reference
-
-See the [configuration schema](../reference/config-schema.md) for the full details on `receiver` and `api` blocks.
+## Config Reference
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -177,16 +126,14 @@ See the [configuration schema](../reference/config-schema.md) for the full detai
 | `receiver.allowAnonymous` | bool | `false` | Allow requests without a bearer token (only safe if the port is NetworkPolicy-locked). |
 | `api.token` | string | `""` | Optional bearer token for `/api/alerts` (empty = unauthenticated). |
 
-Corresponding environment variables and Helm values:
+Environment variables and Helm values:
 
 | Env var | Helm value | Key | Notes |
 | --- | --- | --- | --- |
 | `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token for the receiver. Read on every request. |
 | `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token for `/api/alerts`. Read on every request. |
 
-## Example: inject alerts from another system
-
-Here's a complete example that sets up the receiver with authentication and makes a test request:
+## Test an External Alert
 
 ```bash
 # 1. Install alertkube with receiver enabled and a token
@@ -218,12 +165,12 @@ curl -X POST http://localhost:9090/api/v1/alerts \
     ]
   }'
 
-# 4. Query the API to see it recorded
+# 4. Query the API
 curl -H "Authorization: Bearer my-api-token" \
   http://localhost:9090/api/alerts | jq '.active[] | select(.kind == "External")'
 ```
 
-## See also
+## See Also
 
 - [Configuration schema](../reference/config-schema.md) — full `receiver` and `api` block documentation.
 - [Routing rules](../reference/config-schema.md#routing) — how to route receiver-sourced (`kind: External`) alerts to specific sinks.

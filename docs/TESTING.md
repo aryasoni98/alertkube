@@ -1,28 +1,19 @@
-# Testing strategy
+# Testing Strategy
 
-alertkube's tests follow a pyramid: lots of fast unit tests, fuzz tests on the
-parsing/identity surfaces, fake-client integration tests for Kubernetes
-boundaries, and (scaffolded) end-to-end tests against real clusters.
+alertkube uses fast unit tests, fuzz tests for parsing/identity boundaries, fake-client Kubernetes tests, and scaffolded e2e tests.
 
 ## Layers
 
-### 1. Unit tests (the base)
+### Unit Tests
 
-Table-driven, race-enabled, no external dependencies. These dominate the suite
-and cover pure logic: fingerprinting and matching (`internal/alert`), config
-parsing and validation (`internal/config`), routing/silence/inhibition
-(`internal/router`), grouping (`internal/group`), filtering (`internal/filter`),
-templating (`internal/templates`), HTTP retry (`internal/httpx`), and each sink's
-payload shaping (`internal/sinks`).
-
-Run them:
+Table-driven and race-enabled. They cover alert identity/matching, config, routing, grouping, filters, templates, HTTP retry, and sink payloads.
 
 ```bash
 make test            # go test -race ./...
 make cover           # writes coverage.out and prints the total
 ```
 
-Per-package coverage (high-signal packages):
+High-signal package coverage:
 
 | Package | Coverage |
 | --- | --- |
@@ -36,15 +27,11 @@ Per-package coverage (high-signal packages):
 | `internal/watchers` | ~71% |
 | `internal/sinks` | ~64% |
 
-A **coverage gate** in CI (`.github/workflows/ci.yml`) fails the build if total
-statement coverage drops below the floor (currently 53%, actual ~55%). The floor
-only ever goes up; the ratchet target is 60% then 70% as root-package and e2e
-tests land.
+CI fails if total coverage drops below the configured floor. The target ratchets upward as root-package and e2e coverage improve.
 
-### 2. Fuzz tests
+### Fuzz Tests
 
-Native Go fuzzing (`go test -fuzz`) guards the inputs an operator or a hostile
-cluster controls:
+Native Go fuzzing guards operator-controlled and cluster-controlled inputs:
 
 | Target | Package | Invariant |
 | --- | --- | --- |
@@ -59,39 +46,22 @@ make fuzz                       # 15s each (smoke)
 go test -run='^$' -fuzz='^FuzzLoad$' -fuzztime=2m ./internal/config   # longer soak
 ```
 
-CI runs a 30-second smoke of each target on every PR (the `fuzz` job).
+CI runs a smoke pass for each fuzz target.
 
-### 3. Integration tests (fake clientset)
+### Fake-Client Tests
 
-Kubernetes boundaries are tested with `k8s.io/client-go/kubernetes/fake` — a fake
-API surface in-process, no cluster required. This is the deliberate alternative
-to `controller-runtime`'s `envtest` (which spins up a real apiserver): per
-[ADR-0001](decisions/0001-client-go-over-controller-runtime.md), alertkube avoids
-the controller-runtime dependency, so we do not pull in `envtest` either. The
-fake clientset covers the same boundaries for a watcher/persistence pipeline that
-has no reconcile loop.
+Kubernetes boundaries use `k8s.io/client-go/kubernetes/fake`, not `envtest`, matching [ADR-0001](decisions/0001-client-go-over-controller-runtime.md). Current coverage includes persistence and Pod/Node watchers.
 
-Current fake-client tests: `internal/persist` (ConfigMap snapshot round-trip),
-`internal/watchers/pod`, `internal/watchers/node`.
+### End-to-End
 
-### 4. End-to-end (scaffolded)
+E2E tests live under `test/e2e/` and run against kind. See [`test/e2e/README.md`](../test/e2e/README.md).
 
-E2E against real Kubernetes (kind) is defined under `test/e2e/` and run by the
-`e2e` workflow on a Kubernetes version matrix. See
-[`test/e2e/README.md`](../test/e2e/README.md). These are heavier and gated to a
-nightly/dispatch cadence rather than every PR.
+## Intentional Gaps
 
-## What is intentionally not unit-tested
+- `internal/collectors` is mostly thin Kubernetes API wrapping; test through watcher/e2e paths.
+- Root wiring (`main.go`, `controller.go`, `builders.go`) is mainly e2e-covered. Raising unit coverage there is a good first issue.
 
-- `internal/collectors` describe/log wrappers are thin shims over `kubectl`
-  libraries and the Pods `GetLogs` subresource; they are exercised by the
-  fake-client watcher tests and e2e, not isolated units (hence the low
-  standalone coverage).
-- The root package wiring (`main.go`, `controller.go`, `builders.go`) is covered
-  by e2e; raising its unit coverage is the main lever for the coverage ratchet
-  (a [good first issue](good-first-issues.md)).
-
-## Reproducing CI locally
+## Run CI Locally
 
 ```bash
 go vet ./...
