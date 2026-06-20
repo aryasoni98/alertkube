@@ -6,7 +6,7 @@ tune the informer and leader-election parameters.
 ## Microbenchmark baselines
 
 Run with `make bench` (`go test -bench=. -benchmem ./internal/alert ./internal/router`).
-Indicative numbers on an Apple M-series laptop (go 1.26) — use them to catch
+Indicative numbers on an Apple M-series laptop (go 1.25+) — use them to catch
 regressions, not as absolute targets:
 
 | Benchmark | Time/op | Allocs/op | Notes |

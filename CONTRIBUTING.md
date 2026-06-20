@@ -33,7 +33,7 @@ go run .
 1. Fork the repository and create a feature branch from `master`.
 2. Make focused changes — one concern per PR.
 3. Add or update tests for behavior changes.
-4. Run `go test -race ./...` and `golangci-lint run` (CI pins v1.64.8).
+4. Run `go test -race ./...` and `golangci-lint run` (CI pins v2.12.2).
 5. Update `CHANGELOG.md` under `[Unreleased]` if the change is user-facing.
 6. **Sign off** every commit (`git commit -s`) — see [DCO](#developer-certificate-of-origin-dco).
 7. Open a pull request using the PR template.

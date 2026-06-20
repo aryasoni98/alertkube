@@ -35,7 +35,7 @@ annotations:
       image: ghcr.io/aryasoni98/alertkube:v0.2.4
   artifacthub.io/maintainers: |
     - name: Arya Soni
-      email: ""
+      email: aryasoni98@gmail.com
   artifacthub.io/signKey: |
     fingerprint: keyless (Sigstore/cosign)
     url: https://github.com/aryasoni98/alertkube/blob/master/.github/workflows/release.yml

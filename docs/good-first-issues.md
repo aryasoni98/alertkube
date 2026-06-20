@@ -11,9 +11,9 @@ it, and read [`CONTRIBUTING.md`](../CONTRIBUTING.md) first.
 
 ## Tooling & DX
 
-1. **Add a `Makefile`.** The repo has `build.sh` but no `Makefile`. Add targets:
-   `build`, `test`, `lint`, `run`, `docker`, `docs-serve`. Scope: one new file.
-   Hint: wrap the commands already in `CONTRIBUTING.md` and `build.sh`.
+1. **Cover `internal/env`.** This small env-parsing package is the one package at
+   0% coverage. Add table-driven tests for its getters (defaults, overrides,
+   malformed values). Scope: one `internal/env/env_test.go`.
 2. **Add a `--version` flag.** Print version/commit/date (set via `-ldflags`) and
    exit. Scope: `main.go` flag parsing + a `release.yml` ldflags tweak.
    Hint: see `parseFlags()` in `main.go`.

@@ -1,8 +1,10 @@
-Here is a **phase → sub-phase → sub-sub-phase** build pipeline for alertkube, grounded in your analysis and the repo’s current state.
+This roadmap lays out a **phase → sub-phase → sub-sub-phase** build pipeline for alertkube,
+from open-source foundation hardening through a CNCF Sandbox application. It reflects the
+repository's current state; check items off as they land.
 
 **Already in place:** Apache-2.0, `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, Dependabot, CodeQL, Trivy, cosign releases, Helm chart, Grafana dashboard, race detector + golangci-lint in CI, static docs under `docs/`.
 
-**Gaps that block CNCF Sandbox:** CNCF CoC (you have Contributor Covenant), `GOVERNANCE.md`, `MAINTAINERS.md`, `ADOPTERS.md`, co-maintainer, docs site, Scorecard, DCO, verified Artifact Hub.
+**Gaps that block CNCF Sandbox:** CNCF CoC (currently Contributor Covenant), `GOVERNANCE.md`, `MAINTAINERS.md`, `ADOPTERS.md`, a second maintainer, docs site, Scorecard, DCO, verified Artifact Hub.
 
 ---
 
@@ -68,7 +70,7 @@ flowchart TB
 | **0.4.2** Scaffold | `website/` or `docs-site/` | Local `make docs-serve` works |
 | **0.4.3** Migrate content | Port README quickstart, OPERATIONS, TROUBLESHOOTING, MIGRATION | Old `docs/index.html` redirects or deprecates |
 | **0.4.4** Diátaxis structure | Four top-level nav sections | Tutorials · How-to · Reference · Explanation |
-| **0.4.5** Architecture page | Pipeline diagram (watchers → store → router → sinks) | Matches your DEEP_EXPLAIN flow |
+| **0.4.5** Architecture page | Pipeline diagram (watchers → store → router → sinks) | Matches the documented dispatch flow |
 | **0.4.6** Publish | GitHub Pages / Netlify | `docs.alertkube.io` or `alertkube.github.io` live |
 | **0.4.7** README refresh | Badges: CI, Scorecard, license, Artifact Hub (placeholder) | Value prop in first screen + 60s quickstart |
 
@@ -280,7 +282,7 @@ Explanation/
 |---|---|---|
 | **4.1.1** Comparison matrix | docs: alertkube vs kwatch/Botkube/Robusta/Alertmanager | **Lead with no-AI determinism** |
 | **4.1.2** Trust narrative | Blog: “Why we didn’t add an LLM” | Published on docs blog or dev.to |
-| **4.1.3** Architecture deep-dive | Fingerprint + suppression triple (from DEEP_EXPLAIN) | Explanation doc on site |
+| **4.1.3** Architecture deep-dive | Fingerprint + suppression triple (silence / inhibition / mute window) | Explanation doc on site |
 | **4.1.4** Adopter case studies | 2–3 entries in ADOPTERS.md | Name + use case + quote |
 
 ### 4.2 — Launch channels
@@ -372,7 +374,3 @@ Explanation/
 | Can’t recruit co-maintainer by month 6 | **Delay Phase 5**; expand Phase 3 | Timeline +6 months |
 | Competitor ships deterministic multi-resource alert | Refresh **4.1.1** comparison; double down on fingerprint/sinks | Phase 4 only |
 | Hacktoberfest &lt; 5 external PRs | Add bounty/sponsor; simplify good-first issues | Phase 3 |
-
----
-
-I can turn this into a tracked artifact next — e.g. `docs/ROADMAP.md` with checkboxes, GitHub milestone issues per sub-sub-phase, or a Kanban-style project board. Say which format you want.

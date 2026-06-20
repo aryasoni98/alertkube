@@ -7,9 +7,9 @@ header:
   last-updated: "2026-06-15"
   last-reviewed: "2026-06-15"
   project-url: https://github.com/aryasoni98/alertkube
-  project-release: v0.2.3
+  project-release: v0.2.4
   changelog: https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md
-  license: https://github.com/aryasoni98/alertkube/blob/master/LICENSE-2.0.txt
+  license: https://github.com/aryasoni98/alertkube/blob/master/LICENSE
 
 project-lifecycle:
   status: active
@@ -81,7 +81,7 @@ security-contacts:
 
 vulnerability-reporting:
   accepts-vulnerability-reports: true
-  email-contact: ""
+  email-contact: aryasoni98@gmail.com
   security-policy: https://github.com/aryasoni98/alertkube/blob/master/SECURITY.md
   bug-bounty-available: false
   comment: >
