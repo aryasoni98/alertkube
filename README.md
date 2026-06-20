@@ -30,7 +30,7 @@ alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, Jobs, Daemon
 | Multi-sink | Slack (webhook or bot token), PagerDuty, Teams (Adaptive Cards), Opsgenie, Discord, Telegram, generic webhook, stdout |
 | YAML routing | Match by severity / kind / namespace / reason → sinks list |
 | Alert grouping | Storm folding: first alert dispatches immediately, the rest collapse into one summary per window |
-| Fingerprint dedupe | `sha256(kind|ns|name|reason)` mute window |
+| Fingerprint dedupe | `sha256(kind\|ns\|name\|reason)` mute window |
 | Resolve detection | Synthetic resolved alert when fingerprint stops firing past TTL |
 | Inhibitions | Suppress dependent alerts (e.g. NodeNotReady silences Pod alerts on that node) |
 | Silences | Time-bounded matchers from config or `alert-silence-until: RFC3339` annotation (annotation form can be disabled) |

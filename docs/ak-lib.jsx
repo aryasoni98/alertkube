@@ -5,23 +5,18 @@ const akFM = window.FramerMotion || {};
 function AKLogo({ size = 28, withWord = true, white = false }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-      <span
+      <img
+        src="assets/logo.png"
+        alt=""
+        aria-hidden="true"
         style={{
-          width: size, height: size, borderRadius: size * 0.32,
-          background: "var(--wk-gradient)", display: "inline-flex",
-          alignItems: "center", justifyContent: "center", color: "#fff",
-          boxShadow: "0 6px 14px -6px rgba(30,100,230,0.5)", position: "relative",
+          width: size,
+          height: size,
+          borderRadius: size * 0.32,
+          objectFit: "cover",
+          boxShadow: "0 6px 14px -6px rgba(30,100,230,0.5)",
         }}
-      >
-        <Icon name="bell" size={size * 0.58} stroke={2} />
-        <span
-          style={{
-            position: "absolute", top: -2, right: -2, width: size * 0.28, height: size * 0.28,
-            borderRadius: "50%", background: "var(--wk-spark-500)",
-            border: "2px solid var(--bg)",
-          }}
-        ></span>
-      </span>
+      />
       {withWord && (
         <span style={{ fontWeight: 700, fontSize: size * 0.64, letterSpacing: "-0.02em", color: white ? "#fff" : "var(--fg)" }}>
           alertkube
