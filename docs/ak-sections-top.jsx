@@ -8,6 +8,7 @@ function AKNav({ theme, setTheme }) {
   // deployed at /alertkube/manual/), kept separate from the anchors below.
   const links = [
     { label: "Pipeline", href: "#pipeline" },
+    { label: "Architecture", href: "#architecture" },
     { label: "Severity", href: "#severity" },
     { label: "Watchers", href: "#watchers" },
     { label: "Sinks", href: "#sinks" },

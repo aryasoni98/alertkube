@@ -25,6 +25,7 @@ function AKApp() {
       <AKHero live={t.liveFeed} />
       <AKMarquee />
       <AKPipeline />
+      <AKArchitecture />
       <AKSeverity />
       <AKWatchers />
       <AKMetricsBand />
