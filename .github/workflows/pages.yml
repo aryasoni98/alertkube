@@ -5,6 +5,7 @@ on:
     branches: [master, main]
     paths:
       - "docs/**"
+      - "docs-site/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -19,7 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy landing page
+    name: Deploy landing page + manual
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -27,9 +28,26 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.x"
+
+      - name: Build manual (MkDocs) into docs/manual
+        # The Pages artifact is the docs/ tree (landing page at root). Build the
+        # MkDocs manual into docs/manual so it deploys at /alertkube/manual/ -
+        # the URL the landing-page navbar's "Docs" link targets. --strict fails
+        # the deploy on a broken nav/link, matching the docs.yml PR gate.
+        working-directory: docs-site
+        run: |
+          pip install -r requirements.txt
+          mkdocs build --strict -d "${GITHUB_WORKSPACE}/docs/manual"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
