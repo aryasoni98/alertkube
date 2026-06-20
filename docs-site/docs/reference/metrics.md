@@ -15,6 +15,7 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `alertkube_active_alerts` | gauge | — | Count of currently active (unresolved) alerts. |
 | `alertkube_dispatch_inflight` | gauge | `sink` | Sink sends currently in flight, including time queued on the rate limiter. A value pinned high for a sink indicates a storm is queueing and rate-limit drops are imminent. |
 | `alertkube_escalations_total` | counter | — | Alerts re-dispatched by escalation rules. |
+| `alertkube_enrichment_saturated_total` | counter | — | Pod alerts emitted without enrichment (previous container logs) because the bounded enrichment worker pool was full. A rising value during storms indicates the pool size should be increased. |
 | `alertkube_received_alerts_total` | counter | `status` | Alerts accepted by the Alertmanager webhook receiver, by status. |
 
 !!! note "`alertkube_sink_send_seconds` is a histogram"

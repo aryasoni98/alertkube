@@ -147,6 +147,7 @@ address).
 | Path | Type | Default | Validation | Description |
 | --- | --- | --- | --- | --- |
 | `receiver.enabled` | bool | `false` | — | Enable the Alertmanager webhook receiver. Optional bearer auth via the `ALERTKUBE_RECEIVER_TOKEN` env var. |
+| `receiver.allowAnonymous` | bool | `false` | — | Allow requests without a bearer token. Only safe when the port is locked down by NetworkPolicy. |
 
 ## `grouping`
 

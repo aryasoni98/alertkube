@@ -1,12 +1,18 @@
 # alertkube
 
+<!-- markdownlint-disable MD033 -->
+<p align="center">
+  <img src="docs/assets/logo.png" alt="AlertKube logo" width="140" />
+</p>
+<!-- markdownlint-enable MD033 -->
+
 > Kubernetes multi-resource alerting controller with severity tiers, multi-sink routing, dedupe, inhibitions, silences, and Prometheus metrics.
 
 [![CI](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml/badge.svg)](https://github.com/aryasoni98/alertkube/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/aryasoni98/alertkube/badge)](https://scorecard.dev/viewer/?uri=github.com/aryasoni98/alertkube)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aryasoni98/alertkube)](https://goreportcard.com/report/github.com/aryasoni98/alertkube)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-2.0.txt)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 <!-- Earned after registering at bestpractices.dev / Artifact Hub — see docs/security/openssf-best-practices.md
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/PROJECT_ID/badge)](https://www.bestpractices.dev/projects/PROJECT_ID)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/alertkube)](https://artifacthub.io/packages/helm/alertkube/alertkube)
@@ -39,28 +45,7 @@ alertkube watches Pods, Nodes, Deployments, PersistentVolumeClaims, Jobs, Daemon
 
 ## Architecture
 
-```
-                ┌──────────────┐
-                │  Watchers    │  Pod, Node, Deployment, PVC, Job, DaemonSet, StatefulSet, CronJob, HPA
-                └──────┬───────┘
-                       ▼
-                 ┌─────────────┐
-                 │   Alert     │  Severity, Fingerprint, Details
-                 └─────┬───────┘
-                       ▼
-              ┌────────────────┐
-              │ Store (dedupe, │
-              │ mute, resolve) │
-              └────────┬───────┘
-                       ▼
-                ┌──────────────┐
-                │ Router       │  routing + inhibition + silence
-                └──────┬───────┘
-                       ▼
-                ┌──────────────┐
-                │ Sink fan-out │  Slack | PagerDuty | Teams | Webhook | Stdout
-                └──────────────┘
-```
+![AlertKube architecture](.github/alertkube.png)
 
 ## Local dev
 
@@ -214,22 +199,36 @@ silences:
 
 ## Documentation
 
-A full documentation site (MkDocs Material, Diátaxis) lives in [`docs-site/`](docs-site/) —
-run `make docs-serve`. Key documents:
+Start here: [**📖 alertkube Manual** (MkDocs)](https://aryasoni98.github.io/alertkube/manual/)
+
+The manual is built from [`docs-site/docs/`](docs-site/docs/) and organized by [Diátaxis](https://diataxis.fr/):
+
+| Section | Purpose | Examples |
+| --- | --- | --- |
+| **[Tutorials](https://aryasoni98.github.io/alertkube/manual/tutorials/install-with-helm/)** | Learning-oriented | Install with Helm, get your first alert, integrate PagerDuty |
+| **[How-to guides](https://aryasoni98.github.io/alertkube/manual/how-to/walk-through-config/)** | Task-oriented recipes | Configure sinks, set up silences & inhibitions, tune dedup, troubleshoot with metrics |
+| **[Reference](https://aryasoni98.github.io/alertkube/manual/reference/config-schema/)** | Lookup tables | Full config schema, watcher conditions, sink credentials, all metrics |
+| **[Explanation](https://aryasoni98.github.io/alertkube/manual/explanation/what-makes-alertkube-deterministic/)** | Understanding | Why determinism matters, fingerprint model, suppression mechanisms |
+
+**Other resources:**
 
 | Doc | Description |
 | --- | --- |
-| [Docs site](docs-site/) | Tutorials · How-to · Reference · Explanation (`make docs-serve`) |
 | [OPERATIONS.md](docs/OPERATIONS.md) | SLOs, dashboards, PrometheusRule, upgrades, HA |
-| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix |
+| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptom → cause → fix (in-depth) |
 | [MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md) | Upgrade from k8s-pod-restart-info-collector |
 | [TESTING.md](docs/TESTING.md) | Test pyramid, fuzzing, coverage gate |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, load testing, tuning |
 | [ROADMAP.md](docs/ROADMAP.md) | Build pipeline toward CNCF Sandbox |
-| [cncf-readiness-status.md](docs/cncf-readiness-status.md) | CNCF readiness tracker (done vs human-gated) |
 | [decisions/](docs/decisions/) | Architecture Decision Records (ADRs) |
-| [grafana-dashboard.json](docs/grafana-dashboard.json) | Importable Grafana dashboard |
-| [Landing page](docs/index.html) | GitHub Pages site (deployed from `docs/`) |
+| [Grafana dashboard](docs/grafana-dashboard.json) | Importable dashboard for metrics |
+
+**Build the manual locally:**
+
+```bash
+make docs-serve
+# Open http://localhost:8000
+```
 
 ## Community & governance
 
@@ -248,4 +247,4 @@ model.
 
 ## License
 
-Apache-2.0 - see `LICENSE-2.0.txt`.
+Apache-2.0 - see `LICENSE`.
