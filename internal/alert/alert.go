@@ -122,6 +122,31 @@ type Alert struct {
 	Resolved    bool
 }
 
+// Clone returns a deep copy whose Labels, Annotations, and Details maps are
+// independent of the receiver's. The store hands copies outside its lock (to
+// the /api/alerts JSON encoder, to in-flight sink goroutines, to the recent
+// ring); a shallow `cp := *a` shares those maps with the live alert, so a
+// reader could race a writer mutating them. Clone severs that sharing.
+func (a *Alert) Clone() *Alert {
+	cp := *a
+	cp.Labels = cloneStringMap(a.Labels)
+	cp.Annotations = cloneStringMap(a.Annotations)
+	cp.Details = cloneStringMap(a.Details)
+	return &cp
+}
+
+// cloneStringMap returns an independent copy of m (nil stays nil).
+func cloneStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // ComputeFingerprint hashes the identity tuple so equivalent alerts dedupe.
 // sha256 rather than sha1: collision resistance is irrelevant here, but it
 // keeps security scanners quiet and costs nothing. Truncated to 12 hex

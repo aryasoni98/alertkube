@@ -11,12 +11,19 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// eventListLimit bounds how many events a single enrichment List pulls into
+// memory. The field selector already narrows to one object, but a pathological
+// object with thousands of events would otherwise be fetched in full before
+// the downstream Slack/text truncation drops most of it.
+const eventListLimit = 100
+
 // PodEvents returns Warning events related to a pod, newest last. The
 // involvedObject selector is applied server-side so a busy namespace does
 // not return (and the client does not scan) every Warning event in it.
 func PodEvents(ctx context.Context, c kubernetes.Interface, ns, name string) (string, error) {
 	events, err := c.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s,type!=Normal", name),
+		Limit:         eventListLimit,
 	})
 	if err != nil {
 		return "", fmt.Errorf("list pod events: %w", err)
@@ -31,6 +38,7 @@ func PodEvents(ctx context.Context, c kubernetes.Interface, ns, name string) (st
 func NodeEvents(ctx context.Context, c kubernetes.Interface, nodeName string) (string, error) {
 	events, err := c.CoreV1().Events(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.kind=Node,involvedObject.name=%s", nodeName),
+		Limit:         eventListLimit,
 	})
 	if err != nil {
 		return "", fmt.Errorf("list node events: %w", err)

@@ -122,14 +122,15 @@ func (s *Store) SweepResolved() {
 		if !a.EndsAt.IsZero() && now.After(a.EndsAt) {
 			// Hand a copy to onResolved: the stored pointer may still be
 			// referenced by in-flight sink goroutines, and mutating it here
-			// would race with their reads.
-			cp := *a
+			// would race with their reads. Clone (not *a) so the copy's maps
+			// are independent of the live alert's too.
+			cp := a.Clone()
 			cp.Resolved = true
-			expired = append(expired, &cp)
+			expired = append(expired, cp)
 			delete(s.active, fp)
 			delete(s.lastSent, fp)
 			s.dropEscalationsLocked(fp)
-			s.recordRecentLocked(&cp)
+			s.recordRecentLocked(cp)
 			s.gen++
 		}
 	}
@@ -161,15 +162,16 @@ func (s *Store) ResolveObject(kind Kind, ns, name string) {
 			continue
 		}
 		// Copy before mutating: the stored pointer may still be read by
-		// in-flight sink goroutines (mirrors SweepResolved).
-		cp := *a
+		// in-flight sink goroutines (mirrors SweepResolved). Clone so the
+		// copy's maps are independent of the live alert's.
+		cp := a.Clone()
 		cp.Resolved = true
 		cp.EndsAt = now
-		resolved = append(resolved, &cp)
+		resolved = append(resolved, cp)
 		delete(s.active, fp)
 		delete(s.lastSent, fp)
 		s.dropEscalationsLocked(fp)
-		s.recordRecentLocked(&cp)
+		s.recordRecentLocked(cp)
 		s.gen++
 	}
 	size, fn := len(s.active), s.onChange
@@ -210,11 +212,13 @@ func (s *Store) ActiveCount() int {
 }
 
 // recordRecentLocked appends a Details-stripped copy to the recent ring.
-// Caller holds s.mu.
+// Caller holds s.mu. Clone (not *a) so the ring entry's Labels/Annotations
+// maps are independent of the live alert's - the /api/alerts reader walks
+// these without the store lock.
 func (s *Store) recordRecentLocked(a *Alert) {
-	cp := *a
+	cp := a.Clone()
 	cp.Details = nil
-	s.recent = append(s.recent, &cp)
+	s.recent = append(s.recent, cp)
 	if len(s.recent) > recentCap {
 		s.recent = s.recent[len(s.recent)-recentCap:]
 	}
@@ -226,8 +230,7 @@ func (s *Store) ActiveList() []*Alert {
 	defer s.mu.Unlock()
 	out := make([]*Alert, 0, len(s.active))
 	for _, a := range s.active {
-		cp := *a
-		out = append(out, &cp)
+		out = append(out, a.Clone())
 	}
 	return out
 }
@@ -238,8 +241,7 @@ func (s *Store) Recent() []*Alert {
 	defer s.mu.Unlock()
 	out := make([]*Alert, 0, len(s.recent))
 	for _, a := range s.recent {
-		cp := *a
-		out = append(out, &cp)
+		out = append(out, a.Clone())
 	}
 	return out
 }
@@ -285,8 +287,7 @@ func (s *Store) Overdue(after time.Duration, ruleKey string, match map[string]st
 			continue
 		}
 		s.escalated[key] = true
-		cp := *a
-		out = append(out, &cp)
+		out = append(out, a.Clone())
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"k8s.io/client-go/informers"
@@ -37,7 +38,18 @@ const informerResyncPeriod = config.InformerResyncSeconds * time.Second
 // A non-empty watchNamespace scopes every informer to that namespace and
 // disables the node watcher (nodes are cluster-scoped), so the controller
 // runs under a namespace Role instead of a ClusterRole.
+// controllerRuns counts entries into runController. With leader election a
+// single process can win, lose, and re-win the lease without exiting, so this
+// body runs more than once per process. Each run rebuilds the informer
+// factory, store, and grouper from scratch and re-applies the startup grace
+// window to the fresh informer sync; the counter makes that re-entrancy
+// observable in the logs (e.g. when diagnosing leader flap).
+var controllerRuns atomic.Uint64
+
 func runController(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string) {
+	if n := controllerRuns.Add(1); n > 1 {
+		klog.Infof("controller starting (leadership acquisition #%d): rebuilding informers/store/grouper; startup grace re-applies to this sync", n)
+	}
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
@@ -223,6 +235,13 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 // windows, wait for the sweeper + grouper goroutines, save final state on a
 // fresh deadline (ctx is already cancelled), and finally mark not-ready.
 func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store) {
+	// Stop serving the leader-scoped routes first. The HTTP server outlives
+	// leader election, so a demoted leader would otherwise keep accepting
+	// receiver POSTs (202) into the store we are about to abandon - silently
+	// dropping them - and keep dumping a stale active set on /api/alerts.
+	// 503 makes both fail loudly until the next leader reinstalls them.
+	metrics.ClearReceiverHandler()
+	metrics.ClearAlertsHandler()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()
@@ -260,10 +279,25 @@ func keepStateful(route []string) []string {
 	return filterRoute(route, func(s string) bool { return statefulSinks[s] })
 }
 
-// dispatchTimeout bounds one fan-out across a route. It is detached from the
-// controller ctx on purpose: a resolve (or an alert drained at shutdown) must
-// still reach its sinks after ctx is cancelled. Registry.Dispatch applies its
-// own, tighter per-sink timeout inside this budget.
+// Delivery-path timeout budget (canonical description — perSinkTimeout in
+// internal/sinks and DefaultTimeout/DefaultRetry in internal/httpx point
+// here). The budgets nest, outermost first:
+//
+//	dispatch()           context.WithTimeout(dispatchTimeout = 20s)   // one fan-out across a route
+//	  Registry.Dispatch  per-sink goroutine
+//	    sendCtx          context.WithTimeout(perSinkTimeout = 15s)    // one sink, within the 20s
+//	      sink.Send → httpx.Retry   (DefaultRetry: ≤3 attempts, backoff capped at 1s)
+//	        each attempt http.Client{Timeout: DefaultTimeout = 10s}   // one HTTP request
+//
+// Every attempt AND its backoff sleep run under sendCtx, so perSinkTimeout
+// (15s) is the hard ceiling on all retries for a sink: a Retry-After or a
+// custom RetryPolicy that would sleep past it just aborts the retry
+// (sleepWithCtx returns ctx.Err()). dispatchTimeout (20s) > perSinkTimeout
+// (15s) leaves headroom for the goroutine fan-out/join.
+//
+// dispatchTimeout is detached from the controller ctx on purpose: a resolve
+// (or an alert drained at shutdown) must still reach its sinks after ctx is
+// cancelled.
 const dispatchTimeout = 20 * time.Second
 
 // enrichDrainTimeout caps how long shutdown waits for in-flight pod
@@ -292,6 +326,12 @@ func drainWatchers(ws []watchers.Watcher, timeout time.Duration) {
 }
 
 func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper) watchers.Emit {
+	// controllerStart is intentionally per-leadership-acquisition, not
+	// process start: each runController builds fresh informers whose initial
+	// sync re-fires every standing condition. The grace window must cover
+	// that fresh sync - seeding the re-fires into the mute window instead of
+	// paging them - every time this pod (re)acquires leadership, not only on
+	// the first acquisition. See controllerRuns for the re-entrancy contract.
 	controllerStart := time.Now()
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {

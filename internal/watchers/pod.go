@@ -137,7 +137,10 @@ func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit 
 				continue
 			}
 			p.emitContainerAlert(ctx, newPod, st, "ContainerRestart", alert.SeverityWarning, emit)
-			klog.Infof("pod %s/%s restartCount %d->%d", newPod.Namespace, newPod.Name, oldCount, newCount)
+			// V(2): one line per restart delta - useful when debugging a
+			// specific pod, but high-volume under a restart storm, so it
+			// stays off the default log level.
+			klog.V(2).Infof("pod %s/%s restartCount %d->%d", newPod.Namespace, newPod.Name, oldCount, newCount)
 			return
 		}
 	}
@@ -182,7 +185,15 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 				defer recoverHandler("pod.enrich")
 				p.enrich(ctx, pod, st, reason, a)
 			}()
-			emit(a)
+			// emit runs in its own recover, separate from enrich: an enrich
+			// panic must still ship the skinny alert, and a panic in the
+			// dispatch path (store/router/sink) from this detached goroutine
+			// must not crash the controller - every informer-handler path is
+			// recovered, so this one must be too.
+			func() {
+				defer recoverHandler("pod.emit")
+				emit(a)
+			}()
 		}()
 	default:
 		metrics.EnrichmentSaturated.Inc()

@@ -54,7 +54,7 @@ func Build(a *alert.Alert) []slack.Block {
 	}
 	blocks = append(blocks, slack.NewContextBlock("", context...))
 
-	if runbook := a.Annotations[alert.AnnotationRunbookURL]; SafeRunbookURL(runbook) {
+	if runbook, ok := Runbook(a); ok {
 		blocks = append(blocks, slack.NewActionBlock("",
 			slack.NewButtonBlockElement("runbook", "open",
 				slack.NewTextBlockObject(slack.PlainTextType, "📖 Runbook", false, false)).WithURL(runbook),
@@ -100,6 +100,15 @@ func orderedDetails(details map[string]string) []string {
 	}
 	sort.Strings(rest)
 	return append(out, rest...)
+}
+
+// Runbook returns the alert's runbook URL and whether it is safe to render.
+// It is the single resolution point for the runbook link: every sink (and
+// Build) calls it instead of reading the annotation and validating inline,
+// so no sink can drift on the annotation key or skip SafeRunbookURL.
+func Runbook(a *alert.Alert) (string, bool) {
+	u := a.Annotations[alert.AnnotationRunbookURL]
+	return u, SafeRunbookURL(u)
 }
 
 // SafeRunbookURL guards the workload-supplied runbook-url annotation so a

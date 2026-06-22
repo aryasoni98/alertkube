@@ -32,6 +32,9 @@ type Grouper struct {
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
+	// closing is set by FlushAll at shutdown drain so Offer stops opening
+	// or joining windows that nothing would ever flush.
+	closing bool
 }
 
 type bucket struct {
@@ -66,6 +69,14 @@ func (g *Grouper) Offer(a *alert.Alert) bool {
 	now := time.Now()
 
 	g.mu.Lock()
+	if g.closing {
+		// Shutdown drain is underway (FlushAll holds, or has held, the
+		// lock and set this). Opening or joining a window now would strand
+		// the alert in a bucket the final flush already passed. Pass it
+		// through so the caller dispatches it directly instead.
+		g.mu.Unlock()
+		return true
+	}
 	b, ok := g.buckets[key]
 	if ok && now.After(b.deadline) {
 		// Window closed but the flusher has not run yet: flush the old
@@ -120,6 +131,10 @@ func (g *Grouper) flushExpired(now time.Time) {
 // FlushAll closes every open window immediately.
 func (g *Grouper) FlushAll() {
 	g.mu.Lock()
+	// Mark closing first: any Offer racing this drain (including a re-entrant
+	// Offer triggered by emitSummary -> flush -> dispatchResolved below) then
+	// passes through rather than opening a bucket that nothing flushes.
+	g.closing = true
 	var all []*bucket
 	for key, b := range g.buckets {
 		all = append(all, b)

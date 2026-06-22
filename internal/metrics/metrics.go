@@ -86,6 +86,14 @@ func SetAlertsHandler(h http.Handler) { alertsHandler.Store(&h) }
 // receiver) handler.
 func SetReceiverHandler(h http.Handler) { receiverHandler.Store(&h) }
 
+// ClearAlertsHandler and ClearReceiverHandler detach the handlers so their
+// routes return 503 again. Called at controller shutdown (signal or leader
+// loss): a demoted leader must stop reading an abandoned store and, crucially,
+// stop accepting receiver POSTs with 202 into a store nothing will drain -
+// 503 tells the sender to retry instead of silently dropping the alert.
+func ClearAlertsHandler()   { alertsHandler.Store(nil) }
+func ClearReceiverHandler() { receiverHandler.Store(nil) }
+
 func dynamic(p *atomic.Pointer[http.Handler]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h := p.Load(); h != nil {
@@ -96,13 +104,37 @@ func dynamic(p *atomic.Pointer[http.Handler]) http.HandlerFunc {
 	}
 }
 
+const (
+	// readHeaderTimeout and readTimeout bound the request side (slowloris,
+	// oversized receiver bodies).
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	// writeTimeout is the connection-level write ceiling. It is deliberately
+	// generous: it must cover the slowest *legitimate* response, which is a
+	// high-cardinality /metrics scrape or a full /api/alerts dump (200 recent
+	// + every active alert). A tight value here silently truncates those.
+	// Fast routes are bounded separately (receiverWriteTimeout) so this
+	// generous ceiling does not let the receiver POST hog a connection.
+	writeTimeout = 30 * time.Second
+	idleTimeout  = 60 * time.Second
+	// receiverWriteTimeout bounds /api/v1/alerts below the server-wide
+	// writeTimeout. The receiver returns a small 202, but emit() dispatches
+	// synchronously, so without this a large batch could occupy a connection
+	// for the full writeTimeout; http.TimeoutHandler returns 503 cleanly
+	// instead of truncating.
+	receiverWriteTimeout = 10 * time.Second
+)
+
 // buildMux wires the routes shared by Serve and the tests:
 // /metrics, /healthz, /readyz, /api/alerts, /api/v1/alerts.
 func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/api/alerts", dynamic(&alertsHandler))
-	mux.HandleFunc("/api/v1/alerts", dynamic(&receiverHandler))
+	// Wrap the receiver POST so its write budget is the tighter
+	// receiverWriteTimeout, not the generous server-wide writeTimeout that
+	// /metrics and /api/alerts need for their large responses.
+	mux.Handle("/api/v1/alerts", http.TimeoutHandler(dynamic(&receiverHandler), receiverWriteTimeout, "receiver handler timeout"))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -127,10 +159,10 @@ func Serve(addr string) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 	go func() {
 		klog.Infof("metrics server listening on %s", addr)
