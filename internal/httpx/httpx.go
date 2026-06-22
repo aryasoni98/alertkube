@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +22,8 @@ import (
 // dial + TLS + body upload and is well within Slack/Teams rate-limit hints.
 // Exported so sinks that must inject their own *http.Client (e.g. slack-go)
 // share the same per-request ceiling instead of redefining the constant.
+// This bounds one HTTP attempt; the surrounding per-sink and per-route
+// budgets are documented at dispatchTimeout in controller.go.
 const DefaultTimeout = 10 * time.Second
 
 var defaultClient = &http.Client{Timeout: DefaultTimeout}
@@ -32,7 +37,9 @@ type RetryPolicy struct {
 
 // DefaultRetry is applied when PostJSON is called via the variadic overload
 // with no explicit policy. Three attempts with exponential backoff and full
-// jitter, capped at one second.
+// jitter, capped at one second. The whole retry loop (attempts + backoff
+// sleeps) runs inside the caller's context, so the per-sink timeout caps it;
+// see the timeout budget at dispatchTimeout in controller.go.
 var DefaultRetry = RetryPolicy{MaxAttempts: 3, BaseDelay: 200 * time.Millisecond, MaxDelay: time.Second}
 
 // PostJSON marshals payload, POSTs it to url, and returns an error on
@@ -62,6 +69,9 @@ type HeaderFunc func(req *http.Request, body []byte)
 func PostJSONWithHeaders(ctx context.Context, dest string, payload any, policy RetryPolicy, header HeaderFunc) error {
 	if dest == "" {
 		return nil
+	}
+	if err := guardDest(ctx, dest); err != nil {
+		return err
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -151,6 +161,61 @@ type statusError struct {
 
 func (e *statusError) Error() string {
 	return fmt.Sprintf("POST %s returned %d", e.url, e.status)
+}
+
+// strictEgressEnv, when set to "true", extends guardDest to also reject
+// loopback and private (RFC-1918 / ULA) destinations - for clusters that
+// forbid host-local and in-cluster webhook targets entirely.
+const strictEgressEnv = "ALERTKUBE_STRICT_WEBHOOK_EGRESS"
+
+// guardDest is a defense-in-depth SSRF check on operator-configured webhook
+// destinations (generic webhook, Opsgenie, Telegram). Link-local addresses
+// (169.254.0.0/16, fe80::/10) - which include the cloud metadata endpoint
+// 169.254.169.254 - are blocked unconditionally: no legitimate notification
+// endpoint lives there, and allowing them turns a settable webhook URL into
+// an SSRF that can read instance credentials. Loopback and private ranges are
+// additionally blocked when strictEgressEnv is set. The destinations come
+// from operator-controlled env/Secrets, so this guards against misconfig and
+// a compromised config source, not untrusted request input. DNS resolution
+// uses ctx so a slow resolver cannot hang the send beyond its sink timeout.
+func guardDest(ctx context.Context, dest string) error {
+	u, err := url.Parse(dest)
+	if err != nil {
+		return fmt.Errorf("invalid destination URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("destination scheme %q not allowed (http/https only)", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return errors.New("destination URL has no host")
+	}
+	strict := strings.EqualFold(os.Getenv(strictEgressEnv), "true")
+	check := func(ip net.IP) error {
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("destination %s is link-local (blocked: SSRF/cloud-metadata risk)", ip)
+		}
+		if strict && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
+			return fmt.Errorf("destination %s is loopback/private (blocked by %s)", ip, strictEgressEnv)
+		}
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return check(ip)
+	}
+	// Hostname: resolve and reject if any resolved address is in a blocked
+	// range (catches names like metadata.google.internal). A resolution
+	// failure is not fatal - the real dial will surface it with context.
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		if cerr := check(a.IP); cerr != nil {
+			return cerr
+		}
+	}
+	return nil
 }
 
 // sanitizeURL strips path + query so secrets in webhook URLs (Slack /

@@ -17,8 +17,14 @@ rules:
 # cluster-scoped PV objects. pods/log is granted separately below so it can
 # be dropped entirely when log collection is disabled.
 - apiGroups: [""]
-  resources: ["nodes", "pods", "events", "persistentvolumeclaims"]
+  resources: ["nodes", "pods", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
+# events are only listed on demand for alert enrichment (PodEvents /
+# NodeEvents); they are never watched via an informer or fetched by name,
+# so list is the only verb required.
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["list"]
 {{- if not .Values.behavior.disableLogCollection }}
 # Log enrichment reads the prior-container log stream (GetLogs = GET on the
 # pods/log subresource). When behavior.disableLogCollection=true this grant
@@ -59,8 +65,13 @@ metadata:
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 rules:
 - apiGroups: [""]
-  resources: ["pods", "events", "persistentvolumeclaims"]
+  resources: ["pods", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
+# events are only listed on demand for alert enrichment, never watched or
+# fetched by name - list is the only verb required.
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["list"]
 {{- if not .Values.behavior.disableLogCollection }}
 - apiGroups: [""]
   resources: ["pods/log"]

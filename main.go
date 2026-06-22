@@ -48,12 +48,10 @@ func main() {
 		klog.Fatalf("config: %v", err)
 	}
 
-	clientset := buildClient(flags.kubeconfig)
-
-	// Metrics + health start outside the leader-election gate so the pod
-	// can still be scraped and probed when it is a hot-standby follower.
-	srv := metrics.Serve(cfg.MetricsAddr)
-
+	// Install the shutdown signal handler before any blocking startup work:
+	// buildClient can retry for up to kubeconfigRetryBudget when the
+	// apiserver is unavailable at boot, and a SIGTERM during that window
+	// must be honored promptly rather than waiting out the budget.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
@@ -61,6 +59,12 @@ func main() {
 		klog.Infof("%s received shutdown signal", appName)
 		cancel()
 	}()
+
+	clientset := buildClient(ctx, flags.kubeconfig)
+
+	// Metrics + health start outside the leader-election gate so the pod
+	// can still be scraped and probed when it is a hot-standby follower.
+	srv := metrics.Serve(cfg.MetricsAddr)
 
 	if flags.leaderElect {
 		runWithLeaderElection(ctx, clientset, cfg, flags)

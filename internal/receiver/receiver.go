@@ -7,6 +7,7 @@ package receiver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -18,6 +19,12 @@ import (
 // maxBodyBytes bounds the request body; Alertmanager batches are small
 // and anything larger is abuse.
 const maxBodyBytes = 4 << 20
+
+// maxAlertsPerPayload caps how many alerts one webhook POST may carry.
+// Alertmanager batches are small; without this a 4MiB body packed with tiny
+// alerts would enqueue tens of thousands of synchronous emit calls inside
+// the server read timeout.
+const maxAlertsPerPayload = 2000
 
 // Payload is the Alertmanager webhook_config message shape (version "4").
 type Payload struct {
@@ -73,6 +80,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if len(p.Alerts) > maxAlertsPerPayload {
+		http.Error(w, fmt.Sprintf("too many alerts in payload (max %d)", maxAlertsPerPayload), http.StatusRequestEntityTooLarge)
+		return
+	}
 	for _, am := range p.Alerts {
 		a := toAlert(am)
 		if am.Status == "resolved" {
@@ -108,6 +119,15 @@ func toAlert(am AMAlert) *alert.Alert {
 	for k, v := range am.Annotations {
 		a.Annotations[k] = v
 	}
+	// Strip annotations that control alertkube's own behavior. A received
+	// alert is forwarded by an upstream Alertmanager that may aggregate many
+	// senders; letting a forwarded alert self-silence or redirect Slack
+	// channels would let one sender suppress or reroute alerts for everyone.
+	// External alerts flow through alertkube's own routing/silencing config
+	// instead. runbook-url is kept: it is per-alert enrichment and
+	// templates.SafeRunbookURL validates it before any sink renders it.
+	delete(a.Annotations, alert.AnnotationSilenceUntil)
+	delete(a.Annotations, alert.AnnotationSlackChannel)
 	if !am.StartsAt.IsZero() {
 		a.StartsAt = am.StartsAt
 	}

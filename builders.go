@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"os"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -20,21 +22,18 @@ import (
 // failures (e.g. control-plane unavailable at pod start) before giving up.
 const kubeconfigRetryBudget = 30 * time.Second
 
-func buildClient(kubeconfig string) kubernetes.Interface {
+func buildClient(ctx context.Context, kubeconfig string) kubernetes.Interface {
 	deadline := time.Now().Add(kubeconfigRetryBudget)
 	backoff := 500 * time.Millisecond
 	var lastErr error
 	for {
-		cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			cfg, err = rest.InClusterConfig()
-		}
+		cfg, err := buildConfig(kubeconfig)
 		if err == nil {
-			c, err := kubernetes.NewForConfig(cfg)
-			if err == nil {
+			c, nerr := kubernetes.NewForConfig(cfg)
+			if nerr == nil {
 				return c
 			}
-			lastErr = err
+			lastErr = nerr
 		} else {
 			lastErr = err
 		}
@@ -42,11 +41,39 @@ func buildClient(kubeconfig string) kubernetes.Interface {
 			klog.Fatalf("kube client init after %s: %v", kubeconfigRetryBudget, lastErr)
 		}
 		klog.Warningf("kube client init failed: %v (retry in %s)", lastErr, backoff)
-		time.Sleep(backoff)
+		// Cancellable backoff: a SIGTERM during startup (apiserver down at
+		// boot) must exit promptly instead of waiting out the retry budget
+		// with the signal handler unable to interrupt a bare time.Sleep.
+		select {
+		case <-ctx.Done():
+			klog.Infof("shutdown signal during kube client init; aborting startup")
+			os.Exit(0)
+		case <-time.After(backoff):
+		}
 		if backoff < 5*time.Second {
 			backoff *= 2
 		}
 	}
+}
+
+// buildConfig resolves a *rest.Config, honoring an explicit kubeconfig only
+// when its file actually exists. Inside a pod the --kubeconfig default
+// (~/.kube/config) does not exist, so the in-cluster config is used rather
+// than risk binding to a stray kubeconfig that happens to be mounted; local
+// development that points --kubeconfig at a real file still wins.
+func buildConfig(kubeconfig string) (*rest.Config, error) {
+	if kubeconfig != "" {
+		if _, err := os.Stat(kubeconfig); err == nil {
+			return clientcmd.BuildConfigFromFlags("", kubeconfig)
+		}
+	}
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		return cfg, nil
+	}
+	// Neither an explicit file nor an in-cluster environment: fall back to
+	// client-go's default loading rules (KUBECONFIG env, etc.) and let it
+	// surface a useful error if nothing is usable.
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
 func buildSinks(cfg *config.Config) *sinks.Registry {

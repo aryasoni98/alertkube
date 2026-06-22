@@ -94,3 +94,35 @@ func TestPostJSONReturnsSanitizedURL(t *testing.T) {
 		t.Fatalf("error leaks secret: %v", err)
 	}
 }
+
+func TestGuardDestBlocksLinkLocalAndBadScheme(t *testing.T) {
+	ctx := context.Background()
+	for _, dest := range []string{
+		"http://169.254.169.254/latest/meta-data/", // AWS/GCP metadata
+		"https://169.254.169.254/computeMetadata/v1/",
+		"http://[fe80::1]/",   // IPv6 link-local
+		"ftp://example.com/x", // wrong scheme
+		"file:///etc/passwd",  // wrong scheme
+		"http:///no-host",     // missing host
+	} {
+		if err := guardDest(ctx, dest); err == nil {
+			t.Errorf("guardDest(%q) = nil, want error", dest)
+		}
+	}
+}
+
+func TestGuardDestAllowsLoopbackByDefaultStrictBlocks(t *testing.T) {
+	ctx := context.Background()
+	// Loopback is allowed by default (httptest servers bind 127.0.0.1).
+	if err := guardDest(ctx, "http://127.0.0.1:8080/hook"); err != nil {
+		t.Fatalf("loopback should be allowed by default, got %v", err)
+	}
+	// Strict mode additionally blocks loopback/private.
+	t.Setenv(strictEgressEnv, "true")
+	if err := guardDest(ctx, "http://127.0.0.1:8080/hook"); err == nil {
+		t.Error("loopback should be blocked under strict egress")
+	}
+	if err := guardDest(ctx, "http://10.0.0.5/hook"); err == nil {
+		t.Error("RFC-1918 should be blocked under strict egress")
+	}
+}

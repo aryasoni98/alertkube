@@ -60,7 +60,7 @@ func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
 		"footer":      map[string]any{"text": fmt.Sprintf("%s | fp=%s", a.Kind, a.Fingerprint)},
 		"timestamp":   a.StartsAt.UTC().Format(time.RFC3339),
 	}
-	if runbook := a.Annotations["runbook-url"]; templates.SafeRunbookURL(runbook) {
+	if runbook, ok := templates.Runbook(a); ok {
 		embed["url"] = runbook
 	}
 

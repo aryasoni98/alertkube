@@ -16,7 +16,9 @@ import (
 
 // perSinkTimeout caps each individual sink send so a stalled endpoint
 // cannot delay other sinks on the same route. Histogram observations
-// reflect this ceiling.
+// reflect this ceiling. It is the hard ceiling on all retries for one sink;
+// see the delivery-path timeout budget at dispatchTimeout (controller.go)
+// for how it nests inside dispatchTimeout and around DefaultRetry.
 const perSinkTimeout = 15 * time.Second
 
 // defaultSinkRate is the per-sink rate limit applied when no explicit
