@@ -2,8 +2,8 @@ apiVersion: v2
 name: alertkube
 description: Kubernetes multi-resource alerting controller with severity tiers and multi-sink routing.
 type: application
-version: 0.2.4
-appVersion: "0.2.4"
+version: 0.3.0
+appVersion: "0.3.0"
 kubeVersion: ">=1.28.0-0"
 keywords:
   - alerting
@@ -32,7 +32,7 @@ annotations:
       url: https://github.com/aryasoni98/alertkube/blob/master/SECURITY.md
   artifacthub.io/images: |
     - name: alertkube
-      image: ghcr.io/aryasoni98/alertkube:v0.2.4
+      image: ghcr.io/aryasoni98/alertkube:v0.3.0
   artifacthub.io/maintainers: |
     - name: Arya Soni
       email: aryasoni98@gmail.com

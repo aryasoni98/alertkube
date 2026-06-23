@@ -4,13 +4,13 @@ Deploys [alertkube](https://github.com/aryasoni98/alertkube) — a Kubernetes
 multi-resource alerting controller — with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
-![Version: 0.2.4](https://img.shields.io/badge/Version-0.2.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.4](https://img.shields.io/badge/AppVersion-0.2.4-informational?style=flat-square)
+![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.0](https://img.shields.io/badge/AppVersion-0.3.0-informational?style=flat-square)
 
 ## Install
 
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
-  --version 0.2.4 \
+  --version 0.3.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -49,6 +49,38 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | affinity | object | `{}` | Affinity rules for scheduling. |
 | api.token | string | `""` | Optional bearer token guarding `/api/alerts` (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API token (`{key, name}`). |
+| automountServiceAccountToken | bool | `true` | Mount the ServiceAccount API token into the pod. |
+| aws.acm | bool | `false` | Alert on ACM certificates that are unusable or expiring within 30 days. |
+| aws.asg | bool | `false` | Alert on Auto Scaling Groups below desired healthy capacity. |
+| aws.aurora | bool | `false` | Alert on Aurora DB clusters in an unhealthy state. |
+| aws.cloudtrail | bool | `false` | Alert on CloudTrail security changes (security-group / S3-policy / IAM). |
+| aws.cloudtrailEvents | list | `[]` | Override CloudTrail event names to watch (empty = curated security set). |
+| aws.cloudwatch | bool | `false` | Alert on CloudWatch alarms in ALARM state (covers EC2/ALB/NLB/RDS/custom metrics). |
+| aws.dynamodb | bool | `false` | Alert on DynamoDB table status (inaccessible-encryption / archived). |
+| aws.ebs | bool | `false` | Alert on EBS volumes whose status check is impaired. |
+| aws.ec2 | bool | `false` | Alert on EC2 instance system/instance status-check failures. |
+| aws.efs | bool | `false` | Alert on EFS file systems in the error lifecycle state. |
+| aws.eks | bool | `false` | Alert on EKS cluster discovery + control-plane health. |
+| aws.elasticache | bool | `false` | Alert on ElastiCache cluster status (incompatible-network / restore-failed). |
+| aws.elbv2 | bool | `false` | Alert on ALB/NLB availability + target-group health (ELBv2). |
+| aws.enabled | bool | `false` | Enable polling AWS APIs for cloud alerts (per-service toggles below:    EKS, CloudWatch, EC2, ELBv2, RDS, DynamoDB, ElastiCache, S3, CloudTrail,    ASG, KMS, EBS, Aurora, NAT, EFS, Route53, ACM, VPN). |
+| aws.kms | bool | `false` | Alert on customer-managed KMS keys in a risky state (pending-deletion/disabled). |
+| aws.nat | bool | `false` | Alert on NAT gateways in the failed state. |
+| aws.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
+| aws.rds | bool | `false` | Alert on RDS DB instance status (failed/storage-full/stopped/...). |
+| aws.regions | list | `[]` | AWS regions to poll. Required when aws.enabled is true. |
+| aws.route53 | bool | `false` | Alert on Route53 health checks failing from a majority of checkers. |
+| aws.s3 | bool | `false` | Alert on S3 buckets that are publicly accessible or not fully blocked. |
+| aws.vpn | bool | `false` | Alert on Site-to-Site VPN connections with tunnels down. |
+| azure.aks | bool | `false` | Alert on AKS cluster discovery + control-plane health. |
+| azure.enabled | bool | `false` | Enable polling Azure APIs for cloud alerts (per-service toggles below:    AKS, Monitor, VMs, Storage, SQL, Redis). |
+| azure.monitor | bool | `false` | Ingest fired Azure Monitor alerts (Alerts Management): Fired pages, Resolved resolves. |
+| azure.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
+| azure.redis | bool | `false` | Alert on Azure Cache for Redis in a failed provisioning state. |
+| azure.sql | bool | `false` | Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible). |
+| azure.storage | bool | `false` | Alert on Azure Storage account primary-endpoint unavailability. |
+| azure.subscriptions | list | `[]` | Azure subscription IDs to poll. Required when azure.enabled is true. |
+| azure.vms | bool | `false` | Alert on Azure VM provisioning failures. |
 | behavior.disableAnnotationSilences | bool | `false` | Ignore `alert-silence-until` pod annotations (anti-self-silence). |
 | behavior.disableLogCollection | bool | `false` | Disable previous-container log collection for alert enrichment. |
 | behavior.ignoreRestartCount | int | `30` | Restart count above which CrashLoopBackOff stops re-alerting. |
@@ -62,11 +94,19 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |
 | escalations | list | `[]` | Escalation rules; re-dispatch unresolved alerts to extra sinks after a delay. |
 | extraArgs | list | `[]` | Extra arguments appended to the controller command line. |
+| extraEnv | list | `[]` | Extra environment variables for the controller container. Use this to inject static AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) when not using IRSA, or any other sink credential by env. |
 | filters.ignoredNamespaces | string | `""` | Comma-separated namespaces to ignore. |
 | filters.ignoredPodNamePrefixes | string | `""` | Comma-separated pod-name prefixes to ignore. |
 | filters.watchedNamespaces | string | `""` | Comma-separated namespaces to watch (empty = all). |
 | filters.watchedPodNamePrefixes | string | `""` | Comma-separated pod-name prefixes to watch. |
 | fullnameOverride | string | `""` | Override the full resource name. |
+| gcp.cloudsql | bool | `false` | Alert on Cloud SQL instance state (failed/suspended/maintenance). |
+| gcp.compute | bool | `false` | Alert on Compute Engine instances in REPAIRING state. |
+| gcp.enabled | bool | `false` | Enable polling Google Cloud APIs for cloud alerts (per-service toggles    below: GKE, Monitoring, Compute, CloudSQL). |
+| gcp.gke | bool | `false` | Alert on GKE cluster discovery + health. |
+| gcp.monitoring | bool | `false` | Cloud Monitoring posture: alert when an alert policy is disabled (not a fired-incident feed). |
+| gcp.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
+| gcp.projects | list | `[]` | GCP project IDs to poll. Required when gcp.enabled is true. |
 | genericWebhook.signingSecret | string | `""` | Optional HMAC-SHA256 signing key for request signatures. |
 | genericWebhook.url | string | `""` | Endpoint that receives the raw Alert JSON via POST. |
 | genericWebhook.urlSecretKeyRef | object | `{}` | Secret reference for the webhook URL (`{key, name}`). |
@@ -120,7 +160,9 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | resources.limits | object | `{"cpu":"200m","memory":"256Mi"}` | Resource limits. |
 | resources.requests | object | `{"cpu":"50m","memory":"64Mi"}` | Resource requests. |
 | routing | list | `[{"match":{"severity":"critical"},"sinks":["slack","pagerduty"]},{"match":{"severity":"warning"},"sinks":["slack"]},{"match":{"severity":"info"},"sinks":["slack"]}]` | Routing rules mapping alert matches to sinks (rendered into the ConfigMap). |
+| rules | list | `[]` | Custom correlation rules; each fires a derived alert (kind Derived) when its condition holds. Exactly one of count/all/absent per rule. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65532}` | Container-level security context. |
+| serviceAccount.annotations | object | `{}` | Extra annotations on the controller ServiceAccount. For AWS IRSA set `eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<role>`. |
 | severityOverrides | list | `[]` | Severity remap rules applied before dedupe/routing (first match wins). |
 | silences | list | `[]` | Standing silence rules. |
 | sinkRates | object | `{}` | Per-sink token-bucket rate overrides (default 1 msg/s, burst 5). |

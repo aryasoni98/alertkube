@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/aryasoni98/alertkube/compare/v0.2.4...v0.3.0) (2026-06-23)
+
 ### Added
 
 * **sources:** experimental multi-cloud alert sources that poll provider
@@ -26,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   N-within-window), `All` (composite AND), `Absent` (heartbeat /
   dead-man's-switch). Derived alerts run through the standard pipeline and
   cannot trigger themselves.
+
+### Fixed
+
+* **lint:** use `errors.Is` for the GCP monitoring iterator sentinel
+  (`errorlint`) and annotate the intentional non-fatal DNS-resolution return
+  in `internal/httpx` (`nilerr`) so `golangci-lint` passes clean.
+* **helm:** regenerate `helm/README.md` from `values.yaml` so the helm-docs
+  drift check passes — the new cloud-source toggles and `extraEnv` values were
+  undocumented.
 
 > **Stability:** cloud sources and the rules engine are **experimental**. They
 > are covered by unit tests against recorded SDK responses but have not yet
