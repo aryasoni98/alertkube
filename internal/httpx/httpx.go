@@ -208,7 +208,7 @@ func guardDest(ctx context.Context, dest string) error {
 	// failure is not fatal - the real dial will surface it with context.
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // resolution failure is non-fatal; the real dial surfaces it with context
 	}
 	for _, a := range addrs {
 		if cerr := check(a.IP); cerr != nil {

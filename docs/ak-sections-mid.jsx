@@ -5,6 +5,7 @@ const midFM = window.FramerMotion || {};
 const AK_ARCH_IMAGE = "https://raw.githubusercontent.com/aryasoni98/alertkube/master/.github/alertkube.png";
 
 const AK_ARCH_RESOURCES = ["Pods", "Nodes", "Deployments", "PVCs", "Jobs", "CronJobs", "StatefulSets", "DaemonSets", "HPA"];
+const AK_ARCH_CLOUD = ["AWS", "Azure", "GCP"];
 const AK_ARCH_STEPS = [
   ["Watch", "shared informers stream resource state"],
   ["Collect", "events + describe payloads become alerts"],
@@ -38,14 +39,14 @@ function AKArchitecture() {
         />
         <Reveal>
           <div className="ak-arch-layout">
-            <div className="ak-arch-board" role="img" aria-label="Animated AlertKube architecture workflow from cluster sources to sinks and storage">
+            <div className="ak-arch-board" role="img" aria-label="Animated AlertKube architecture workflow from cluster and cloud sources to sinks and storage">
               <div className="ak-arch-glow ak-arch-glow--blue" aria-hidden="true"></div>
               <div className="ak-arch-glow ak-arch-glow--green" aria-hidden="true"></div>
 
               <div className="ak-arch-row ak-arch-row--sources">
                 <div className="ak-arch-band-label">
                   <span>01</span>
-                  Cluster sources
+                  Signal sources
                 </div>
                 <div className="ak-arch-entry">
                   <AKArchNode icon="target" title="Operator / kubectl" sub="read-only intent" compact />
@@ -54,6 +55,12 @@ function AKArchitecture() {
                 </div>
                 <div className="ak-arch-resource-cloud">
                   {AK_ARCH_RESOURCES.map((r) => <span key={r} className="ak-arch-chip">{r}</span>)}
+                </div>
+                <div className="ak-arch-entry">
+                  <AKArchNode icon="cloud" title="Cloud control planes" sub="optional polling · experimental" tone="info" />
+                </div>
+                <div className="ak-arch-resource-cloud">
+                  {AK_ARCH_CLOUD.map((r) => <span key={r} className="ak-arch-chip">{r}</span>)}
                 </div>
               </div>
 
@@ -326,4 +333,51 @@ function AKSinks() {
   );
 }
 
-Object.assign(window, { AKArchitecture, AKWatchers, AKMetricsBand, AKSinks });
+/* ----------------------------- CLOUD SOURCES ----------------------------- */
+const AK_CLOUD = [
+  {
+    n: "AWS", count: 18, cred: "Standard AWS credential chain - IRSA in-cluster, or static keys via env.",
+    services: ["EKS", "CloudWatch", "EC2", "ELBv2", "RDS", "Aurora", "DynamoDB", "ElastiCache", "S3", "CloudTrail", "ASG", "KMS", "EBS", "EFS", "NAT", "Route53", "ACM", "VPN"],
+  },
+  {
+    n: "Azure", count: 6, cred: "DefaultAzureCredential - AKS Workload Identity in-cluster.",
+    services: ["AKS", "Monitor", "VMs", "Storage", "SQL", "Redis"],
+  },
+  {
+    n: "GCP", count: 4, cred: "Application Default Credentials - GKE Workload Identity in-cluster.",
+    services: ["GKE", "Monitoring", "Compute", "Cloud SQL"],
+  },
+];
+
+function AKCloudSources() {
+  return (
+    <section id="cloud" className="wk-section" data-screen-label="Cloud sources">
+      <div className="wk-wrap">
+        <AKHead
+          eyebrow="Cloud sources"
+          title="Twenty-eight cloud sources. Same pipeline."
+          sub="Beyond the cluster, AlertKube polls AWS, Azure, and GCP control planes - every cloud signal flows through the same dedupe, route, group, dispatch path as the Kubernetes watchers. Each service is an independent, off-by-default toggle. Experimental."
+        />
+        <Reveal>
+          <div className="ak-wgrid">
+            {AK_CLOUD.map((c) => (
+              <div key={c.n} className="ak-wtile">
+                <div className="thead">
+                  <span className="ic-chip"><Icon name="cloud" size={16} /></span>
+                  <span className="file">{c.count} sources</span>
+                </div>
+                <h3>{c.n}</h3>
+                <p>{c.cred}</p>
+                <div className="tags">
+                  {c.services.map((t) => <span key={t} className="ak-tag">{t}</span>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+Object.assign(window, { AKArchitecture, AKWatchers, AKMetricsBand, AKSinks, AKCloudSources });

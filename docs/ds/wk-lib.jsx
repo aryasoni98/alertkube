@@ -17,6 +17,7 @@ function Icon({ name, size = 18, stroke = 1.75, className = "", style }) {
     chart: <path {...p} d="M3 3v18h18M7 15l3-3 4 4 6-7"/>,
     ring: <circle {...p} cx="12" cy="12" r="9"/>,
     grid: <><rect {...p} x="3" y="3" width="7" height="7"/><rect {...p} x="14" y="3" width="7" height="7"/><rect {...p} x="3" y="14" width="7" height="7"/><rect {...p} x="14" y="14" width="7" height="7"/></>,
+    cloud: <path {...p} d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/>,
     zap: <path {...p} d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>,
     bell: <><path {...p} d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path {...p} d="M10 21a2 2 0 0 0 4 0"/></>,
     layers: <path {...p} d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>,
