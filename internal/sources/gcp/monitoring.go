@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
@@ -28,7 +29,7 @@ func (l *apiPolicyLister) List(ctx context.Context, project string) ([]*monitori
 	var out []*monitoringpb.AlertPolicy
 	for {
 		p, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
