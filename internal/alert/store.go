@@ -77,6 +77,26 @@ func (s *Store) ShouldSend(a *Alert) bool {
 	return true
 }
 
+// ShouldSendEvent reports whether an ephemeral event alert should be forwarded,
+// deduplicating by fingerprint within the mute window. Unlike ShouldSend it
+// never adds the alert to the active set and never sets a resolve TTL: a
+// point-in-time event (e.g. a CloudTrail management event, fingerprinted by its
+// unique EventId) has nothing to resolve, so it must not linger in the active
+// set or emit a synthetic resolve when a TTL elapses. The send is recorded in
+// the recent ring (for /api/alerts) and the lastSent map, which CleanOldHistory
+// evicts after 2*muteWindow like any other dedupe record.
+func (s *Store) ShouldSendEvent(a *Alert) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.lastSent[a.Fingerprint]; ok && time.Since(last) < s.muteWindow {
+		return false
+	}
+	s.lastSent[a.Fingerprint] = time.Now()
+	s.recordRecentLocked(a)
+	s.gen++
+	return true
+}
+
 // MarkFailed forgets dedupe state for a fingerprint after a total delivery
 // failure so the next firing retries instead of being muted for the whole
 // mute window.

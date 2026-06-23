@@ -37,6 +37,55 @@ data:
     persistence:
       enabled: {{ .Values.persistence.enabled }}
       configMapName: {{ .Values.persistence.configMapName | default (printf "%s-state" (include "alertkube.fullname" .)) | quote }}
+    {{- if .Values.aws.enabled }}
+    aws:
+      enabled: true
+      regions: {{ toJson .Values.aws.regions }}
+      pollSeconds: {{ .Values.aws.pollSeconds | default 60 }}
+      eks: {{ .Values.aws.eks | default false }}
+      cloudwatch: {{ .Values.aws.cloudwatch | default false }}
+      ec2: {{ .Values.aws.ec2 | default false }}
+      elbv2: {{ .Values.aws.elbv2 | default false }}
+      rds: {{ .Values.aws.rds | default false }}
+      dynamodb: {{ .Values.aws.dynamodb | default false }}
+      elasticache: {{ .Values.aws.elasticache | default false }}
+      s3: {{ .Values.aws.s3 | default false }}
+      cloudtrail: {{ .Values.aws.cloudtrail | default false }}
+      asg: {{ .Values.aws.asg | default false }}
+      kms: {{ .Values.aws.kms | default false }}
+      ebs: {{ .Values.aws.ebs | default false }}
+      aurora: {{ .Values.aws.aurora | default false }}
+      nat: {{ .Values.aws.nat | default false }}
+      efs: {{ .Values.aws.efs | default false }}
+      route53: {{ .Values.aws.route53 | default false }}
+      acm: {{ .Values.aws.acm | default false }}
+      vpn: {{ .Values.aws.vpn | default false }}
+      {{- with .Values.aws.cloudtrailEvents }}
+      cloudtrailEvents: {{ toJson . }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.azure.enabled }}
+    azure:
+      enabled: true
+      subscriptions: {{ toJson .Values.azure.subscriptions }}
+      pollSeconds: {{ .Values.azure.pollSeconds | default 60 }}
+      aks: {{ .Values.azure.aks | default false }}
+      monitor: {{ .Values.azure.monitor | default false }}
+      vms: {{ .Values.azure.vms | default false }}
+      storage: {{ .Values.azure.storage | default false }}
+      sql: {{ .Values.azure.sql | default false }}
+      redis: {{ .Values.azure.redis | default false }}
+    {{- end }}
+    {{- if .Values.gcp.enabled }}
+    gcp:
+      enabled: true
+      projects: {{ toJson .Values.gcp.projects }}
+      pollSeconds: {{ .Values.gcp.pollSeconds | default 60 }}
+      gke: {{ .Values.gcp.gke | default false }}
+      monitoring: {{ .Values.gcp.monitoring | default false }}
+      compute: {{ .Values.gcp.compute | default false }}
+      cloudsql: {{ .Values.gcp.cloudsql | default false }}
+    {{- end }}
     channels:
       critical: {{ .Values.slack.channels.critical | quote }}
       warning:  {{ .Values.slack.channels.warning | quote }}
@@ -55,3 +104,7 @@ data:
 {{ toYaml .Values.inhibitions | indent 6 }}
     silences:
 {{ toYaml .Values.silences | indent 6 }}
+    {{- with .Values.rules }}
+    rules:
+{{ toYaml . | indent 6 }}
+    {{- end }}

@@ -9,12 +9,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/authz"
 	"alertkube/internal/metrics"
 )
+
+// fingerprintOK constrains the upstream-supplied fingerprint to a safe
+// identifier shape. The fingerprint is later used as an Opsgenie alias in a
+// URL path, so an unbounded/special-char value from an open or forwarded
+// receiver could otherwise inject path/query separators (CWE-88). A
+// rejected value falls back to the locally computed fingerprint.
+var fingerprintOK = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // maxBodyBytes bounds the request body; Alertmanager batches are small
 // and anything larger is abuse.
@@ -103,8 +111,12 @@ func toAlert(am AMAlert) *alert.Alert {
 	name := firstOf(am.Labels, "pod", "instance", "job", "alertname")
 	a := alert.New(alert.KindExternal, am.Labels["namespace"], name, am.Labels["alertname"], severity(am.Labels))
 	// Alertmanager's fingerprint is the upstream dedupe identity; using
-	// it keeps our mute window aligned with upstream group keys.
-	if am.Fingerprint != "" {
+	// it keeps our mute window aligned with upstream group keys. Only
+	// adopt it when it is a safe identifier (see fingerprintOK); an
+	// untrusted sender cannot otherwise smuggle URL metacharacters into
+	// the Opsgenie alias path. Invalid values keep the locally computed
+	// fingerprint that alert.New already set.
+	if fingerprintOK.MatchString(am.Fingerprint) {
 		a.Fingerprint = am.Fingerprint
 	}
 	if s := firstOf(am.Annotations, "summary", "description", "message"); s != "" {

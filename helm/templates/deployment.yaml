@@ -37,6 +37,12 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "alertkube.fullname" . }}
+      # Explicit rather than relying on the cluster default (true). The
+      # controller needs an apiserver token to run informers, so the mount
+      # stays on, but pinning it makes the blast radius of a container
+      # compromise auditable (CWE-250). Override to false only if you inject
+      # credentials another way.
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default true }}
       # Bounds graceful shutdown: the controller drains in-flight pod
       # enrichment, finishes sink sends (up to the per-sink timeout), and
       # saves final state. Must exceed that worst case so SIGKILL does not
@@ -121,6 +127,9 @@ spec:
               {{- include "alertkube.genericWebhookUrl" . | indent 14 }}
             - name: METRICS_ADDR
               value: ":{{ .Values.metrics.port }}"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.metrics.port }}

@@ -5,6 +5,9 @@ kind: ServiceAccount
 metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
 ---
 {{- if $clusterScope }}
 apiVersion: rbac.authorization.k8s.io/v1
