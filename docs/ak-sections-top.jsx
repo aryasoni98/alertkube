@@ -11,6 +11,7 @@ function AKNav({ theme, setTheme }) {
     { label: "Architecture", href: "#architecture" },
     { label: "Severity", href: "#severity" },
     { label: "Watchers", href: "#watchers" },
+    { label: "Cloud", href: "#cloud" },
     { label: "Sinks", href: "#sinks" },
     { label: "Install", href: "#install" },
     { label: "Changelog", href: "#changelog" },

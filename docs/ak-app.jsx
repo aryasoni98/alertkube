@@ -28,6 +28,7 @@ function AKApp() {
       <AKArchitecture />
       <AKSeverity />
       <AKWatchers />
+      <AKCloudSources />
       <AKMetricsBand />
       <AKSinks />
       <AKConfig />
