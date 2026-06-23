@@ -72,6 +72,46 @@ const (
 	KindStatefulSet Kind = "StatefulSet"
 	KindCronJob     Kind = "CronJob"
 	KindHPA         Kind = "HorizontalPodAutoscaler"
+	// AWS cloud-source kinds. Unlike the workload kinds above (produced by
+	// informer-driven watchers), these are produced by the polled AWS
+	// sources in internal/sources/aws. Namespace carries the AWS region and
+	// Name carries the resource identifier (cluster name, alarm name,
+	// instance id), so a resolve targets exactly one cloud resource.
+	KindEKSCluster         Kind = "EKSCluster"
+	KindCloudWatchAlarm    Kind = "CloudWatchAlarm"
+	KindEC2Instance        Kind = "EC2Instance"
+	KindLoadBalancer       Kind = "LoadBalancer"
+	KindTargetGroup        Kind = "TargetGroup"
+	KindRDSInstance        Kind = "RDSInstance"
+	KindDynamoDBTable      Kind = "DynamoDBTable"
+	KindElastiCacheCluster Kind = "ElastiCacheCluster"
+	KindS3Bucket           Kind = "S3Bucket"
+	KindCloudTrailEvent    Kind = "CloudTrailEvent"
+	KindAKSCluster         Kind = "AKSCluster"
+	KindGKECluster         Kind = "GKECluster"
+	KindAzureMonitorAlert  Kind = "AzureMonitorAlert"
+	KindGCPAlertPolicy     Kind = "GCPAlertPolicy"
+	KindEKSNodegroup       Kind = "EKSNodegroup"
+	KindAKSNodePool        Kind = "AKSNodePool"
+	KindGKENodePool        Kind = "GKENodePool"
+	KindAzureVM            Kind = "AzureVM"
+	KindGCEInstance        Kind = "GCEInstance"
+	KindCloudSQLInstance   Kind = "CloudSQLInstance"
+	KindASG                Kind = "AutoScalingGroup"
+	KindKMSKey             Kind = "KMSKey"
+	KindAzureStorage       Kind = "AzureStorageAccount"
+	KindEBSVolume          Kind = "EBSVolume"
+	KindAuroraCluster      Kind = "AuroraCluster"
+	KindNATGateway         Kind = "NATGateway"
+	KindEFSFileSystem      Kind = "EFSFileSystem"
+	KindRoute53HealthCheck Kind = "Route53HealthCheck"
+	KindACMCertificate     Kind = "ACMCertificate"
+	KindVPNConnection      Kind = "VPNConnection"
+	KindAzureSQLDatabase   Kind = "AzureSQLDatabase"
+	KindAzureRedis         Kind = "AzureRedisCache"
+	// KindDerived marks an alert produced by a user-authored rule
+	// (internal/rules) correlating other alerts, not by a watcher or source.
+	KindDerived Kind = "Derived"
 	// KindExternal marks alerts ingested through the Alertmanager
 	// webhook receiver rather than produced by a watcher.
 	KindExternal Kind = "External"
@@ -82,7 +122,18 @@ const (
 func (k Kind) Valid() bool {
 	switch k {
 	case KindPod, KindNode, KindDeployment, KindPVC, KindJob, KindDaemonSet,
-		KindStatefulSet, KindCronJob, KindHPA, KindExternal:
+		KindStatefulSet, KindCronJob, KindHPA, KindExternal,
+		KindEKSCluster, KindCloudWatchAlarm, KindEC2Instance,
+		KindLoadBalancer, KindTargetGroup, KindRDSInstance,
+		KindDynamoDBTable, KindElastiCacheCluster, KindS3Bucket, KindCloudTrailEvent,
+		KindAKSCluster, KindGKECluster, KindAzureMonitorAlert, KindGCPAlertPolicy,
+		KindEKSNodegroup, KindAKSNodePool, KindGKENodePool,
+		KindAzureVM, KindGCEInstance, KindCloudSQLInstance, KindDerived,
+		KindASG, KindKMSKey, KindAzureStorage,
+		KindEBSVolume, KindAuroraCluster, KindNATGateway,
+		KindEFSFileSystem, KindRoute53HealthCheck,
+		KindACMCertificate, KindVPNConnection,
+		KindAzureSQLDatabase, KindAzureRedis:
 		return true
 	}
 	return false
@@ -120,6 +171,12 @@ type Alert struct {
 	StartsAt    time.Time
 	EndsAt      time.Time
 	Resolved    bool
+	// Event marks an ephemeral, point-in-time alert (e.g. a CloudTrail
+	// management event) rather than a standing condition. The emitter dedupes
+	// it by Fingerprint and dispatches once, but never adds it to the active
+	// set and never emits a synthetic resolve for it - a "security group was
+	// modified" notification has nothing to resolve.
+	Event bool
 }
 
 // Clone returns a deep copy whose Labels, Annotations, and Details maps are

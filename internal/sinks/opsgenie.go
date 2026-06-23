@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"os"
 
 	"alertkube/internal/alert"
@@ -49,8 +50,11 @@ func (*OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 	if a.Resolved {
 		// Close by alias; Opsgenie returns 202 for unknown aliases, so a
 		// close for an alert that never opened (severity gate, restart)
-		// is harmless.
-		url = fmt.Sprintf("%s/v2/alerts/%s/close?identifierType=alias", base, a.Fingerprint)
+		// is harmless. PathEscape the fingerprint: built-in fingerprints
+		// are 12 hex chars, but a receiver-ingested Alertmanager
+		// fingerprint is externally influenced and could otherwise inject
+		// `?`/`#`/`/` into the request path (CWE-88).
+		url = fmt.Sprintf("%s/v2/alerts/%s/close?identifierType=alias", base, neturl.PathEscape(a.Fingerprint))
 		payload = map[string]any{"source": a.Cluster, "note": "resolved by alertkube"}
 	} else {
 		url = base + "/v2/alerts"

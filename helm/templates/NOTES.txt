@@ -1,0 +1,47 @@
+alertkube {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+The controller is now watching {{ if eq (.Values.rbac.scope | default "cluster") "namespace" }}namespace "{{ .Release.Namespace }}"{{ else }}the whole cluster{{ end }} and dispatching alerts to the configured sinks.
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "alertkube.fullname" . }}
+
+==================================  SECURITY  ==================================
+{{- $warn := false }}
+{{- if and (not .Values.api.token) (not .Values.api.tokenSecretKeyRef.name) }}
+{{- $warn = true }}
+
+[!] /api/alerts is UNAUTHENTICATED.
+    No api.token is set, so the read-only introspection endpoint on the
+    metrics port (:{{ .Values.metrics.port }}) exposes active and recent alert
+    contents (namespaces, workload names, summaries) to anyone who can reach
+    the port. Set `api.token` / `api.tokenSecretKeyRef`, or restrict the port
+    with `networkPolicy.enabled=true`.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+{{- $warn = true }}
+
+[!] No NetworkPolicy.
+    networkPolicy.enabled=false, so /metrics and /api/alerts are reachable
+    from anywhere the pod network allows. Enable it (with
+    networkPolicy.apiServer.cidrs set) to limit who can scrape the metrics
+    port and to bound controller egress to your sinks.
+{{- end }}
+{{- $inline := false }}
+{{- range $v := list .Values.api.token .Values.receiver.token .Values.slack.webhookUrl .Values.slack.botToken .Values.opsgenie.apiKey .Values.pagerduty.routingKey .Values.teams.webhookUrl .Values.discord.webhookUrl .Values.telegram.botToken .Values.genericWebhook.url .Values.genericWebhook.signingSecret }}
+{{- if $v }}{{ $inline = true }}{{ end }}
+{{- end }}
+{{- if $inline }}
+{{- $warn = true }}
+
+[!] Inline credentials in the release Secret.
+    One or more secrets were set inline in values. They are stored
+    base64-encoded (NOT encrypted) in the release Secret and are visible via
+    `helm get manifest` and any CI logs that render the chart. For production
+    use the `*SecretKeyRef` fields to reference a pre-existing Secret instead.
+{{- end }}
+{{- if not $warn }}
+
+No default-posture security warnings. /api/alerts is token-guarded,
+NetworkPolicy is enabled, and no inline credentials were detected.
+{{- end }}
+===============================================================================

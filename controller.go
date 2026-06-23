@@ -21,7 +21,12 @@ import (
 	"alertkube/internal/persist"
 	"alertkube/internal/receiver"
 	"alertkube/internal/router"
+	"alertkube/internal/rules"
 	"alertkube/internal/sinks"
+	"alertkube/internal/sources"
+	awssource "alertkube/internal/sources/aws"
+	azuresource "alertkube/internal/sources/azure"
+	gcpsource "alertkube/internal/sources/gcp"
 	"alertkube/internal/watchers"
 )
 
@@ -114,7 +119,17 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		}
 	}
 
-	emit := makeEmitter(store, r, reg, cfg, grouper)
+	// The rule engine observes the firing stream and emits derived alerts back
+	// through emit. ruleEngine is captured by emit's observe callback (assigned
+	// just below), and derived alerts are tagged KindDerived so Observe ignores
+	// them - no feedback loop.
+	var ruleEngine *rules.Engine
+	emit := makeEmitter(store, r, reg, cfg, grouper, func(a *alert.Alert) {
+		if ruleEngine != nil {
+			ruleEngine.Observe(a)
+		}
+	})
+	ruleEngine = rules.New(cfg.Rules, emit)
 
 	// Read-only view of the active set + recent history for dashboards and
 	// debugging. It dumps alert contents (names, namespaces, summaries), so
@@ -158,6 +173,44 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 			defer wg.Done()
 			grouper.Run(grouperCtx) // FlushAll on grouperStop drains open windows
 		}()
+	}
+
+	// Optional cloud sources (AWS/Azure/GCP) run beside the informers on the
+	// same emit pipeline. Each provider's construction can fail (credentials/
+	// config), but that must never take down the Kubernetes watchers: log and
+	// continue without that provider.
+	startCloud := func(name string, pollSeconds int, build func(context.Context) ([]sources.Source, error)) {
+		srcs, err := build(ctx)
+		if err != nil {
+			klog.Errorf("%s sources disabled (continuing without them): %v", name, err)
+			return
+		}
+		if len(srcs) == 0 {
+			return
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sources.Run(ctx, time.Duration(pollSeconds)*time.Second, emit, srcs...)
+		}()
+		klog.Infof("%s sources enabled: %d source(s), polling every %ds", name, len(srcs), pollSeconds)
+	}
+	if cfg.AWS.Enabled {
+		startCloud("aws", cfg.AWS.PollSeconds, func(c context.Context) ([]sources.Source, error) { return awssource.NewProvider(c, cfg) })
+	}
+	if cfg.Azure.Enabled {
+		startCloud("azure", cfg.Azure.PollSeconds, func(c context.Context) ([]sources.Source, error) { return azuresource.NewProvider(c, cfg) })
+	}
+	if cfg.GCP.Enabled {
+		startCloud("gcp", cfg.GCP.PollSeconds, func(c context.Context) ([]sources.Source, error) { return gcpsource.NewProvider(c, cfg) })
+	}
+	if ruleEngine.Enabled() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ruleEngine.Run(ctx) // evaluates Absent (heartbeat) rules on a timer
+		}()
+		klog.Infof("rule engine enabled: %d rule(s)", len(cfg.Rules))
 	}
 
 	<-ctx.Done()
@@ -325,7 +378,7 @@ func drainWatchers(ws []watchers.Watcher, timeout time.Duration) {
 	}
 }
 
-func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper) watchers.Emit {
+func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {
 	// controllerStart is intentionally per-leadership-acquisition, not
 	// process start: each runController builds fresh informers whose initial
 	// sync re-fires every standing condition. The grace window must cover
@@ -353,6 +406,30 @@ func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg 
 			}
 		}
 		metrics.AlertsTotal.WithLabelValues(string(a.Kind), string(a.Severity), a.Reason).Inc()
+		// Ephemeral event alerts (e.g. CloudTrail management events) are
+		// point-in-time facts, not standing conditions: dedupe by fingerprint
+		// and dispatch once, but never enter the active set, never get a TTL
+		// resolve, and never open a stateful incident (dropStateful) - an
+		// incident with no resolve would dangle forever. They bypass the
+		// startup-grace seed (a restart re-notify is already prevented by the
+		// persisted lastSent map) and grouping (discrete events are not folded
+		// into a condition summary).
+		if a.Event {
+			if !store.ShouldSendEvent(a) {
+				metrics.AlertsSuppressed.WithLabelValues("muted").Inc()
+				return
+			}
+			if observe != nil {
+				observe(a)
+			}
+			route := dropStateful(r.Route(a))
+			if len(route) == 0 {
+				return
+			}
+			cp := *a
+			dispatch(reg, &cp, route)
+			return
+		}
 		// Startup grace: conditions that pre-date this process (informer
 		// initial sync re-fires every standing CrashLoop on restart) are
 		// seeded into the mute window instead of re-paging.
@@ -369,6 +446,9 @@ func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg 
 			// dependent alert storm leaks through.
 			r.ArmInhibitions(a)
 			return
+		}
+		if observe != nil {
+			observe(a)
 		}
 		route := r.Route(a)
 		if route == nil {

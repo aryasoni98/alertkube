@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* **sources:** experimental multi-cloud alert sources that poll provider
+  control planes and flow through the same dedupe → route → group → sink
+  pipeline as the Kubernetes watchers. Each service is an independent,
+  off-by-default toggle:
+  * **AWS** (18 sources): EKS, CloudWatch, EC2, ELBv2, RDS, DynamoDB,
+    ElastiCache, S3, CloudTrail, ASG, KMS, EBS, Aurora, NAT, EFS, Route53,
+    ACM, VPN. Credentials via the standard AWS chain (IRSA in-cluster).
+  * **Azure** (6 sources): AKS, Monitor (Alerts Management), VMs, Storage,
+    SQL, Redis. Credentials via DefaultAzureCredential (AKS Workload Identity).
+  * **GCP** (4 sources): GKE, Monitoring (alert-policy posture), Compute,
+    Cloud SQL. Credentials via Application Default Credentials (GKE Workload
+    Identity).
+* **rules:** user-authored correlation rules engine (`internal/rules`)
+  evaluated against the live alert stream. Three shapes — `Count` (storm /
+  N-within-window), `All` (composite AND), `Absent` (heartbeat /
+  dead-man's-switch). Derived alerts run through the standard pipeline and
+  cannot trigger themselves.
+
+> **Stability:** cloud sources and the rules engine are **experimental**. They
+> are covered by unit tests against recorded SDK responses but have not yet
+> been validated against live cloud accounts at scale. The Kubernetes watchers
+> remain the stable, production-proven core.
+
 ## [0.2.4](https://github.com/aryasoni98/alertkube/compare/v0.2.3...v0.2.4) (2026-06-19)
 
 

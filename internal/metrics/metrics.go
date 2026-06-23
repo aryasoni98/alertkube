@@ -64,10 +64,18 @@ var (
 		prometheus.CounterOpts{Name: "alertkube_received_alerts_total", Help: "Alerts accepted by the webhook receiver, by status."},
 		[]string{"status"},
 	)
+	// CloudPollErrors counts failed cloud-provider API calls per source
+	// (e.g. aws-eks, aws-cloudwatch, aws-ec2). A rising value means a
+	// region/credential/permission problem is blinding a cloud source while
+	// the in-cluster watchers keep running.
+	CloudPollErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "alertkube_cloud_poll_errors_total", Help: "Cloud provider poll errors by source."},
+		[]string{"source"},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors)
 }
 
 // alertsHandler and receiverHandler are installed after the server

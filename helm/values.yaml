@@ -18,8 +18,20 @@ leaderElection:
   # -- Namespace for the Lease (defaults to the release namespace).
   namespace: ""
 
+# Mounts the ServiceAccount token used to reach the apiserver. The
+# controller needs it for informers, so this stays true; it is exposed as a
+# value (and set explicitly on the pod) so the mount is auditable rather
+# than implicit, and can be disabled if credentials are injected another way.
+# -- Mount the ServiceAccount API token into the pod.
+automountServiceAccountToken: true
+
 # -- Extra arguments appended to the controller command line.
 extraArgs: []
+
+# -- Extra environment variables for the controller container. Use this to
+# inject static AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+# when not using IRSA, or any other sink credential by env.
+extraEnv: []
 
 # cluster: ClusterRole, watches all namespaces + nodes.
 # namespace: Role limited to the release namespace; informers are scoped
@@ -193,6 +205,119 @@ persistence:
   # -- State ConfigMap name (defaults to `<fullname>-state`).
   configMapName: ""
 
+# AWS cloud sources poll AWS APIs for cloud-resource alerts alongside the
+# in-cluster Kubernetes watchers. Credentials resolve via the standard AWS
+# chain; the recommended in-cluster setup is IRSA - annotate the
+# ServiceAccount with the IAM role ARN via serviceAccount.annotations.
+# pollSeconds must stay below behavior.resolveTTLSeconds.
+#
+# EXPERIMENTAL (new in v0.3): cloud sources are validated against recorded SDK
+# responses, not yet against live AWS accounts at scale. Toggle per service.
+aws:
+  # -- Enable polling AWS APIs for cloud alerts (per-service toggles below:
+  #    EKS, CloudWatch, EC2, ELBv2, RDS, DynamoDB, ElastiCache, S3, CloudTrail,
+  #    ASG, KMS, EBS, Aurora, NAT, EFS, Route53, ACM, VPN).
+  enabled: false
+  # -- AWS regions to poll. Required when aws.enabled is true.
+  regions: []
+  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  pollSeconds: 60
+  # -- Alert on EKS cluster discovery + control-plane health.
+  eks: false
+  # -- Alert on CloudWatch alarms in ALARM state (covers EC2/ALB/NLB/RDS/custom metrics).
+  cloudwatch: false
+  # -- Alert on EC2 instance system/instance status-check failures.
+  ec2: false
+  # -- Alert on ALB/NLB availability + target-group health (ELBv2).
+  elbv2: false
+  # -- Alert on RDS DB instance status (failed/storage-full/stopped/...).
+  rds: false
+  # -- Alert on DynamoDB table status (inaccessible-encryption / archived).
+  dynamodb: false
+  # -- Alert on ElastiCache cluster status (incompatible-network / restore-failed).
+  elasticache: false
+  # -- Alert on S3 buckets that are publicly accessible or not fully blocked.
+  s3: false
+  # -- Alert on CloudTrail security changes (security-group / S3-policy / IAM).
+  cloudtrail: false
+  # -- Override CloudTrail event names to watch (empty = curated security set).
+  cloudtrailEvents: []
+  # -- Alert on Auto Scaling Groups below desired healthy capacity.
+  asg: false
+  # -- Alert on customer-managed KMS keys in a risky state (pending-deletion/disabled).
+  kms: false
+  # -- Alert on EBS volumes whose status check is impaired.
+  ebs: false
+  # -- Alert on Aurora DB clusters in an unhealthy state.
+  aurora: false
+  # -- Alert on NAT gateways in the failed state.
+  nat: false
+  # -- Alert on EFS file systems in the error lifecycle state.
+  efs: false
+  # -- Alert on Route53 health checks failing from a majority of checkers.
+  route53: false
+  # -- Alert on ACM certificates that are unusable or expiring within 30 days.
+  acm: false
+  # -- Alert on Site-to-Site VPN connections with tunnels down.
+  vpn: false
+
+# Azure cloud sources poll Azure APIs for cloud-resource alerts. Credentials
+# resolve via DefaultAzureCredential; in-cluster the recommended setup is AKS
+# Workload Identity (set the client-id annotation/labels via serviceAccount and
+# podAnnotations). Subscription-scoped. Disabled by default.
+#
+# EXPERIMENTAL (new in v0.3): cloud sources are validated against recorded SDK
+# responses, not yet against live Azure subscriptions at scale.
+azure:
+  # -- Enable polling Azure APIs for cloud alerts (per-service toggles below:
+  #    AKS, Monitor, VMs, Storage, SQL, Redis).
+  enabled: false
+  # -- Azure subscription IDs to poll. Required when azure.enabled is true.
+  subscriptions: []
+  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  pollSeconds: 60
+  # -- Alert on AKS cluster discovery + control-plane health.
+  aks: false
+  # -- Ingest fired Azure Monitor alerts (Alerts Management): Fired pages, Resolved resolves.
+  monitor: false
+  # -- Alert on Azure VM provisioning failures.
+  vms: false
+  # -- Alert on Azure Storage account primary-endpoint unavailability.
+  storage: false
+  # -- Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible).
+  sql: false
+  # -- Alert on Azure Cache for Redis in a failed provisioning state.
+  redis: false
+
+# GCP cloud sources poll Google Cloud APIs for cloud-resource alerts.
+# Credentials resolve via Application Default Credentials; in-cluster the
+# recommended setup is GKE Workload Identity (annotate serviceAccount with
+# iam.gke.io/gcp-service-account). Project-scoped. Disabled by default.
+#
+# EXPERIMENTAL (new in v0.3): cloud sources are validated against recorded SDK
+# responses, not yet against live GCP projects at scale.
+gcp:
+  # -- Enable polling Google Cloud APIs for cloud alerts (per-service toggles
+  #    below: GKE, Monitoring, Compute, CloudSQL).
+  enabled: false
+  # -- GCP project IDs to poll. Required when gcp.enabled is true.
+  projects: []
+  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  pollSeconds: 60
+  # -- Alert on GKE cluster discovery + health.
+  gke: false
+  # -- Cloud Monitoring posture: alert when an alert policy is disabled (not a fired-incident feed).
+  monitoring: false
+  # -- Alert on Compute Engine instances in REPAIRING state.
+  compute: false
+  # -- Alert on Cloud SQL instance state (failed/suspended/maintenance).
+  cloudsql: false
+
+serviceAccount:
+  # -- Extra annotations on the controller ServiceAccount. For AWS IRSA set
+  # `eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<role>`.
+  annotations: {}
+
 filters:
   # -- Comma-separated namespaces to watch (empty = all).
   watchedNamespaces: ""
@@ -305,6 +430,17 @@ inhibitions:
 
 # -- Standing silence rules.
 silences: []
+
+# -- Custom correlation rules; each fires a derived alert (kind Derived) when
+# its condition holds. Exactly one of count/all/absent per rule.
+rules: []
+  # - name: prod-pod-storm
+  #   severity: critical
+  #   windowSeconds: 300
+  #   count: {match: {namespace: prod, reason: CrashLoopBackOff}, threshold: 5}
+  # - name: watchdog-missing
+  #   severity: critical
+  #   absent: {match: {kind: External, name: watchdog}, forSeconds: 600}
 
 resources:
   # -- Resource limits.

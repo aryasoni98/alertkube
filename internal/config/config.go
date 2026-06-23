@@ -112,11 +112,128 @@ type Config struct {
 		// Downward API in the Helm chart).
 		Namespace string `yaml:"namespace"`
 	} `yaml:"persistence"`
+
+	// AWS enables polling AWS APIs for cloud-resource alerts alongside the
+	// in-cluster Kubernetes watchers. Unlike watchers (informer-driven),
+	// these sources are polled every PollSeconds. Credentials resolve via
+	// the standard AWS chain; in-cluster the recommended setup is IAM Roles
+	// for Service Accounts (IRSA). Disabled by default - alertkube stays a
+	// pure Kubernetes controller unless this is turned on.
+	AWS struct {
+		Enabled bool `yaml:"enabled"`
+		// Regions to poll. Each AWS API call is per-region, so every region
+		// here multiplies the per-poll API call count.
+		Regions []string `yaml:"regions"`
+		// PollSeconds is the interval between polls. Must be below
+		// resolveTTLSeconds or a still-firing alarm false-resolves between
+		// polls (Validate enforces this, mirroring the informer-resync rule).
+		PollSeconds int `yaml:"pollSeconds"`
+		// Source toggles. At least one must be true when Enabled.
+		EKS         bool `yaml:"eks"`
+		CloudWatch  bool `yaml:"cloudwatch"`
+		EC2         bool `yaml:"ec2"`
+		ELBV2       bool `yaml:"elbv2"`
+		RDS         bool `yaml:"rds"`
+		DynamoDB    bool `yaml:"dynamodb"`
+		ElastiCache bool `yaml:"elasticache"`
+		S3          bool `yaml:"s3"`
+		CloudTrail  bool `yaml:"cloudtrail"`
+		// CloudTrailEvents overrides the management event names the CloudTrail
+		// source looks up. Empty uses a curated security set (security-group,
+		// S3 policy/ACL, and IAM mutating events).
+		CloudTrailEvents []string `yaml:"cloudtrailEvents"`
+		ASG              bool     `yaml:"asg"`
+		KMS              bool     `yaml:"kms"`
+		EBS              bool     `yaml:"ebs"`
+		Aurora           bool     `yaml:"aurora"`
+		NAT              bool     `yaml:"nat"`
+		EFS              bool     `yaml:"efs"`
+		Route53          bool     `yaml:"route53"`
+		ACM              bool     `yaml:"acm"`
+		VPN              bool     `yaml:"vpn"`
+	} `yaml:"aws"`
+
+	// Azure enables polling Azure APIs for cloud-resource alerts. Credentials
+	// resolve via the standard Azure chain (DefaultAzureCredential); in-cluster
+	// the recommended setup is AKS Workload Identity. Subscription-scoped (not
+	// region). Disabled by default.
+	Azure struct {
+		Enabled       bool     `yaml:"enabled"`
+		Subscriptions []string `yaml:"subscriptions"`
+		PollSeconds   int      `yaml:"pollSeconds"`
+		AKS           bool     `yaml:"aks"`
+		// Monitor enables ingesting fired Azure Monitor alerts (Alerts
+		// Management): an alert with monitorCondition Fired pages, Resolved
+		// resolves.
+		Monitor bool `yaml:"monitor"`
+		// VMs enables Azure Virtual Machine provisioning-health alerts.
+		VMs bool `yaml:"vms"`
+		// Storage enables Azure Storage account availability alerts.
+		Storage bool `yaml:"storage"`
+		// SQL enables Azure SQL Database health alerts (Suspect/Offline/Inaccessible).
+		SQL bool `yaml:"sql"`
+		// Redis enables Azure Cache for Redis provisioning-health alerts.
+		Redis bool `yaml:"redis"`
+	} `yaml:"azure"`
+
+	// GCP enables polling Google Cloud APIs for cloud-resource alerts.
+	// Credentials resolve via Application Default Credentials; in-cluster the
+	// recommended setup is GKE Workload Identity. Project-scoped. Disabled by
+	// default.
+	GCP struct {
+		Enabled     bool     `yaml:"enabled"`
+		Projects    []string `yaml:"projects"`
+		PollSeconds int      `yaml:"pollSeconds"`
+		GKE         bool     `yaml:"gke"`
+		// Monitoring enables a Cloud Monitoring posture source: it alerts when
+		// an alert policy is disabled. GCP's Go SDK exposes no fired-incident
+		// listing, so this surfaces monitoring-coverage posture, not fired
+		// incidents.
+		Monitoring bool `yaml:"monitoring"`
+		// Compute enables Compute Engine instance health (REPAIRING) alerts.
+		Compute bool `yaml:"compute"`
+		// CloudSQL enables Cloud SQL instance state alerts.
+		CloudSQL bool `yaml:"cloudsql"`
+	} `yaml:"gcp"`
+
+	// Rules are user-authored correlation rules evaluated against the live
+	// alert stream by internal/rules. Each fires a derived alert (kind
+	// Derived) through the same dedupe/route/group/sink pipeline.
+	Rules []Rule `yaml:"rules"`
 }
 
 type Route struct {
 	Match map[string]string `yaml:"match"`
 	Sinks []string          `yaml:"sinks"`
+}
+
+// Rule is a user-authored correlation rule. Exactly one of Count, All, or
+// Absent must be set. It observes the firing alert stream (watchers + cloud
+// sources) and emits a derived alert when its condition holds.
+type Rule struct {
+	Name     string `yaml:"name"`
+	Severity string `yaml:"severity"`
+	Summary  string `yaml:"summary"`
+	// WindowSeconds is the look-back window for Count/All conditions.
+	WindowSeconds int `yaml:"windowSeconds"`
+	// Count fires when >= Threshold alerts matching Match occurred in the window.
+	Count *RuleCount `yaml:"count"`
+	// All fires when every matcher in the list had >=1 match in the window
+	// (composite AND / multi-condition).
+	All []map[string]string `yaml:"all"`
+	// Absent fires when NO alert matching Match was seen for ForSeconds
+	// (heartbeat / dead-man's-switch; evaluated on a timer).
+	Absent *RuleAbsent `yaml:"absent"`
+}
+
+type RuleCount struct {
+	Match     map[string]string `yaml:"match"`
+	Threshold int               `yaml:"threshold"`
+}
+
+type RuleAbsent struct {
+	Match      map[string]string `yaml:"match"`
+	ForSeconds int               `yaml:"forSeconds"`
 }
 
 // SinkRate is a per-sink token-bucket override.
@@ -294,6 +411,85 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	if c.AWS.Enabled {
+		if len(c.AWS.Regions) == 0 {
+			return fmt.Errorf("aws.enabled requires at least one entry in aws.regions (or the AWS_REGION env var)")
+		}
+		if !c.AWS.EKS && !c.AWS.CloudWatch && !c.AWS.EC2 && !c.AWS.ELBV2 && !c.AWS.RDS && !c.AWS.DynamoDB && !c.AWS.ElastiCache && !c.AWS.S3 && !c.AWS.CloudTrail && !c.AWS.ASG && !c.AWS.KMS && !c.AWS.EBS && !c.AWS.Aurora && !c.AWS.NAT && !c.AWS.EFS && !c.AWS.Route53 && !c.AWS.ACM && !c.AWS.VPN {
+			return fmt.Errorf("aws.enabled requires at least one source (eks, cloudwatch, ec2, elbv2, rds, dynamodb, elasticache, s3, cloudtrail, asg, kms, ebs, aurora, nat, efs, route53, acm, vpn)")
+		}
+		if c.AWS.PollSeconds <= 0 {
+			return fmt.Errorf("aws.pollSeconds must be positive, got %d", c.AWS.PollSeconds)
+		}
+		if c.AWS.PollSeconds >= c.Behavior.ResolveTTLSeconds {
+			return fmt.Errorf("aws.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d): a longer poll interval lets a still-firing alarm false-resolve between polls", c.AWS.PollSeconds, c.Behavior.ResolveTTLSeconds)
+		}
+	}
+	if c.Azure.Enabled {
+		if len(c.Azure.Subscriptions) == 0 {
+			return fmt.Errorf("azure.enabled requires at least one azure.subscriptions entry")
+		}
+		if !c.Azure.AKS && !c.Azure.Monitor && !c.Azure.VMs && !c.Azure.Storage && !c.Azure.SQL && !c.Azure.Redis {
+			return fmt.Errorf("azure.enabled requires at least one source: azure.aks, azure.monitor, azure.vms, azure.storage, azure.sql, or azure.redis")
+		}
+		if c.Azure.PollSeconds <= 0 {
+			return fmt.Errorf("azure.pollSeconds must be positive, got %d", c.Azure.PollSeconds)
+		}
+		if c.Azure.PollSeconds >= c.Behavior.ResolveTTLSeconds {
+			return fmt.Errorf("azure.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d)", c.Azure.PollSeconds, c.Behavior.ResolveTTLSeconds)
+		}
+	}
+	if c.GCP.Enabled {
+		if len(c.GCP.Projects) == 0 {
+			return fmt.Errorf("gcp.enabled requires at least one gcp.projects entry")
+		}
+		if !c.GCP.GKE && !c.GCP.Monitoring && !c.GCP.Compute && !c.GCP.CloudSQL {
+			return fmt.Errorf("gcp.enabled requires at least one source: gcp.gke, gcp.monitoring, gcp.compute, or gcp.cloudsql")
+		}
+		if c.GCP.PollSeconds <= 0 {
+			return fmt.Errorf("gcp.pollSeconds must be positive, got %d", c.GCP.PollSeconds)
+		}
+		if c.GCP.PollSeconds >= c.Behavior.ResolveTTLSeconds {
+			return fmt.Errorf("gcp.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d)", c.GCP.PollSeconds, c.Behavior.ResolveTTLSeconds)
+		}
+	}
+	for i, ru := range c.Rules {
+		if ru.Name == "" {
+			return fmt.Errorf("rules[%d]: name is required", i)
+		}
+		switch ru.Severity {
+		case "critical", "warning", "info":
+		default:
+			return fmt.Errorf("rules[%d] (%s): severity must be critical|warning|info, got %q", i, ru.Name, ru.Severity)
+		}
+		set := 0
+		if ru.Count != nil {
+			set++
+		}
+		if len(ru.All) > 0 {
+			set++
+		}
+		if ru.Absent != nil {
+			set++
+		}
+		if set != 1 {
+			return fmt.Errorf("rules[%d] (%s): exactly one of count, all, or absent must be set", i, ru.Name)
+		}
+		if ru.Count != nil {
+			if ru.Count.Threshold <= 0 {
+				return fmt.Errorf("rules[%d] (%s): count.threshold must be positive", i, ru.Name)
+			}
+			if ru.WindowSeconds <= 0 {
+				return fmt.Errorf("rules[%d] (%s): windowSeconds must be positive for a count rule", i, ru.Name)
+			}
+		}
+		if len(ru.All) > 0 && ru.WindowSeconds <= 0 {
+			return fmt.Errorf("rules[%d] (%s): windowSeconds must be positive for an all rule", i, ru.Name)
+		}
+		if ru.Absent != nil && ru.Absent.ForSeconds <= 0 {
+			return fmt.Errorf("rules[%d] (%s): absent.forSeconds must be positive", i, ru.Name)
+		}
+	}
 	return nil
 }
 
@@ -351,5 +547,21 @@ func (c *Config) applyEnvDefaults() {
 	}
 	if c.Persistence.Namespace == "" {
 		c.Persistence.Namespace = os.Getenv("POD_NAMESPACE")
+	}
+	if c.AWS.Enabled {
+		if len(c.AWS.Regions) == 0 {
+			if r := os.Getenv("AWS_REGION"); r != "" {
+				c.AWS.Regions = []string{r}
+			}
+		}
+		if c.AWS.PollSeconds == 0 {
+			c.AWS.PollSeconds = env.IntOr("AWS_POLL_SECONDS", 60)
+		}
+	}
+	if c.Azure.Enabled && c.Azure.PollSeconds == 0 {
+		c.Azure.PollSeconds = env.IntOr("AZURE_POLL_SECONDS", 60)
+	}
+	if c.GCP.Enabled && c.GCP.PollSeconds == 0 {
+		c.GCP.PollSeconds = env.IntOr("GCP_POLL_SECONDS", 60)
 	}
 }
