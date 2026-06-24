@@ -71,18 +71,18 @@ function AKConfig() {
 
 /* ----------------------------- INSTALL ----------------------------- */
 const AK_HELM = `helm upgrade --install alertkube \\
-  oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \\
+  oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \\
   --namespace monitoring --create-namespace \\
   --set cluster=prod-eu-west-1 \\
   --set slack.webhookUrl=$SLACK_WEBHOOK_URL \\
   --set pagerduty.routingKey=$PD_ROUTING_KEY`;
 
-const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:v0.2.4
+const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:v1.0.0
 docker run --rm \\
   -e SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL \\
   -e CLUSTER_NAME=local-dev \\
   -v $HOME/.kube/config:/root/.kube/config \\
-  ghcr.io/aryasoni98/alertkube:v0.2.4`;
+  ghcr.io/aryasoni98/alertkube:v1.0.0`;
 
 function AKInstall() {
   return (
@@ -105,7 +105,11 @@ function AKInstall() {
 /* ----------------------------- CHANGELOG ----------------------------- */
 const AK_RELEASES = [
   {
-    v: "v0.2.4", date: "2026-06-19", tag: "Watchers", latest: true,
+    v: "v1.0.0", date: "2026-06-24", tag: "Console", latest: true,
+    items: ["Embedded web console for alerts, config review, runtime silences, and channel tests", "Security-gated write paths with token or Kubernetes RBAC auth"],
+  },
+  {
+    v: "v0.2.4", date: "2026-06-19", tag: "Watchers",
     items: ["Alert on non-OOM SIGKILL (ContainerKilled) with termination cause", "Clearer pod termination reporting"],
   },
   {
@@ -206,7 +210,7 @@ function AKFooterSec() {
               quiet until it shouldn't be.
             </p>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> v0.2.4</span>
+              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> v1.0.0</span>
               <span className="ak-tag">Apache-2.0</span>
             </div>
           </div>

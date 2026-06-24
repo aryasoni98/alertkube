@@ -18,6 +18,7 @@ func get(t *testing.T, h http.Handler, path string) *http.Response {
 func TestServesIndexAtRoot(t *testing.T) {
 	h := Handler()
 	res := get(t, h, "/")
+	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET / = %d, want 200", res.StatusCode)
 	}
@@ -35,6 +36,7 @@ func TestServesAssets(t *testing.T) {
 	// assets; / is covered by TestServesIndexAtRoot.
 	for _, p := range []string{"/style.css", "/app.js"} {
 		res := get(t, h, p)
+		defer res.Body.Close()
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", p, res.StatusCode)
 		}
@@ -45,6 +47,7 @@ func TestSPAFallbackServesIndex(t *testing.T) {
 	// An unknown client-side route must fall back to the app shell, not 404.
 	h := Handler()
 	res := get(t, h, "/some/deep/link")
+	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET unknown path = %d, want 200 (SPA fallback)", res.StatusCode)
 	}
