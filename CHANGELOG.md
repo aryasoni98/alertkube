@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/aryasoni98/alertkube/compare/v1.0.0...v1.1.0) (2026-06-24)
+
+
+### Added
+
+* engineering maturity and CNCF-readiness for v0.2.2 ([755ead1](https://github.com/aryasoni98/alertkube/commit/755ead1a36ac7e39fc95cbcb6cf0208a9dafe511))
+* severity overrides and configurable PVC threshold ([f660a33](https://github.com/aryasoni98/alertkube/commit/f660a33ab5f52408bb79db04b29ca85aaac20a33))
+* v0.2.0 beta — sinks, watchers, grouping, persistence ([c8b1c6d](https://github.com/aryasoni98/alertkube/commit/c8b1c6d4cda820c46e2a8b659923509dd0855bc7))
+* **watchers:** alert on non-OOM SIGKILL (ContainerKilled) + termination cause ([#17](https://github.com/aryasoni98/alertkube/issues/17)) ([b7da111](https://github.com/aryasoni98/alertkube/commit/b7da111274dd59df3158a0742bd33cbf3a63fa6e))
+* web console — manage AlertKube from the browser ([#28](https://github.com/aryasoni98/alertkube/issues/28)) ([d1def74](https://github.com/aryasoni98/alertkube/commit/d1def74f381ea24e166b382ff82597a2da0fb15d))
+* **website:** SEO, performance & a11y upgrade for landing + docs site ([41be82e](https://github.com/aryasoni98/alertkube/commit/41be82e0dd88444d8b098b3f733e057606417dea))
+* **website:** SEO, performance, and a11y upgrade for landing + docs site ([ab1d058](https://github.com/aryasoni98/alertkube/commit/ab1d058ae6b7c8f50d40d6d89bb36aae02b9949b))
+
+
+### Fixed
+
+* **ci:** satisfy golangci-lint + auth Trivy against private GHCR ([63cde48](https://github.com/aryasoni98/alertkube/commit/63cde48ff5ae73526d915d914e2e739fe82609a6))
+* **deps:** patch all open dependabot alerts ([709881c](https://github.com/aryasoni98/alertkube/commit/709881cd1a9100ca2638ce59ee7de4f7dae635f6))
+* harden alert pipeline reliability and correctness ([546caa0](https://github.com/aryasoni98/alertkube/commit/546caa0abfdd1a5788275109e37011eb7b38f4c8))
+* harden controller shutdown, filtering, receiver, and delete handling ([8ce30ef](https://github.com/aryasoni98/alertkube/commit/8ce30ef6038d63c7bd2a3764faecbe003c0926c1))
+* **helm:** correct chart guards, scoping, and config rollout ([e389e0b](https://github.com/aryasoni98/alertkube/commit/e389e0b7157afa0f6f82e1a6c1b63e279d92a71f))
+* **httpx:** unwrap status error with errors.As so a wrapped *statusError is ([755ead1](https://github.com/aryasoni98/alertkube/commit/755ead1a36ac7e39fc95cbcb6cf0208a9dafe511))
+* **release:** use GITHUB_TOKEN for GHCR; bump landing page to v0.2.4 ([8f41d3f](https://github.com/aryasoni98/alertkube/commit/8f41d3f70a6eafeeb9774594fc4771a8818b8032))
+* **sinks:** rename truncate param shadowing builtin max ([6fc43ab](https://github.com/aryasoni98/alertkube/commit/6fc43ab5983b5150480c91c56cacecd5201a0487))
+
+
+### Changed
+
+* extract reusable helpers, render all alert details, drop dead code ([5efb9ea](https://github.com/aryasoni98/alertkube/commit/5efb9ead8c66860d1beb7b7d7bc880bd82077935))
+* **sinks:** share severity-tier mapping; drop dead WLogo primitive ([09eab83](https://github.com/aryasoni98/alertkube/commit/09eab83354e975d883b3b59e8ae44b33794b3ee1))
+* **sinks:** share severity-tier mapping; drop dead WLogo primitive ([833d7d7](https://github.com/aryasoni98/alertkube/commit/833d7d724be85b403a114325030ca02992bcc782))
+
 ## [Unreleased]
 
 ## [1.0.0](https://github.com/aryasoni98/alertkube/compare/v0.3.0...v1.0.0) (2026-06-24)
