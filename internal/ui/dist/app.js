@@ -12,6 +12,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 let lastAlerts = { active: [], recent: [] };
 let lastConfigSilences = [];
 let lastConfigYaml = "";
+let lastConfig = {};
 
 function token() { return sessionStorage.getItem(TOKEN_KEY) || ""; }
 function setToken(t) { t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY); }
@@ -136,6 +137,7 @@ function onoff(b) { return b ? '<span class="on">on</span>' : '<span class="off"
 
 function renderConfig(cfg, raw) {
   cfg = cfg || {};
+  lastConfig = cfg;
 
   // Sources
   const cloud = (name, c) => {
@@ -470,6 +472,141 @@ function downloadAuthor() {
   URL.revokeObjectURL(url);
 }
 
+// ---- Author: form builders (rules / grouping / routing) ----
+function matchersToText(m) {
+  return Object.entries(m || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+}
+
+function addRuleRow(r) {
+  r = r || {};
+  const div = document.createElement("div");
+  div.className = "form-row rule-row";
+  div.innerHTML = `
+    <input class="r-name" placeholder="name" />
+    <select class="r-sev"><option value="critical">critical</option><option value="warning">warning</option><option value="info">info</option></select>
+    <select class="r-type"><option value="count">count</option><option value="all">all</option><option value="absent">absent</option></select>
+    <input class="r-num" type="number" placeholder="threshold" title="count: threshold" style="width:90px" />
+    <input class="r-win" type="number" placeholder="window/for (s)" title="count/all: window; absent: for" style="width:120px" />
+    <button type="button" class="btn danger r-del" title="remove">×</button>
+    <textarea class="r-match" rows="2" placeholder="matchers: key=value per line (for 'all', one condition per line)"></textarea>
+    <input class="r-summary" placeholder="summary (optional)" />`;
+  $("#rules-rows").appendChild(div);
+  // Populate from the rule object.
+  const type = r.count ? "count" : r.all ? "all" : r.absent ? "absent" : "count";
+  div.querySelector(".r-name").value = r.name || "";
+  div.querySelector(".r-sev").value = r.severity || "warning";
+  div.querySelector(".r-type").value = type;
+  div.querySelector(".r-summary").value = r.summary || "";
+  if (type === "count" && r.count) {
+    div.querySelector(".r-num").value = r.count.threshold || "";
+    div.querySelector(".r-win").value = r.windowSeconds || "";
+    div.querySelector(".r-match").value = matchersToText(r.count.match);
+  } else if (type === "absent" && r.absent) {
+    div.querySelector(".r-win").value = r.absent.forSeconds || "";
+    div.querySelector(".r-match").value = matchersToText(r.absent.match);
+  } else if (type === "all" && r.all) {
+    div.querySelector(".r-win").value = r.windowSeconds || "";
+    div.querySelector(".r-match").value = (r.all || []).map((m) => Object.entries(m).map(([k, v]) => `${k}=${v}`).join(",")).join("\n");
+  }
+}
+
+function collectRules() {
+  return Array.from(document.querySelectorAll(".rule-row")).map((row) => {
+    const name = row.querySelector(".r-name").value.trim();
+    if (!name) return null;
+    const type = row.querySelector(".r-type").value;
+    const sev = row.querySelector(".r-sev").value;
+    const num = Number(row.querySelector(".r-num").value);
+    const win = Number(row.querySelector(".r-win").value);
+    const matchText = row.querySelector(".r-match").value;
+    const summary = row.querySelector(".r-summary").value.trim();
+    const rule = { name, severity: sev };
+    if (summary) rule.summary = summary;
+    if (type === "count") {
+      rule.count = { match: parseMatchers(matchText), threshold: num || 0 };
+      if (win) rule.windowSeconds = win;
+    } else if (type === "absent") {
+      rule.absent = { match: parseMatchers(matchText), forSeconds: win || 0 };
+    } else if (type === "all") {
+      rule.all = matchText.split("\n").map((line) => parseMatchers(line.replace(/,/g, "\n"))).filter((m) => Object.keys(m).length);
+      if (win) rule.windowSeconds = win;
+    }
+    return rule;
+  }).filter(Boolean);
+}
+
+function addRouteRow(rt) {
+  rt = rt || {};
+  const div = document.createElement("div");
+  div.className = "form-row route-row";
+  div.innerHTML = `
+    <textarea class="rt-match" rows="2" placeholder="match: key=value per line (empty = any)"></textarea>
+    <input class="rt-sinks" placeholder="sinks: comma-separated (slack,pagerduty)" />
+    <button type="button" class="btn danger rt-del" title="remove">×</button>`;
+  $("#routes-rows").appendChild(div);
+  div.querySelector(".rt-match").value = matchersToText(rt.match);
+  div.querySelector(".rt-sinks").value = (rt.sinks || []).join(",");
+}
+
+function collectRoutes() {
+  return Array.from(document.querySelectorAll(".route-row")).map((row) => {
+    const sinks = row.querySelector(".rt-sinks").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!sinks.length) return null;
+    return { match: parseMatchers(row.querySelector(".rt-match").value), sinks };
+  }).filter(Boolean);
+}
+
+function loadFormsFromLive() {
+  $("#rules-rows").innerHTML = "";
+  (lastConfig.rules || []).forEach(addRuleRow);
+  $("#routes-rows").innerHTML = "";
+  (lastConfig.routing || []).forEach(addRouteRow);
+  const g = lastConfig.grouping || {};
+  $("#g-enabled").checked = !!g.enabled;
+  $("#g-window").value = g.windowSeconds || "";
+  $("#g-by").value = (g.by || []).join(",");
+  $("#form-msg").textContent = "loaded from live config";
+  $("#form-msg").className = "validate-result";
+}
+
+async function renderFromForms() {
+  const patch = {
+    rules: collectRules(),
+    routing: collectRoutes(),
+    grouping: {
+      enabled: $("#g-enabled").checked,
+      windowSeconds: Number($("#g-window").value) || 0,
+      by: $("#g-by").value.split(",").map((s) => s.trim()).filter(Boolean),
+    },
+  };
+  const msg = $("#form-msg");
+  msg.textContent = "rendering…";
+  msg.className = "validate-result";
+  const res = await fetchJSON("/api/config/render", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (res.status === 401) { msg.textContent = "unauthorized — set token"; msg.className = "validate-result bad"; return; }
+  if (res.ok && res.data && res.data.yaml) {
+    $("#author-input").value = res.data.yaml;
+    msg.textContent = "✓ rendered into the editor above — now Validate / Diff / Export";
+    msg.className = "validate-result ok";
+  } else {
+    msg.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status));
+    msg.className = "validate-result bad";
+  }
+}
+
+function initFormBuilders() {
+  $("#add-rule").addEventListener("click", () => addRuleRow());
+  $("#add-route").addEventListener("click", () => addRouteRow());
+  $("#rules-rows").addEventListener("click", (e) => { if (e.target.classList.contains("r-del")) e.target.closest(".rule-row").remove(); });
+  $("#routes-rows").addEventListener("click", (e) => { if (e.target.classList.contains("rt-del")) e.target.closest(".route-row").remove(); });
+  $("#form-load").addEventListener("click", loadFormsFromLive);
+  $("#form-render").addEventListener("click", renderFromForms);
+}
+
 function initAuthor() {
   $("#auth-load").addEventListener("click", () => {
     $("#author-input").value = lastConfigYaml || "";
@@ -523,6 +660,7 @@ window.addEventListener("DOMContentLoaded", () => {
   initValidate();
   initSilences();
   initAuthor();
+  initFormBuilders();
   initChannels();
   $("#refresh").addEventListener("click", refresh);
   $("#alert-filter").addEventListener("input", renderAlerts);

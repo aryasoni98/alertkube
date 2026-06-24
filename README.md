@@ -54,7 +54,7 @@ docker pull ghcr.io/aryasoni98/alertkube:v0.2.4
 
 A read-only web console is embedded in the binary (no extra service, no npm) and served at `/` on the metrics port. It shows active alerts + recent history, the effective loaded config (alert patterns/rules, pattern grouping window, routing/channels, silences, enabled sources), and suppression counts scraped from `/metrics`. It also exposes `POST /api/config/validate` to check a candidate config against the startup validator before you commit it to Git.
 
-Durable config (rules, grouping, routing, channels) stays **read-only** in the console — change it in Git/ConfigMap to preserve the GitOps source-of-truth. The one runtime mutation is **time-boxed silences**: an operator can mute a noisy alert immediately without a redeploy, and the silence survives a leader failover (persisted to the state ConfigMap). See [docs/design/web-ui-control-plane-prd.md](docs/design/web-ui-control-plane-prd.md) for the roadmap (UI-as-PR authoring, channel test-fire).
+Durable config (rules, grouping, routing, channels) is **never applied live** from the console — you author it (raw YAML or guided forms for rules/grouping/routing), the server renders the full merged config (preserving fields the forms don't model), and you review the diff and commit it to Git/ConfigMap. Git stays the source of truth. The one runtime mutation is **time-boxed silences**: an operator can mute a noisy alert immediately without a redeploy, and the silence survives a leader failover (persisted to the state ConfigMap). See [docs/design/web-ui-control-plane-prd.md](docs/design/web-ui-control-plane-prd.md) for the roadmap (UI-as-PR authoring, channel test-fire).
 
 ```bash
 kubectl -n <ns> port-forward deploy/alertkube 9090:9090

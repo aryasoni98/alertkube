@@ -126,6 +126,31 @@
         <textarea id="author-input" rows="18" spellcheck="false" placeholder="Load current config, then edit…"></textarea>
       </div>
 
+      <div class="card">
+        <h3>Build from forms <span class="muted small">(no YAML by hand)</span></h3>
+        <p class="muted small">Fill the forms, <strong>Render to YAML</strong>, then Validate / Diff / Export above. Forms cover alert patterns (rules), pattern grouping, and routing/channels; every other config field is preserved.</p>
+        <div class="toolbar">
+          <button id="form-load" type="button" class="btn">Load forms from live</button>
+          <button id="form-render" type="button" class="btn primary">Render to YAML ↑</button>
+          <span id="form-msg" class="validate-result"></span>
+        </div>
+
+        <h4>Alert patterns (rules)</h4>
+        <div id="rules-rows"></div>
+        <button id="add-rule" type="button" class="btn">+ rule</button>
+
+        <h4>Pattern grouping (timeframe)</h4>
+        <div class="toolbar">
+          <label class="fld inline"><input type="checkbox" id="g-enabled"> enabled</label>
+          <label class="fld inline">window(s) <input id="g-window" type="number" min="0" style="width:90px" /></label>
+          <label class="fld inline">group by <input id="g-by" type="text" placeholder="kind,namespace,reason,severity" /></label>
+        </div>
+
+        <h4>Routing (channels)</h4>
+        <div id="routes-rows"></div>
+        <button id="add-route" type="button" class="btn">+ route</button>
+      </div>
+
       <div class="card" id="author-diff-card" style="display:none">
         <h3>Diff <span class="muted small">(live → edited)</span></h3>
         <pre id="author-diff" class="raw diff"></pre>

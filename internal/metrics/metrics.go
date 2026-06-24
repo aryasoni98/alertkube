@@ -101,6 +101,9 @@ var (
 	// standby banner.
 	configHandler   atomic.Pointer[http.Handler]
 	validateHandler atomic.Pointer[http.Handler]
+	// renderHandler backs POST /api/config/render: overlays form-built config
+	// sections onto the live config and returns the rendered YAML (read-only).
+	renderHandler atomic.Pointer[http.Handler]
 	// silencesHandler backs /api/silences (GET list, POST create) and
 	// /api/silences/{id} (DELETE). Leader-scoped like the others: the runtime
 	// silence store lives where the controller runs.
@@ -124,6 +127,9 @@ func SetConfigHandler(h http.Handler) { configHandler.Store(&h) }
 // SetValidateHandler installs the POST /api/config/validate handler.
 func SetValidateHandler(h http.Handler) { validateHandler.Store(&h) }
 
+// SetRenderHandler installs the POST /api/config/render handler.
+func SetRenderHandler(h http.Handler) { renderHandler.Store(&h) }
+
 // SetSilencesHandler installs the /api/silences{,/{id}} handler.
 func SetSilencesHandler(h http.Handler) { silencesHandler.Store(&h) }
 
@@ -142,6 +148,9 @@ func ClearReceiverHandler() { receiverHandler.Store(nil) }
 // handlers on leader loss, mirroring ClearAlertsHandler.
 func ClearConfigHandler()   { configHandler.Store(nil) }
 func ClearValidateHandler() { validateHandler.Store(nil) }
+
+// ClearRenderHandler detaches the render route on leader loss.
+func ClearRenderHandler() { renderHandler.Store(nil) }
 
 // ClearSilencesHandler detaches the runtime-silence route on leader loss.
 func ClearSilencesHandler() { silencesHandler.Store(nil) }
@@ -190,6 +199,7 @@ func buildMux() *http.ServeMux {
 	// installed handler).
 	mux.HandleFunc("/api/config", dynamic(&configHandler))
 	mux.HandleFunc("/api/config/validate", dynamic(&validateHandler))
+	mux.HandleFunc("/api/config/render", dynamic(&renderHandler))
 	// /api/silences (GET/POST) and /api/silences/{id} (DELETE) share one
 	// installed handler that routes internally by method and path.
 	mux.HandleFunc("/api/silences", dynamic(&silencesHandler))

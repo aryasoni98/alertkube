@@ -71,6 +71,7 @@ func TestMuxRoutes(t *testing.T) {
 	receiverHandler.Store(nil)
 	configHandler.Store(nil)
 	validateHandler.Store(nil)
+	renderHandler.Store(nil)
 	silencesHandler.Store(nil)
 	channelsHandler.Store(nil)
 	mux := buildMux()
@@ -161,6 +162,12 @@ func TestMuxRoutes(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("/api/config/validate uninstalled: got %d, want 503", rec.Code)
 		}
+
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/render", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/api/config/render uninstalled: got %d, want 503", rec.Code)
+		}
 	})
 
 	t.Run("silences routes 503 until installed", func(t *testing.T) {
@@ -204,6 +211,7 @@ func TestMuxRoutes(t *testing.T) {
 	receiverHandler.Store(nil)
 	configHandler.Store(nil)
 	validateHandler.Store(nil)
+	renderHandler.Store(nil)
 	silencesHandler.Store(nil)
 	channelsHandler.Store(nil)
 }

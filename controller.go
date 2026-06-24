@@ -216,6 +216,33 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}))
 
+	// POST /api/config/render: overlay form-built config sections (rules,
+	// routing, grouping) onto the live config and return the rendered YAML for
+	// the operator to review/diff/export. Read-only - gated by the read token,
+	// nothing is applied.
+	metrics.SetRenderHandler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if apiToken != "" && !authz.BearerEqual(req.Header.Get("Authorization"), apiToken) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if req.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
+		if err != nil {
+			httpErr(w, http.StatusBadRequest, "read body")
+			return
+		}
+		rendered, err := overlayConfig(cfg, body)
+		if err != nil {
+			httpErr(w, http.StatusBadRequest, "invalid patch: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"yaml": string(rendered)})
+	}))
+
 	// Write-path authorization. Two modes, selected by ALERTKUBE_AUTH_MODE:
 	//   token (default) - a single shared ALERTKUBE_API_WRITE_TOKEN, fail closed:
 	//     with no token set every mutation is rejected, so the default install
@@ -529,6 +556,40 @@ func exportState(store *alert.Store, sil *silence.Store) *alert.Snapshot {
 	return snap
 }
 
+// overlayConfig renders a candidate config: it parses a JSON patch of the
+// form-editable sections (rules, routing, grouping) and overlays them onto a
+// copy of the live config, returning the full YAML. Only provided sections are
+// replaced; every other field is preserved, so form-based authoring never drops
+// config the UI does not model. Nothing is applied - the result is for the
+// operator to review, diff, and commit to Git (the GitOps source of truth).
+func overlayConfig(base *config.Config, patch []byte) ([]byte, error) {
+	var in struct {
+		Rules    *[]config.Rule  `json:"rules"`
+		Routing  *[]config.Route `json:"routing"`
+		Grouping *struct {
+			Enabled       bool     `json:"enabled"`
+			WindowSeconds int      `json:"windowSeconds"`
+			By            []string `json:"by"`
+		} `json:"grouping"`
+	}
+	if err := json.Unmarshal(patch, &in); err != nil {
+		return nil, err
+	}
+	out := *base // shallow copy; section assignments below replace slice/struct headers, never mutating base
+	if in.Rules != nil {
+		out.Rules = *in.Rules
+	}
+	if in.Routing != nil {
+		out.Routing = *in.Routing
+	}
+	if in.Grouping != nil {
+		out.Grouping.Enabled = in.Grouping.Enabled
+		out.Grouping.WindowSeconds = in.Grouping.WindowSeconds
+		out.Grouping.By = in.Grouping.By
+	}
+	return yaml.Marshal(&out)
+}
+
 // setupReceiver wires the optional Alertmanager-compatible webhook receiver
 // onto the metrics server. Fails closed when enabled without a bearer token
 // unless receiver.allowAnonymous is set.
@@ -608,6 +669,7 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, per
 	metrics.ClearAlertsHandler()
 	metrics.ClearConfigHandler()
 	metrics.ClearValidateHandler()
+	metrics.ClearRenderHandler()
 	metrics.ClearSilencesHandler()
 	metrics.ClearChannelsHandler()
 	drainWatchers(ws, enrichDrainTimeout)

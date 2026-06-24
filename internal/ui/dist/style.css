@@ -64,6 +64,12 @@ main { padding: 18px; max-width: 1200px; margin: 0 auto; }
 .fld input, .fld textarea, .fld select { display: block; margin-top: 4px; }
 .fld.inline { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 0; }
 .fld.inline input, .fld.inline select { display: inline-block; margin-top: 0; }
+.form-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; padding: 10px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.form-row input, .form-row select { flex: 0 0 auto; }
+.form-row .r-name { flex: 1 1 140px; }
+.form-row .r-summary, .form-row .r-match, .form-row .rt-match { flex: 1 1 100%; }
+.form-row .rt-sinks { flex: 1 1 220px; }
+main h4 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 input, textarea, select {
   background: var(--bg); color: var(--fg); border: 1px solid var(--border);
   border-radius: 6px; padding: 7px 10px; font-size: 13px; font-family: inherit;
