@@ -4,13 +4,13 @@ Deploys [alertkube](https://github.com/aryasoni98/alertkube) — a Kubernetes
 multi-resource alerting controller — with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
-![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.0](https://img.shields.io/badge/AppVersion-0.3.0-informational?style=flat-square)
+![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
 
 ## Install
 
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
-  --version 0.3.0 \
+  --version 1.0.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -47,8 +47,12 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
-| api.token | string | `""` | Optional bearer token guarding `/api/alerts` (inline; prefer the Secret ref). |
-| api.tokenSecretKeyRef | object | `{}` | Secret reference for the API token (`{key, name}`). |
+| api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
+| api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
+| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref). |
+| api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
+| api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences from the console). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
+| api.writeTokenSecretKeyRef | object | `{}` | Secret reference for the API write token (`{key, name}`). |
 | automountServiceAccountToken | bool | `true` | Mount the ServiceAccount API token into the pod. |
 | aws.acm | bool | `false` | Alert on ACM certificates that are unusable or expiring within 30 days. |
 | aws.asg | bool | `false` | Alert on Auto Scaling Groups below desired healthy capacity. |

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0](https://github.com/aryasoni98/alertkube/compare/v0.3.0...v1.0.0) (2026-06-24)
+
+### Added
+
+* **console:** embedded web console for viewing active alerts, recent history,
+  effective config, suppression counts, runtime silences, and channel test-fire
+  flows from the metrics port.
+* **auth:** write endpoints fail closed by default and can be enabled with a
+  separate write token or Kubernetes RBAC via TokenReview and
+  SubjectAccessReview.
+
+### Changed
+
+* **ui:** refreshed the embedded console design and optimized the logo asset.
+* **docs:** removed obsolete launch drafts from the repository.
+
 ## [0.3.0](https://github.com/aryasoni98/alertkube/compare/v0.2.4...v0.3.0) (2026-06-23)
 
 ### Added

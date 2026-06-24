@@ -67,7 +67,7 @@ function AKNav({ theme, setTheme }) {
           <a className="wk-nav__link" href={docsHref}>Docs</a>
         </div>
         <div className="wk-nav__right">
-          <span className="ak-ver">v0.2.4</span>
+          <span className="ak-ver">v1.0.0</span>
           <button
             className="ak-iconbtn"
             aria-label="Toggle theme"
@@ -215,7 +215,7 @@ function AKHero({ live }) {
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                v0.2.4 - non-OOM SIGKILL (ContainerKilled) detection
+                v1.0.0 - embedded web console and runtime silences
               </span>
             </Reveal>
             <Reveal delay={0.06}>
@@ -226,9 +226,9 @@ function AKHero({ live }) {
             </Reveal>
             <Reveal delay={0.12}>
               <p className="wk-hero__sub">
-                AlertKube watches nine Kubernetes resource kinds - classifies by severity,
-                dedupes the storms, inhibits the noise, and routes each page to the one
-                person who should actually wake up.
+                AlertKube watches nine Kubernetes resource kinds, dedupes the
+                storms, and gives responders a browser console for live alerts,
+                config review, runtime silences, and channel tests.
               </p>
             </Reveal>
             <Reveal delay={0.18}>
@@ -246,6 +246,7 @@ function AKHero({ live }) {
                   <span><AKCount to={9} /> watchers</span>
                   <span><AKCount to={8} /> sinks</span>
                   <span><AKCount to={6} />-stage pipeline</span>
+                  <span>web console</span>
                   <span>1 binary</span>
                 </div>
               </div>

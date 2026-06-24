@@ -83,7 +83,7 @@ sinkRates:
 3. Upgrade Helm chart; checksum annotation triggers a rolling restart:
 
 ```bash
-helm upgrade alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 0.2.4 \
+helm upgrade alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \
   --reuse-values
 ```
 
