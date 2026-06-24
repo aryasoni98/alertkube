@@ -5,6 +5,14 @@ The controller is now watching {{ if eq (.Values.rbac.scope | default "cluster")
 Check rollout:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "alertkube.fullname" . }}
 
+Open the read-only web console (rides the metrics port, guarded by api.token):
+  kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "alertkube.fullname" . }} {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
+  open http://localhost:{{ .Values.metrics.port }}/   # paste api.token when prompted
+  Shows active alerts, the loaded config (rules, grouping, routing, channels,
+  silences), and suppression counts. Read-only by default - change config in Git.
+  Runtime silences (time-boxed mutes) are OFF unless api.writeToken is set;
+  with it, the console can create/expire silences that survive failover.
+
 ==================================  SECURITY  ==================================
 {{- $warn := false }}
 {{- if and (not .Values.api.token) (not .Values.api.tokenSecretKeyRef.name) }}
@@ -27,7 +35,7 @@ Check rollout:
     port and to bound controller egress to your sinks.
 {{- end }}
 {{- $inline := false }}
-{{- range $v := list .Values.api.token .Values.receiver.token .Values.slack.webhookUrl .Values.slack.botToken .Values.opsgenie.apiKey .Values.pagerduty.routingKey .Values.teams.webhookUrl .Values.discord.webhookUrl .Values.telegram.botToken .Values.genericWebhook.url .Values.genericWebhook.signingSecret }}
+{{- range $v := list .Values.api.token .Values.api.writeToken .Values.receiver.token .Values.slack.webhookUrl .Values.slack.botToken .Values.opsgenie.apiKey .Values.pagerduty.routingKey .Values.teams.webhookUrl .Values.discord.webhookUrl .Values.telegram.botToken .Values.genericWebhook.url .Values.genericWebhook.signingSecret }}
 {{- if $v }}{{ $inline = true }}{{ end }}
 {{- end }}
 {{- if $inline }}
@@ -38,6 +46,16 @@ Check rollout:
     base64-encoded (NOT encrypted) in the release Secret and are visible via
     `helm get manifest` and any CI logs that render the chart. For production
     use the `*SecretKeyRef` fields to reference a pre-existing Secret instead.
+{{- end }}
+{{- if .Values.api.allowSecretRead }}
+{{- $warn = true }}
+
+[!] Secret read is ENABLED (api.allowSecretRead).
+    The controller has `get` on Secrets in namespace {{ .Release.Namespace }} so
+    the console can test a channel whose credential lives in a Secret. The value
+    is read at send-time only and never returned to the client, but this is the
+    one place the zero-secrets-read posture bends. Set api.allowSecretRead=false
+    if you do not use in-UI channel credential testing.
 {{- end }}
 {{- if not $warn }}
 

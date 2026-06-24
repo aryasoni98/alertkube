@@ -169,12 +169,33 @@ receiver:
 # bearer auth; left empty the endpoint is open, so restrict the metrics port
 # with networkPolicy instead.
 api:
-  # -- Optional bearer token guarding `/api/alerts` (inline; prefer the Secret ref).
+  # -- Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref).
   token: ""
-  # -- Secret reference for the API token (`{key, name}`).
+  # -- Secret reference for the API (read) token (`{key, name}`).
   tokenSecretKeyRef: {}
     # key: apiToken
     # name: alertkube-api
+  # -- Optional SEPARATE bearer token enabling runtime WRITES (create/delete
+  # silences from the console). Leave empty to keep the controller read-only:
+  # write endpoints fail closed (403) until this is set. Inline; prefer the ref.
+  writeToken: ""
+  # -- Secret reference for the API write token (`{key, name}`).
+  writeTokenSecretKeyRef: {}
+    # key: apiWriteToken
+    # name: alertkube-api
+  # -- Write-path auth mode: `token` (shared writeToken, default) or `rbac`
+  # (each write authenticated via Kubernetes TokenReview + SubjectAccessReview,
+  # so audit records a real username and access is managed with RBAC). `rbac`
+  # binds the controller SA to system:auth-delegator; grant END USERS access with
+  # a Role on apiGroups:["alertkube.io"] resources:["silences","channels"].
+  authMode: token
+  # -- Opt-in (Phase 2b): allow the console to TEST a channel whose credential
+  # lives in a Kubernetes Secret. Enabling this grants the controller `secrets:
+  # get` in its OWN namespace (a Role, not cluster-wide) and is the one place the
+  # zero-secrets-read posture bends. Off by default; the secret value is read at
+  # send-time only and never returned to the client. Leave false unless you need
+  # in-UI channel credential validation.
+  allowSecretRead: false
 
 # Fold alert storms: first alert of a group dispatches immediately,
 # later same-group alerts within the window collapse into one summary

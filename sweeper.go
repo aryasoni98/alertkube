@@ -12,14 +12,15 @@ import (
 	"alertkube/internal/config"
 	"alertkube/internal/metrics"
 	"alertkube/internal/persist"
+	"alertkube/internal/silence"
 	"alertkube/internal/sinks"
 )
 
-func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, persister *persist.ConfigMapStore, reg *sinks.Registry, cfg *config.Config) {
+func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister *persist.ConfigMapStore, reg *sinks.Registry, cfg *config.Config) {
 	defer wg.Done()
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
-	var savedGen uint64
+	var savedGen, savedSilGen uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -27,25 +28,30 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, per
 		case <-ticker.C:
 			store.SweepResolved()
 			store.CleanOldHistory()
+			// Age out expired runtime silences so the persisted set stays
+			// bounded; a prune bumps the silence generation, which triggers
+			// the save below.
+			silStore.PruneExpired(time.Now())
 			runEscalations(store, reg, cfg)
 			if persister == nil {
 				continue
 			}
-			// Capture the generation before exporting: a mutation racing
+			// Capture the generations before exporting: a mutation racing
 			// the export is included in the snapshot AND re-saved next
-			// sweep, so no state change is ever silently dropped.
-			gen := store.Generation()
-			if gen == savedGen {
+			// sweep, so no state change is ever silently dropped. Either the
+			// alert store or the silence store changing warrants a save.
+			gen, silGen := store.Generation(), silStore.Generation()
+			if gen == savedGen && silGen == savedSilGen {
 				continue
 			}
 			saveCtx, saveCancel := context.WithTimeout(ctx, 10*time.Second)
-			err := persister.Save(saveCtx, store.Export())
+			err := persister.Save(saveCtx, exportState(store, silStore))
 			saveCancel()
 			if err != nil {
 				klog.Warningf("state save: %v", err)
 				continue
 			}
-			savedGen = gen
+			savedGen, savedSilGen = gen, silGen
 		}
 	}
 }

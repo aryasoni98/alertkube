@@ -2,7 +2,6 @@ package sinks
 
 import (
 	"context"
-	"os"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/httpx"
@@ -32,7 +31,7 @@ func teamsColor(a *alert.Alert) string {
 }
 
 func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := os.Getenv("TEAMS_WEBHOOK_URL")
+	url := cred(ctx, "TEAMS_WEBHOOK_URL")
 	if url == "" {
 		return nil
 	}

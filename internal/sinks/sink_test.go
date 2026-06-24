@@ -145,3 +145,66 @@ func TestDispatchPanicDoesNotSinkOthers(t *testing.T) {
 		t.Errorf("healthy sink should still be sent, got %d", s2.sends.Load())
 	}
 }
+
+func TestNamesSorted(t *testing.T) {
+	r := fastRegistry(
+		&stubSink{name: "slack", supports: true},
+		&stubSink{name: "discord", supports: true},
+		&stubSink{name: "pagerduty", supports: true},
+	)
+	got := r.Names()
+	want := []string{"discord", "pagerduty", "slack"}
+	if len(got) != len(want) {
+		t.Fatalf("Names len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Names[%d] = %q, want %q (must be sorted)", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTestSendSuccess(t *testing.T) {
+	s := &stubSink{name: "slack", supports: true}
+	r := fastRegistry(s)
+	if err := r.TestSend(context.Background(), "slack", testAlert()); err != nil {
+		t.Fatalf("TestSend returned error: %v", err)
+	}
+	if s.sends.Load() != 1 {
+		t.Fatalf("sink got %d sends, want 1", s.sends.Load())
+	}
+}
+
+func TestTestSendReturnsSinkError(t *testing.T) {
+	r := fastRegistry(&stubSink{name: "slack", supports: true, err: errors.New("401 invalid_auth")})
+	err := r.TestSend(context.Background(), "slack", testAlert())
+	if err == nil || err.Error() != "401 invalid_auth" {
+		t.Fatalf("TestSend err = %v, want the sink's error surfaced", err)
+	}
+}
+
+func TestTestSendUnknownSink(t *testing.T) {
+	r := fastRegistry(&stubSink{name: "slack", supports: true})
+	if err := r.TestSend(context.Background(), "nope", testAlert()); err == nil {
+		t.Fatal("TestSend to unknown sink must return an error")
+	}
+}
+
+func TestTestSendIgnoresSupportsGate(t *testing.T) {
+	// A test-fire must send even if the sink would normally skip this severity.
+	s := &stubSink{name: "slack", supports: false}
+	r := fastRegistry(s)
+	if err := r.TestSend(context.Background(), "slack", testAlert()); err != nil {
+		t.Fatalf("TestSend error: %v", err)
+	}
+	if s.sends.Load() != 1 {
+		t.Fatalf("TestSend should bypass Supports gate; sends = %d, want 1", s.sends.Load())
+	}
+}
+
+func TestTestSendRecoversPanic(t *testing.T) {
+	r := fastRegistry(&stubSink{name: "slack", supports: true, panics: true})
+	if err := r.TestSend(context.Background(), "slack", testAlert()); err == nil {
+		t.Fatal("TestSend must convert a sink panic into an error, not crash")
+	}
+}

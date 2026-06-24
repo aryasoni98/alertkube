@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -22,6 +26,7 @@ import (
 	"alertkube/internal/receiver"
 	"alertkube/internal/router"
 	"alertkube/internal/rules"
+	"alertkube/internal/silence"
 	"alertkube/internal/sinks"
 	"alertkube/internal/sources"
 	awssource "alertkube/internal/sources/aws"
@@ -58,6 +63,12 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
+
+	// Runtime silences: time-boxed mutes created from the console without a
+	// redeploy. Persisted into the state ConfigMap (below) so they survive a
+	// leader failover, and consulted by the router alongside config silences.
+	silStore := silence.NewStore()
+	r.SetRuntimeSilences(silStore)
 
 	var grouper *group.Grouper
 	if cfg.Grouping.Enabled {
@@ -114,8 +125,9 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 			klog.Warningf("state restore failed (starting cold): %v", err)
 		case snap != nil:
 			store.Restore(snap)
-			klog.Infof("restored state: %d active alerts, %d mute records (saved %s)",
-				len(snap.Active), len(snap.LastSent), snap.SavedAt.Format(time.RFC3339))
+			silStore.Replace(snap.RuntimeSilences)
+			klog.Infof("restored state: %d active alerts, %d mute records, %d runtime silences (saved %s)",
+				len(snap.Active), len(snap.LastSent), len(snap.RuntimeSilences), snap.SavedAt.Format(time.RFC3339))
 		}
 	}
 
@@ -131,27 +143,62 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	})
 	ruleEngine = rules.New(cfg.Rules, emit)
 
-	// Read-only view of the active set + recent history for dashboards and
-	// debugging. It dumps alert contents (names, namespaces, summaries), so
-	// an optional bearer token guards it: set ALERTKUBE_API_TOKEN and the
-	// endpoint requires `Authorization: Bearer <token>`. Without a token it
-	// stays open (current behavior) - lock the port down with the chart's
-	// NetworkPolicy instead.
+	// Console + control-plane HTTP handlers. The read token guards reads; the
+	// write path is fail-closed (see newWriteGate). ALERTKUBE_AUTH_MODE selects
+	// token mode (shared ALERTKUBE_API_WRITE_TOKEN, default) or rbac mode
+	// (per-request Kubernetes TokenReview + SubjectAccessReview). Handlers live
+	// in console.go so they are unit-testable.
 	apiToken := os.Getenv("ALERTKUBE_API_TOKEN")
 	if apiToken == "" {
 		klog.Warningf("/api/alerts on %s is UNAUTHENTICATED and exposes active alert contents; set ALERTKUBE_API_TOKEN (helm: api.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
 	}
-	metrics.SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if apiToken != "" && !authz.BearerEqual(req.Header.Get("Authorization"), apiToken) {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+	writeToken := os.Getenv("ALERTKUBE_API_WRITE_TOKEN")
+	var rbacAuth *authz.RBACAuthorizer
+	if strings.ToLower(os.Getenv("ALERTKUBE_AUTH_MODE")) == "rbac" {
+		rbacAuth = authz.NewRBACAuthorizer(clientset)
+		klog.Infof("console write auth: rbac mode (TokenReview + SubjectAccessReview); writes require a Kubernetes token authorized for the alertkube.io resources - ALERTKUBE_API_WRITE_TOKEN is ignored")
+	} else if writeToken == "" {
+		klog.Infof("console write auth: token mode, but no ALERTKUBE_API_WRITE_TOKEN set - runtime writes are DISABLED (403). Set api.writeToken, or api.authMode=rbac.")
+	} else {
+		klog.Infof("console write auth: token mode (shared ALERTKUBE_API_WRITE_TOKEN)")
+	}
+	// Phase 2b (opt-in): Secret-reference channel testing. Off unless
+	// ALERTKUBE_ALLOW_SECRET_READ=true, which (via the chart) also grants the
+	// controller secrets:get in its own namespace. The reader is namespace- and
+	// key-scoped and never returns the value to a client.
+	secretRead := strings.EqualFold(os.Getenv("ALERTKUBE_ALLOW_SECRET_READ"), "true")
+	var secretReader func(context.Context, string, string) (string, error)
+	if secretRead {
+		ns := os.Getenv("POD_NAMESPACE")
+		if ns == "" {
+			klog.Warningf("ALERTKUBE_ALLOW_SECRET_READ is set but POD_NAMESPACE is empty; Secret-reference channel testing stays disabled")
+			secretRead = false
+		} else {
+			secretReader = func(ctx context.Context, name, key string) (string, error) {
+				s, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return "", err
+				}
+				b, ok := s.Data[key]
+				if !ok {
+					return "", fmt.Errorf("key %q not in secret %q", key, name)
+				}
+				return string(b), nil
+			}
+			klog.Infof("Secret-reference channel testing ENABLED (api.allowSecretRead): the controller may read Secrets in namespace %q to test channel credentials", ns)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"active": store.ActiveList(),
-			"recent": store.Recent(),
-		})
-	}))
+	}
+
+	installConsoleHandlers(consoleDeps{
+		apiToken:     apiToken,
+		writeGate:    newWriteGate(writeToken, rbacAuth),
+		cfg:          cfg,
+		store:        store,
+		silStore:     silStore,
+		reg:          reg,
+		secretRead:   secretRead,
+		secretReader: secretReader,
+	})
 
 	setupReceiver(cfg, store, emit, dispatchResolved)
 
@@ -159,7 +206,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go runSweeper(ctx, &wg, store, persister, reg, cfg)
+	go runSweeper(ctx, &wg, store, silStore, persister, reg, cfg)
 
 	// The grouper runs on its own cancel (not the controller ctx) so the
 	// shutdown sequence can finish in-flight enrichment - which may still
@@ -215,7 +262,93 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 
 	<-ctx.Done()
 	klog.Infof("%s shutting down", appName)
-	shutdown(ws, grouperStop, &wg, persister, store)
+	shutdown(ws, grouperStop, &wg, persister, store, silStore)
+}
+
+// writeAuthorized gates a control-plane mutation. It fails closed: an empty
+// write token means runtime mutation is disabled entirely (403), so a default
+// install never exposes a write path. With a token set, the request must carry
+// it as a bearer (constant-time compared). It writes the rejection response and
+// returns false when not authorized.
+func writeAuthorized(req *http.Request, writeToken string, w http.ResponseWriter) bool {
+	if writeToken == "" {
+		httpErr(w, http.StatusForbidden, "runtime mutation is disabled: set ALERTKUBE_API_WRITE_TOKEN (helm: api.writeToken)")
+		return false
+	}
+	if !authz.BearerEqual(req.Header.Get("Authorization"), writeToken) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+// httpErr writes a small JSON error body with the given status.
+func httpErr(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// sanitizeField strips control characters (defeating log injection from the
+// comment / user header, which are echoed into klog) and bounds the length.
+func sanitizeField(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n', r == '\r', r == '\t':
+			return ' '
+		case r < 0x20:
+			return -1
+		default:
+			return r
+		}
+	}, s)
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return strings.TrimSpace(s)
+}
+
+// exportState builds the durable snapshot: alert-store state plus the runtime
+// silences, which live outside the store but share the same state ConfigMap so
+// a UI-created mute survives a leader failover.
+func exportState(store *alert.Store, sil *silence.Store) *alert.Snapshot {
+	snap := store.Export()
+	snap.RuntimeSilences = sil.List()
+	return snap
+}
+
+// overlayConfig renders a candidate config: it parses a JSON patch of the
+// form-editable sections (rules, routing, grouping) and overlays them onto a
+// copy of the live config, returning the full YAML. Only provided sections are
+// replaced; every other field is preserved, so form-based authoring never drops
+// config the UI does not model. Nothing is applied - the result is for the
+// operator to review, diff, and commit to Git (the GitOps source of truth).
+func overlayConfig(base *config.Config, patch []byte) ([]byte, error) {
+	var in struct {
+		Rules    *[]config.Rule  `json:"rules"`
+		Routing  *[]config.Route `json:"routing"`
+		Grouping *struct {
+			Enabled       bool     `json:"enabled"`
+			WindowSeconds int      `json:"windowSeconds"`
+			By            []string `json:"by"`
+		} `json:"grouping"`
+	}
+	if err := json.Unmarshal(patch, &in); err != nil {
+		return nil, err
+	}
+	out := *base // shallow copy; section assignments below replace slice/struct headers, never mutating base
+	if in.Rules != nil {
+		out.Rules = *in.Rules
+	}
+	if in.Routing != nil {
+		out.Routing = *in.Routing
+	}
+	if in.Grouping != nil {
+		out.Grouping.Enabled = in.Grouping.Enabled
+		out.Grouping.WindowSeconds = in.Grouping.WindowSeconds
+		out.Grouping.By = in.Grouping.By
+	}
+	return yaml.Marshal(&out)
 }
 
 // setupReceiver wires the optional Alertmanager-compatible webhook receiver
@@ -287,7 +420,7 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 // reach the store and grouper), then stop the grouper so it flushes open
 // windows, wait for the sweeper + grouper goroutines, save final state on a
 // fresh deadline (ctx is already cancelled), and finally mark not-ready.
-func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store) {
+func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store, silStore *silence.Store) {
 	// Stop serving the leader-scoped routes first. The HTTP server outlives
 	// leader election, so a demoted leader would otherwise keep accepting
 	// receiver POSTs (202) into the store we are about to abandon - silently
@@ -295,12 +428,17 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, per
 	// 503 makes both fail loudly until the next leader reinstalls them.
 	metrics.ClearReceiverHandler()
 	metrics.ClearAlertsHandler()
+	metrics.ClearConfigHandler()
+	metrics.ClearValidateHandler()
+	metrics.ClearRenderHandler()
+	metrics.ClearSilencesHandler()
+	metrics.ClearChannelsHandler()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()
 	if persister != nil {
 		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := persister.Save(saveCtx, store.Export()); err != nil {
+		if err := persister.Save(saveCtx, exportState(store, silStore)); err != nil {
 			klog.Warningf("final state save: %v", err)
 		}
 		saveCancel()

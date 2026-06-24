@@ -300,6 +300,20 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
+// ParseAndValidate parses YAML config bytes and runs the same validation as
+// Load, without touching the filesystem. The read-only UI's POST
+// /api/config/validate uses it to give authors fast feedback on a candidate
+// config before they commit the change to Git/ConfigMap (Phase 1 authoring).
+// Env defaults are applied so the verdict matches a real Load.
+func ParseAndValidate(raw []byte) error {
+	c := &Config{}
+	if err := yaml.Unmarshal(raw, c); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	c.applyEnvDefaults()
+	return c.Validate()
+}
+
 // InformerResyncSeconds is the fixed informer resync period the controller
 // runs with (controller.go derives informerResyncPeriod from it). A resync
 // re-delivers every cached object as a synthetic Update, re-touching standing

@@ -163,3 +163,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     optional: true
 {{- end }}
 {{- end }}
+
+{{- define "alertkube.apiWriteToken" -}}
+{{- if .Values.api.writeTokenSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.api.writeTokenSecretKeyRef.key }}
+    name: {{ .Values.api.writeTokenSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: apiWriteToken
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}

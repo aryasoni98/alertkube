@@ -8,6 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/klog/v2"
+
+	"alertkube/internal/ui"
 )
 
 // ready is flipped to true once the informer caches have synced.
@@ -72,10 +74,17 @@ var (
 		prometheus.CounterOpts{Name: "alertkube_cloud_poll_errors_total", Help: "Cloud provider poll errors by source."},
 		[]string{"source"},
 	)
+	// RuntimeMutations counts control-plane writes made through the console API
+	// (e.g. silence create/delete), by action. A non-zero value means the
+	// runtime control plane is in use - state that lives outside Git.
+	RuntimeMutations = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "alertkube_runtime_mutations_total", Help: "Control-plane mutations made via the console API, by action."},
+		[]string{"action"},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors, RuntimeMutations)
 }
 
 // alertsHandler and receiverHandler are installed after the server
@@ -85,6 +94,23 @@ func init() {
 var (
 	alertsHandler   atomic.Pointer[http.Handler]
 	receiverHandler atomic.Pointer[http.Handler]
+	// configHandler (GET /api/config) and validateHandler (POST
+	// /api/config/validate) back the read-only console. Like alertsHandler they
+	// are leader-scoped: they read the loaded *config.Config, which only exists
+	// where the controller runs, so followers serve 503 and the console shows a
+	// standby banner.
+	configHandler   atomic.Pointer[http.Handler]
+	validateHandler atomic.Pointer[http.Handler]
+	// renderHandler backs POST /api/config/render: overlays form-built config
+	// sections onto the live config and returns the rendered YAML (read-only).
+	renderHandler atomic.Pointer[http.Handler]
+	// silencesHandler backs /api/silences (GET list, POST create) and
+	// /api/silences/{id} (DELETE). Leader-scoped like the others: the runtime
+	// silence store lives where the controller runs.
+	silencesHandler atomic.Pointer[http.Handler]
+	// channelsHandler backs /api/channels (GET list) and /api/channels/test
+	// (POST test-fire). Leader-scoped: the sink registry lives on the leader.
+	channelsHandler atomic.Pointer[http.Handler]
 )
 
 // SetAlertsHandler installs the /api/alerts handler.
@@ -94,6 +120,22 @@ func SetAlertsHandler(h http.Handler) { alertsHandler.Store(&h) }
 // receiver) handler.
 func SetReceiverHandler(h http.Handler) { receiverHandler.Store(&h) }
 
+// SetConfigHandler installs the GET /api/config (read-only loaded-config
+// snapshot) handler.
+func SetConfigHandler(h http.Handler) { configHandler.Store(&h) }
+
+// SetValidateHandler installs the POST /api/config/validate handler.
+func SetValidateHandler(h http.Handler) { validateHandler.Store(&h) }
+
+// SetRenderHandler installs the POST /api/config/render handler.
+func SetRenderHandler(h http.Handler) { renderHandler.Store(&h) }
+
+// SetSilencesHandler installs the /api/silences{,/{id}} handler.
+func SetSilencesHandler(h http.Handler) { silencesHandler.Store(&h) }
+
+// SetChannelsHandler installs the /api/channels{,/test} handler.
+func SetChannelsHandler(h http.Handler) { channelsHandler.Store(&h) }
+
 // ClearAlertsHandler and ClearReceiverHandler detach the handlers so their
 // routes return 503 again. Called at controller shutdown (signal or leader
 // loss): a demoted leader must stop reading an abandoned store and, crucially,
@@ -101,6 +143,20 @@ func SetReceiverHandler(h http.Handler) { receiverHandler.Store(&h) }
 // 503 tells the sender to retry instead of silently dropping the alert.
 func ClearAlertsHandler()   { alertsHandler.Store(nil) }
 func ClearReceiverHandler() { receiverHandler.Store(nil) }
+
+// ClearConfigHandler and ClearValidateHandler detach the console's read-only
+// handlers on leader loss, mirroring ClearAlertsHandler.
+func ClearConfigHandler()   { configHandler.Store(nil) }
+func ClearValidateHandler() { validateHandler.Store(nil) }
+
+// ClearRenderHandler detaches the render route on leader loss.
+func ClearRenderHandler() { renderHandler.Store(nil) }
+
+// ClearSilencesHandler detaches the runtime-silence route on leader loss.
+func ClearSilencesHandler() { silencesHandler.Store(nil) }
+
+// ClearChannelsHandler detaches the channel route on leader loss.
+func ClearChannelsHandler() { channelsHandler.Store(nil) }
 
 func dynamic(p *atomic.Pointer[http.Handler]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +195,25 @@ func buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/api/alerts", dynamic(&alertsHandler))
+	// Read-only console data endpoints (leader-scoped, token-gated by the
+	// installed handler).
+	mux.HandleFunc("/api/config", dynamic(&configHandler))
+	mux.HandleFunc("/api/config/validate", dynamic(&validateHandler))
+	mux.HandleFunc("/api/config/render", dynamic(&renderHandler))
+	// /api/silences (GET/POST) and /api/silences/{id} (DELETE) share one
+	// installed handler that routes internally by method and path.
+	mux.HandleFunc("/api/silences", dynamic(&silencesHandler))
+	mux.HandleFunc("/api/silences/", dynamic(&silencesHandler))
+	// /api/channels (GET list) and /api/channels/test (POST test-fire) share
+	// one installed handler that routes internally.
+	mux.HandleFunc("/api/channels", dynamic(&channelsHandler))
+	mux.HandleFunc("/api/channels/test", dynamic(&channelsHandler))
+	mux.HandleFunc("/api/channels/test-ref", dynamic(&channelsHandler))
+	// The embedded console SPA. Mounted on the catch-all "/" so any non-API
+	// path serves the app shell; the exact routes above are more specific and
+	// win. Static assets carry no secrets and are served without auth - the
+	// data they fetch is what the bearer token guards.
+	mux.Handle("/", ui.Handler())
 	// Wrap the receiver POST so its write budget is the tighter
 	// receiverWriteTimeout, not the generous server-wide writeTimeout that
 	// /metrics and /api/alerts need for their large responses.

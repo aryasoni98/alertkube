@@ -3,7 +3,6 @@ package sinks
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -42,7 +41,7 @@ func discordColor(a *alert.Alert) int {
 }
 
 func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := os.Getenv("DISCORD_WEBHOOK_URL")
+	url := cred(ctx, "DISCORD_WEBHOOK_URL")
 	if url == "" {
 		return nil
 	}

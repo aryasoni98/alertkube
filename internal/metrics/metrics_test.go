@@ -69,6 +69,11 @@ func TestMuxRoutes(t *testing.T) {
 	// Reset dynamic handlers so this test is independent of order.
 	alertsHandler.Store(nil)
 	receiverHandler.Store(nil)
+	configHandler.Store(nil)
+	validateHandler.Store(nil)
+	renderHandler.Store(nil)
+	silencesHandler.Store(nil)
+	channelsHandler.Store(nil)
 	mux := buildMux()
 
 	t.Run("healthz always 200", func(t *testing.T) {
@@ -129,7 +134,84 @@ func TestMuxRoutes(t *testing.T) {
 		}
 	})
 
+	t.Run("console served at root", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET / (console): got %d, want 200", rec.Code)
+		}
+	})
+
+	t.Run("config routes 503 until installed", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/api/config uninstalled: got %d, want 503", rec.Code)
+		}
+		SetConfigHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("/api/config installed: got %d, want 200", rec.Code)
+		}
+
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/validate", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/api/config/validate uninstalled: got %d, want 503", rec.Code)
+		}
+
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/render", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/api/config/render uninstalled: got %d, want 503", rec.Code)
+		}
+	})
+
+	t.Run("silences routes 503 until installed", func(t *testing.T) {
+		for _, p := range []string{"/api/silences", "/api/silences/abc"} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("%s uninstalled: got %d, want 503", p, rec.Code)
+			}
+		}
+		SetSilencesHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/silences/abc", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("/api/silences/{id} installed: got %d, want 200", rec.Code)
+		}
+	})
+
+	t.Run("channels routes 503 until installed", func(t *testing.T) {
+		for _, p := range []string{"/api/channels", "/api/channels/test", "/api/channels/test-ref"} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("%s uninstalled: got %d, want 503", p, rec.Code)
+			}
+		}
+		SetChannelsHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/channels/test", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("/api/channels/test installed: got %d, want 200", rec.Code)
+		}
+	})
+
 	// Clean up globals so other packages' expectations are not affected.
 	alertsHandler.Store(nil)
 	receiverHandler.Store(nil)
+	configHandler.Store(nil)
+	validateHandler.Store(nil)
+	renderHandler.Store(nil)
+	silencesHandler.Store(nil)
+	channelsHandler.Store(nil)
 }

@@ -2,7 +2,9 @@ package sinks
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,6 +65,53 @@ func (r *Registry) Has(name string) bool {
 	defer r.mu.RUnlock()
 	_, ok := r.sinks[name]
 	return ok
+}
+
+// Names returns the registered sink names, sorted. The console lists these so an
+// operator can pick a channel to test-fire.
+func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.sinks))
+	for n := range r.sinks {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestSend delivers one alert to a single named sink synchronously and returns
+// the real send error, bypassing the Dispatch fan-out, severity gate, and rate
+// limiter so a one-off test reports the actual outcome instead of queueing
+// behind a storm. Panics in a sink are converted to an error. The console's
+// channel test-fire uses this; it reuses the sink's already-loaded credentials,
+// so no Secret read is involved.
+func (r *Registry) TestSend(ctx context.Context, name string, a *alert.Alert) (err error) {
+	r.mu.RLock()
+	s, ok := r.sinks[name]
+	r.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("unknown sink %q", name)
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			metrics.SinkErrors.WithLabelValues(name).Inc()
+			err = fmt.Errorf("sink %q panicked: %v", name, rec)
+		}
+	}()
+	sendCtx, cancel := context.WithTimeout(ctx, perSinkTimeout)
+	defer cancel()
+	metrics.DispatchInflight.WithLabelValues(name).Inc()
+	defer metrics.DispatchInflight.WithLabelValues(name).Dec()
+	start := time.Now()
+	err = s.Send(sendCtx, a)
+	result := "ok"
+	if err != nil {
+		result = "error"
+		metrics.SinkErrors.WithLabelValues(name).Inc()
+	}
+	metrics.SinkSendDuration.WithLabelValues(name, result).Observe(time.Since(start).Seconds())
+	return err
 }
 
 // SetRate overrides the per-second rate and burst for a single sink. Use
