@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="logo" aria-hidden="true">▲</span>
+      <img class="logo" src="logo.png" alt="" aria-hidden="true" />
       <span class="title">AlertKube</span>
       <span class="ro-badge" title="This console is read-only">read-only</span>
     </div>
@@ -32,6 +32,21 @@
   </nav>
 
   <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Kubernetes alert command center</div>
+        <h1>Operate alerts with clarity.</h1>
+        <p>Watch live signal, inspect routing, validate changes, and keep Git as the source of truth.</p>
+      </div>
+      <div class="hero-panel" aria-label="Current console status">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <div>
+          <strong id="hero-cluster">Waiting for cluster</strong>
+          <span id="hero-status">Connect with a read token to load live data.</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Token gate -->
     <section id="auth" class="card auth hidden">
       <h2>API token required</h2>
@@ -56,12 +71,12 @@
     <!-- Overview -->
     <section id="tab-overview" class="tabpanel" role="tabpanel">
       <div class="stat-grid">
-        <div class="stat"><div class="stat-num" id="ov-active">—</div><div class="stat-lbl">Active alerts</div></div>
-        <div class="stat"><div class="stat-num" id="ov-critical">—</div><div class="stat-lbl">Critical</div></div>
-        <div class="stat"><div class="stat-num" id="ov-warning">—</div><div class="stat-lbl">Warning</div></div>
-        <div class="stat"><div class="stat-num" id="ov-suppressed">—</div><div class="stat-lbl">Suppressed (total)</div></div>
-        <div class="stat"><div class="stat-num" id="ov-rules">—</div><div class="stat-lbl">Rules</div></div>
-        <div class="stat"><div class="stat-num" id="ov-channels">—</div><div class="stat-lbl">Routes</div></div>
+        <div class="stat stat-active"><div class="stat-top"><span>Live</span><i></i></div><div class="stat-num" id="ov-active">—</div><div class="stat-lbl">Active alerts</div></div>
+        <div class="stat stat-critical"><div class="stat-top"><span>High risk</span><i></i></div><div class="stat-num" id="ov-critical">—</div><div class="stat-lbl">Critical</div></div>
+        <div class="stat stat-warning"><div class="stat-top"><span>Watch</span><i></i></div><div class="stat-num" id="ov-warning">—</div><div class="stat-lbl">Warning</div></div>
+        <div class="stat stat-suppressed"><div class="stat-top"><span>Noise control</span><i></i></div><div class="stat-num" id="ov-suppressed">—</div><div class="stat-lbl">Suppressed total</div></div>
+        <div class="stat stat-rules"><div class="stat-top"><span>Logic</span><i></i></div><div class="stat-num" id="ov-rules">—</div><div class="stat-lbl">Rules</div></div>
+        <div class="stat stat-routes"><div class="stat-top"><span>Delivery</span><i></i></div><div class="stat-num" id="ov-channels">—</div><div class="stat-lbl">Routes</div></div>
       </div>
       <p class="muted small">Mutation is intentionally not available here. To change alert patterns, groups, or
         channels, edit the config in Git/ConfigMap. The <strong>Config → Validate</strong> tab checks a candidate before you commit.</p>

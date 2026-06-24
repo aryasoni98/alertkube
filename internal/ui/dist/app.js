@@ -19,10 +19,29 @@ function setToken(t) { t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage
 function writeToken() { return sessionStorage.getItem(WRITE_TOKEN_KEY) || ""; }
 function setWriteToken(t) { t ? sessionStorage.setItem(WRITE_TOKEN_KEY, t) : sessionStorage.removeItem(WRITE_TOKEN_KEY); }
 
+function setMetric(sel, value) {
+  const el = $(sel);
+  const next = String(value);
+  if (el.textContent === next) return;
+  el.textContent = next;
+  el.classList.remove("metric-pop");
+  void el.offsetWidth;
+  el.classList.add("metric-pop");
+}
+
+function setHeroStatus(label) {
+  const el = $("#hero-status");
+  if (el) el.textContent = label;
+}
+
 function setConn(state, label) {
   const el = $("#conn");
   el.dataset.state = state;
   el.textContent = label;
+  if (state === "ok") setHeroStatus("Live data is connected and refreshing automatically.");
+  else if (state === "auth") setHeroStatus("Paste a read token to unlock the live dashboard.");
+  else if (state === "err") setHeroStatus("This replica is not serving live data right now.");
+  else setHeroStatus("Loading the latest alert and routing state...");
 }
 
 function esc(s) {
@@ -201,9 +220,13 @@ function renderConfig(cfg, raw) {
   $("#cfg-raw").textContent = lastConfigYaml;
 
   // overview counters that come from config
-  $("#ov-rules").textContent = rules.length;
-  $("#ov-channels").textContent = (cfg.routing || []).length;
-  if (cfg.cluster) $("#cluster").textContent = cfg.cluster;
+  setMetric("#ov-rules", rules.length);
+  setMetric("#ov-channels", (cfg.routing || []).length);
+  if (cfg.cluster) {
+    $("#cluster").textContent = cfg.cluster;
+    const heroCluster = $("#hero-cluster");
+    if (heroCluster) heroCluster.textContent = cfg.cluster;
+  }
 }
 
 // ---- Validate ----
@@ -253,11 +276,11 @@ async function loadMetrics() {
   } catch (_) { return; }
 
   const active = metricValue(text, "alertkube_active_alerts");
-  if (active != null) $("#ov-active").textContent = active;
+  if (active != null) setMetric("#ov-active", active);
 
   const supp = parseSuppressed(text);
   const total = supp.reduce((acc, [, n]) => acc + n, 0);
-  $("#ov-suppressed").textContent = total;
+  setMetric("#ov-suppressed", total);
 
   const tbody = $("#supp-table tbody");
   tbody.innerHTML = supp.map(([r, n]) => `<tr><td>${esc(r)}</td><td class="num">${n}</td></tr>`).join("");
@@ -658,9 +681,9 @@ async function refresh() {
     lastAlerts = { active: alertsRes.data.active || [], recent: alertsRes.data.recent || [] };
     renderAlerts();
     const active = lastAlerts.active;
-    $("#ov-active").textContent = active.length;
-    $("#ov-critical").textContent = active.filter((a) => String(a.Severity).toLowerCase() === "critical").length;
-    $("#ov-warning").textContent = active.filter((a) => String(a.Severity).toLowerCase() === "warning").length;
+    setMetric("#ov-active", active.length);
+    setMetric("#ov-critical", active.filter((a) => String(a.Severity).toLowerCase() === "critical").length);
+    setMetric("#ov-warning", active.filter((a) => String(a.Severity).toLowerCase() === "warning").length);
     setConn("ok", "connected");
   }
 
