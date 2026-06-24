@@ -6,6 +6,7 @@ import (
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
+	"alertkube/internal/silence"
 )
 
 func TestRouteMatch(t *testing.T) {
@@ -48,6 +49,62 @@ func TestRouteAnnotationSilenceDisabled(t *testing.T) {
 	a.Annotations["alert-silence-until"] = time.Now().Add(time.Hour).Format(time.RFC3339)
 	if r.Route(a) == nil {
 		t.Fatalf("annotation silence must be ignored when disabled")
+	}
+}
+
+func TestRuntimeSilenceSuppresses(t *testing.T) {
+	r := New(nil, nil, nil, []string{"stdout"})
+	st := silence.NewStore()
+	r.SetRuntimeSilences(st)
+
+	a := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+
+	// No silence yet -> routes.
+	if r.Route(a) == nil {
+		t.Fatal("alert should route before any runtime silence")
+	}
+	// Add a matching, live silence -> dropped.
+	st.Add(silence.Silence{Matchers: map[string]string{"namespace": "prod"}, Until: time.Now().Add(time.Hour)})
+	if r.Route(a) != nil {
+		t.Fatal("matching runtime silence should drop the alert")
+	}
+}
+
+func TestRuntimeSilenceExpired(t *testing.T) {
+	r := New(nil, nil, nil, []string{"stdout"})
+	st := silence.NewStore()
+	r.SetRuntimeSilences(st)
+	st.Add(silence.Silence{Matchers: map[string]string{"namespace": "prod"}, Until: time.Now().Add(-time.Minute)})
+
+	a := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if r.Route(a) == nil {
+		t.Fatal("expired runtime silence must not suppress")
+	}
+}
+
+func TestRuntimeSilenceNonMatch(t *testing.T) {
+	r := New(nil, nil, nil, []string{"stdout"})
+	st := silence.NewStore()
+	r.SetRuntimeSilences(st)
+	st.Add(silence.Silence{Matchers: map[string]string{"namespace": "staging"}, Until: time.Now().Add(time.Hour)})
+
+	a := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if r.Route(a) == nil {
+		t.Fatal("non-matching runtime silence must not suppress")
+	}
+}
+
+func TestRuntimeSilenceSkippedOnResolve(t *testing.T) {
+	r := New(nil, nil, nil, []string{"stdout"})
+	st := silence.NewStore()
+	r.SetRuntimeSilences(st)
+	st.Add(silence.Silence{Matchers: map[string]string{"namespace": "prod"}, Until: time.Now().Add(time.Hour)})
+
+	a := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	a.Resolved = true
+	// Resolves must reach sinks even under a silence (close incidents).
+	if r.Route(a) == nil {
+		t.Fatal("resolve must bypass runtime silences")
 	}
 }
 

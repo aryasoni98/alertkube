@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>AlertKube Console</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">▲</span>
+      <span class="title">AlertKube</span>
+      <span class="ro-badge" title="This console is read-only">read-only</span>
+    </div>
+    <div class="topbar-right">
+      <span id="cluster" class="cluster"></span>
+      <span id="conn" class="conn" data-state="idle">—</span>
+      <button id="refresh" type="button" class="btn">Refresh</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button class="tab" role="tab" data-tab="alerts" aria-selected="false">Alerts</button>
+    <button class="tab" role="tab" data-tab="config" aria-selected="false">Config</button>
+    <button class="tab" role="tab" data-tab="author" aria-selected="false">Author</button>
+    <button class="tab" role="tab" data-tab="channels" aria-selected="false">Channels</button>
+    <button class="tab" role="tab" data-tab="silences" aria-selected="false">Silences</button>
+    <button class="tab" role="tab" data-tab="suppression" aria-selected="false">Suppression</button>
+  </nav>
+
+  <main>
+    <!-- Token gate -->
+    <section id="auth" class="card auth hidden">
+      <h2>API token required</h2>
+      <p class="muted">The console reads from token-gated endpoints. Paste the value of
+        <code>ALERTKUBE_API_TOKEN</code>. It is kept in this tab only (sessionStorage) and sent as a Bearer header.</p>
+      <div class="auth-row">
+        <input id="token" type="password" placeholder="Read token (ALERTKUBE_API_TOKEN)" autocomplete="off" spellcheck="false" />
+        <button id="token-save" type="button" class="btn primary">Connect</button>
+        <button id="token-clear" type="button" class="btn">Clear</button>
+      </div>
+      <div class="auth-row">
+        <input id="write-token" type="password" placeholder="Write token — shared api.writeToken, or your Kubernetes token in rbac mode (for silences / channel tests)" autocomplete="off" spellcheck="false" />
+      </div>
+      <p id="auth-msg" class="muted"></p>
+    </section>
+
+    <!-- Standby / not-leader banner -->
+    <div id="standby" class="banner hidden">
+      This replica is a standby (or not yet ready). Live data is served only by the elected leader.
+    </div>
+
+    <!-- Overview -->
+    <section id="tab-overview" class="tabpanel" role="tabpanel">
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-num" id="ov-active">—</div><div class="stat-lbl">Active alerts</div></div>
+        <div class="stat"><div class="stat-num" id="ov-critical">—</div><div class="stat-lbl">Critical</div></div>
+        <div class="stat"><div class="stat-num" id="ov-warning">—</div><div class="stat-lbl">Warning</div></div>
+        <div class="stat"><div class="stat-num" id="ov-suppressed">—</div><div class="stat-lbl">Suppressed (total)</div></div>
+        <div class="stat"><div class="stat-num" id="ov-rules">—</div><div class="stat-lbl">Rules</div></div>
+        <div class="stat"><div class="stat-num" id="ov-channels">—</div><div class="stat-lbl">Routes</div></div>
+      </div>
+      <p class="muted small">Mutation is intentionally not available here. To change alert patterns, groups, or
+        channels, edit the config in Git/ConfigMap. The <strong>Config → Validate</strong> tab checks a candidate before you commit.</p>
+    </section>
+
+    <!-- Alerts -->
+    <section id="tab-alerts" class="tabpanel hidden" role="tabpanel">
+      <div class="toolbar">
+        <input id="alert-filter" type="search" placeholder="Filter by name / namespace / reason…" />
+        <label class="chk"><input type="checkbox" id="show-resolved" /> show recent/resolved</label>
+      </div>
+      <div class="table-wrap">
+        <table id="alerts-table">
+          <thead><tr>
+            <th>Sev</th><th>Kind</th><th>Namespace</th><th>Name</th><th>Reason</th><th>Summary</th><th>Since</th><th>State</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="alerts-empty" class="muted hidden">No alerts.</p>
+    </section>
+
+    <!-- Config -->
+    <section id="tab-config" class="tabpanel hidden" role="tabpanel">
+      <div class="cfg-grid">
+        <div class="card"><h3>Sources (enable/disable)</h3><div id="cfg-sources"></div></div>
+        <div class="card"><h3>Channels &amp; routing</h3><div id="cfg-routing"></div></div>
+        <div class="card span2"><h3>Alert patterns (rules)</h3><div id="cfg-rules"></div></div>
+        <div class="card"><h3>Pattern grouping (timeframe)</h3><div id="cfg-grouping"></div></div>
+        <div class="card"><h3>Silences</h3><div id="cfg-silences"></div></div>
+      </div>
+
+      <div class="card">
+        <h3>Validate a candidate config</h3>
+        <p class="muted small">Paste YAML to run the same checks as startup (<code>config.Validate</code>). Nothing is applied — read-only.</p>
+        <textarea id="validate-input" rows="8" spellcheck="false" placeholder="paste config YAML…"></textarea>
+        <div class="toolbar">
+          <button id="validate-run" type="button" class="btn primary">Validate</button>
+          <span id="validate-result" class="validate-result"></span>
+        </div>
+      </div>
+
+      <details class="card">
+        <summary>Raw effective config (YAML)</summary>
+        <pre id="cfg-raw" class="raw"></pre>
+      </details>
+    </section>
+
+    <!-- Author (UI-as-PR: edit config, validate, diff, export — no live mutation) -->
+    <section id="tab-author" class="tabpanel hidden" role="tabpanel">
+      <div class="card">
+        <h3>Author config changes <span class="muted small">(GitOps-preserving)</span></h3>
+        <p class="muted small">Edit the controller config here to change alert patterns (rules), pattern grouping, routing, and channels. This does <strong>not</strong> apply changes — Git stays the source of truth. Validate, review the diff, then export the YAML and commit it to your ConfigMap / Helm values. (Channel <em>credentials</em> are managed separately — Phase 2.)</p>
+        <div class="toolbar">
+          <button id="auth-load" type="button" class="btn">Load current config</button>
+          <button id="auth-validate" type="button" class="btn primary">Validate</button>
+          <button id="auth-diff" type="button" class="btn">Diff vs live</button>
+          <button id="auth-copy" type="button" class="btn">Copy YAML</button>
+          <button id="auth-download" type="button" class="btn">Download</button>
+          <span id="author-msg" class="validate-result"></span>
+        </div>
+        <textarea id="author-input" rows="18" spellcheck="false" placeholder="Load current config, then edit…"></textarea>
+      </div>
+
+      <div class="card" id="author-diff-card" style="display:none">
+        <h3>Diff <span class="muted small">(live → edited)</span></h3>
+        <pre id="author-diff" class="raw diff"></pre>
+        <p class="muted small">Apply by committing the edited config to Git / your <code>alertkube</code> config ConfigMap and reconciling. The controller picks it up on the next rollout.</p>
+      </div>
+    </section>
+
+    <!-- Channels (test-fire configured sinks) -->
+    <section id="tab-channels" class="tabpanel hidden" role="tabpanel">
+      <div class="card">
+        <h3>Notification channels</h3>
+        <p class="muted small">Configured sinks. <strong>Test</strong> sends one synthetic alert through the sink using its existing credentials — no secrets are read or stored by the console.</p>
+        <div class="banner" id="chan-warn">⚠ Test-fire sends a <strong>real</strong> notification. For PagerDuty / Opsgenie this may open an incident or page on-call. Requires a write token.</div>
+        <div id="chan-disabled" class="banner hidden">Testing is disabled (no write token set, or the server has no <code>ALERTKUBE_API_WRITE_TOKEN</code>).</div>
+        <div class="table-wrap">
+          <table id="chan-table">
+            <thead><tr><th>Channel</th><th></th><th>Result</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="chan-empty" class="muted hidden">No channels registered.</p>
+        <p class="muted small">To add a channel or rotate credentials, set the sink secret (Helm) and update routing via the <strong>Author</strong> tab, then commit. (Adding a channel directly from the UI is a later phase.)</p>
+      </div>
+    </section>
+
+    <!-- Silences -->
+    <section id="tab-silences" class="tabpanel hidden" role="tabpanel">
+      <div class="card">
+        <h3>Create a runtime silence</h3>
+        <p class="muted small">Time-boxed mute applied immediately — survives leader failover but lives <strong>outside Git</strong>. Use for transient noise; durable changes belong in config. Requires a write token.</p>
+        <div id="write-disabled" class="banner hidden">Runtime writes are disabled (no write token set, or the server has no <code>ALERTKUBE_API_WRITE_TOKEN</code>). You can view silences but not create them.</div>
+        <label class="fld">Matchers <span class="muted small">(one <code>key=value</code> per line; e.g. <code>namespace=prod</code>, <code>severity=warning</code>, <code>reason=CrashLoopBackOff</code>)</span>
+          <textarea id="sil-matchers" rows="3" spellcheck="false" placeholder="namespace=prod&#10;severity=warning"></textarea>
+        </label>
+        <div class="toolbar">
+          <label class="fld inline">Duration
+            <select id="sil-duration">
+              <option value="900">15 minutes</option>
+              <option value="3600" selected>1 hour</option>
+              <option value="14400">4 hours</option>
+              <option value="86400">24 hours</option>
+              <option value="custom">custom until…</option>
+            </select>
+          </label>
+          <label class="fld inline" id="sil-until-wrap" style="display:none">Until <input id="sil-until" type="datetime-local" /></label>
+          <label class="fld inline" style="flex:1">Comment <input id="sil-comment" type="text" placeholder="why (optional)" /></label>
+        </div>
+        <div class="toolbar">
+          <button id="sil-create" type="button" class="btn primary">Create silence</button>
+          <span id="sil-msg" class="validate-result"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Active runtime silences</h3>
+        <div class="table-wrap">
+          <table id="sil-table">
+            <thead><tr><th>Matchers</th><th>Until</th><th>Comment</th><th>By</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="sil-empty" class="muted hidden">No runtime silences.</p>
+      </div>
+
+      <div class="card">
+        <h3>Config silences <span class="muted small">(from Git — read-only)</span></h3>
+        <div id="sil-config"></div>
+      </div>
+    </section>
+
+    <!-- Suppression -->
+    <section id="tab-suppression" class="tabpanel hidden" role="tabpanel">
+      <p class="muted small">Counts from <code>/metrics</code>. Suppression keeps noise out of your channels — silences, inhibitions, mute windows, grouping, and dedupe all report here.</p>
+      <div class="table-wrap">
+        <table id="supp-table">
+          <thead><tr><th>Reason</th><th class="num">Count</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="supp-empty" class="muted hidden">No suppression recorded yet.</p>
+    </section>
+  </main>
+
+  <footer class="foot muted small">AlertKube console · read-only · Phase 0</footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

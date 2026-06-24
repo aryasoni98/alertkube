@@ -1,20 +1,27 @@
 package alert
 
-import "time"
+import (
+	"time"
+
+	"alertkube/internal/silence"
+)
 
 // SnapshotVersion identifies the serialized state schema. Bump when the
 // Snapshot or Alert wire shape changes incompatibly; Restore ignores
 // snapshots from a future version instead of guessing.
 const SnapshotVersion = 1
 
-// Snapshot is the durable form of the Store's state: the active alert set
-// (so resolves survive a restart) and the mute history (so a restart does
-// not re-page every standing condition).
+// Snapshot is the durable form of the controller's state: the active alert set
+// (so resolves survive a restart), the mute history (so a restart does not
+// re-page every standing condition), and runtime silences (so a UI-created mute
+// survives a leader failover). RuntimeSilences is additive and omitempty, so a
+// snapshot written by an older build simply restores none - no version bump.
 type Snapshot struct {
-	Version  int                  `json:"version"`
-	SavedAt  time.Time            `json:"savedAt"`
-	Active   []*Alert             `json:"active"`
-	LastSent map[string]time.Time `json:"lastSent"`
+	Version         int                  `json:"version"`
+	SavedAt         time.Time            `json:"savedAt"`
+	Active          []*Alert             `json:"active"`
+	LastSent        map[string]time.Time `json:"lastSent"`
+	RuntimeSilences []silence.Silence    `json:"runtimeSilences,omitempty"`
 }
 
 // Export copies the store's state into a Snapshot. Details maps are

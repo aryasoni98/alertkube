@@ -176,3 +176,26 @@ subjects:
   name: {{ include "alertkube.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
 {{- end }}
+{{- if eq .Values.api.authMode "rbac" }}
+---
+# Delegated authn/authz for console writes. In api.authMode=rbac the controller
+# validates each write request's bearer token with TokenReview and checks the
+# caller's RBAC with SubjectAccessReview. The built-in system:auth-delegator
+# ClusterRole grants exactly `create` on tokenreviews + subjectaccessreviews -
+# nothing else. Operators still grant END USERS write access with their own Role
+# on the synthetic alertkube.io resources (silences, channels); see the chart
+# README for an example.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "alertkube.fullname" . }}-auth-delegator
+  labels: {{- include "alertkube.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: {{ include "alertkube.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+{{- end }}

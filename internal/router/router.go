@@ -8,6 +8,7 @@ import (
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
 	"alertkube/internal/metrics"
+	"alertkube/internal/silence"
 )
 
 // Router decides which sinks an alert goes to, applies inhibitions and silences.
@@ -20,6 +21,12 @@ type Router struct {
 	// so workload authors cannot self-silence. Config-file silences still
 	// apply (those are operator-controlled).
 	disableAnnotationSilences bool
+
+	// runtimeSilences holds UI-created, time-boxed silences. Nil when the
+	// runtime control plane is not wired (e.g. unit tests), in which case only
+	// annotation and config silences apply. Its own lock guards concurrent
+	// reads against API writes.
+	runtimeSilences *silence.Store
 
 	mu             sync.Mutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
@@ -78,6 +85,12 @@ func (r *Router) SetDisableAnnotationSilences(disabled bool) {
 	r.disableAnnotationSilences = disabled
 }
 
+// SetRuntimeSilences wires the runtime (UI-created) silence store. Call before
+// the first Route.
+func (r *Router) SetRuntimeSilences(s *silence.Store) {
+	r.runtimeSilences = s
+}
+
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
@@ -92,6 +105,14 @@ func (r *Router) silenced(a *alert.Alert) bool {
 		}
 		if t, err := time.Parse(time.RFC3339, s.Until); err == nil && now.Before(t) {
 			return true
+		}
+	}
+	// Runtime (UI-created) silences: time-boxed mutes added without a redeploy.
+	if r.runtimeSilences != nil {
+		for _, s := range r.runtimeSilences.Active(now) {
+			if a.MatchLabels(s.Matchers) {
+				return true
+			}
 		}
 	}
 	return false
