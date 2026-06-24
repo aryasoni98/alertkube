@@ -189,6 +189,13 @@ api:
   # binds the controller SA to system:auth-delegator; grant END USERS access with
   # a Role on apiGroups:["alertkube.io"] resources:["silences","channels"].
   authMode: token
+  # -- Opt-in (Phase 2b): allow the console to TEST a channel whose credential
+  # lives in a Kubernetes Secret. Enabling this grants the controller `secrets:
+  # get` in its OWN namespace (a Role, not cluster-wide) and is the one place the
+  # zero-secrets-read posture bends. Off by default; the secret value is read at
+  # send-time only and never returned to the client. Leave false unless you need
+  # in-UI channel credential validation.
+  allowSecretRead: false
 
 # Fold alert storms: first alert of a group dispatches immediately,
 # later same-group alerts within the window collapse into one summary

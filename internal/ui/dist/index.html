@@ -172,7 +172,28 @@
           </table>
         </div>
         <p id="chan-empty" class="muted hidden">No channels registered.</p>
-        <p class="muted small">To add a channel or rotate credentials, set the sink secret (Helm) and update routing via the <strong>Author</strong> tab, then commit. (Adding a channel directly from the UI is a later phase.)</p>
+        <p class="muted small">To add a channel or rotate credentials, set the sink secret (Helm) and update routing via the <strong>Author</strong> tab, then commit.</p>
+      </div>
+
+      <div class="card">
+        <h3>Test a channel by Secret reference <span class="muted small">(opt-in)</span></h3>
+        <p class="muted small">Validate a channel whose credential lives in a Kubernetes Secret <strong>before</strong> you wire it. The controller reads the referenced key at send-time only and never stores or returns it. Requires <code>api.allowSecretRead=true</code> (grants the controller <code>secrets:get</code> in its namespace) and a write token.</p>
+        <div class="toolbar">
+          <label class="fld inline">Type
+            <select id="ref-type">
+              <option value="slack">slack (webhook)</option>
+              <option value="discord">discord</option>
+              <option value="teams">teams</option>
+              <option value="webhook">webhook</option>
+              <option value="pagerduty">pagerduty</option>
+              <option value="opsgenie">opsgenie</option>
+            </select>
+          </label>
+          <label class="fld inline">Secret name <input id="ref-name" type="text" placeholder="alertkube-channels" /></label>
+          <label class="fld inline">Key <input id="ref-key" type="text" placeholder="slackWebhookUrl" /></label>
+          <button id="ref-test" type="button" class="btn primary">Test reference</button>
+          <span id="ref-msg" class="chan-result"></span>
+        </div>
       </div>
     </section>
 

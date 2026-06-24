@@ -71,7 +71,7 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
 		return s.sendBotToken(ctx, token, channel, blocks, attachment)
 	}
-	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	webhookURL := cred(ctx, "SLACK_WEBHOOK_URL")
 	if webhookURL == "" {
 		return nil
 	}

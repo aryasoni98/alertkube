@@ -189,7 +189,7 @@ func TestMuxRoutes(t *testing.T) {
 	})
 
 	t.Run("channels routes 503 until installed", func(t *testing.T) {
-		for _, p := range []string{"/api/channels", "/api/channels/test"} {
+		for _, p := range []string{"/api/channels", "/api/channels/test", "/api/channels/test-ref"} {
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
 			if rec.Code != http.StatusServiceUnavailable {

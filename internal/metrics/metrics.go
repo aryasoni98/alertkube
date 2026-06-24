@@ -208,6 +208,7 @@ func buildMux() *http.ServeMux {
 	// one installed handler that routes internally.
 	mux.HandleFunc("/api/channels", dynamic(&channelsHandler))
 	mux.HandleFunc("/api/channels/test", dynamic(&channelsHandler))
+	mux.HandleFunc("/api/channels/test-ref", dynamic(&channelsHandler))
 	// The embedded console SPA. Mounted on the catch-all "/" so any non-API
 	// path serves the app shell; the exact routes above are more specific and
 	// win. Static assets carry no secrets and are served without auth - the

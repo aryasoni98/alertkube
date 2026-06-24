@@ -121,6 +121,8 @@ spec:
               {{- include "alertkube.apiWriteToken" . | indent 14 }}
             - name: ALERTKUBE_AUTH_MODE
               value: {{ .Values.api.authMode | default "token" | quote }}
+            - name: ALERTKUBE_ALLOW_SECRET_READ
+              value: {{ .Values.api.allowSecretRead | default false | quote }}
             - name: PAGERDUTY_ROUTING_KEY
               valueFrom:
               {{- include "alertkube.pagerdutyRoutingKey" . | indent 14 }}

@@ -30,7 +30,7 @@ func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
 // retried with backoff; the timestamp + signature are recomputed per
 // attempt so retries stay within the receiver's replay window.
 func (*WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := os.Getenv("GENERIC_WEBHOOK_URL")
+	url := cred(ctx, "GENERIC_WEBHOOK_URL")
 	if url == "" {
 		return nil
 	}

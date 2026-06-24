@@ -80,6 +80,7 @@ Auth model:
 
   Every mutation is audit-logged and counted (`alertkube_runtime_mutations_total`).
 - **Channel test-fire** (`POST /api/channels/test`) sends one synthetic alert through a configured sink so you can confirm it works. It reuses the sink's already-loaded credentials — **no Secret is read or stored by the console**, so the zero-secrets-read posture is unchanged. Note it sends a *real* notification (PagerDuty/Opsgenie may open an incident).
+- **Secret-reference channel test** (`POST /api/channels/test-ref`, opt-in) validates a channel whose credential lives in a Kubernetes Secret *before* you wire it: the controller reads the referenced key at send-time, sends one synthetic alert, and returns ok/fail — **the value is never stored or returned**. This is **off by default**; enabling `api.allowSecretRead=true` grants the controller `secrets: get` in its own namespace (a Role, never cluster-wide) and is the one place the zero-secrets-read posture bends. Supported types: slack (webhook), discord, teams, webhook, pagerduty, opsgenie.
 - All data endpoints are served only by the elected leader; static assets carry no secrets. Lock the port down with `networkPolicy.enabled=true`.
 
 ## Minimal Config

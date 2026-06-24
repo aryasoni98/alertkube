@@ -248,3 +248,66 @@ func TestSilenceCreateRBACMissingToken(t *testing.T) {
 		t.Fatalf("rbac missing token: got %d, want 401", rec.Code)
 	}
 }
+
+// --- Phase 2b: Secret-reference channel test ---
+
+func TestChannelTestRefDisabledByDefault(t *testing.T) {
+	d, _, _ := testDeps("rt", "wsecret", nil) // secretRead stays false
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("test-ref with secretRead off: got %d, want 403", rec.Code)
+	}
+}
+
+func TestChannelTestRefWriteGated(t *testing.T) {
+	d, _, _ := testDeps("rt", "", nil) // no write token -> writes disabled
+	d.secretRead = true
+	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "anything", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("test-ref without write token: got %d, want 403", rec.Code)
+	}
+}
+
+func TestChannelTestRefSuccess(t *testing.T) {
+	d, _, sink := testDeps("rt", "wsecret", nil)
+	d.secretRead = true
+	var gotName, gotKey string
+	d.secretReader = func(_ context.Context, name, key string) (string, error) {
+		gotName, gotKey = name, key
+		return "https://hooks.example.test/abc", nil
+	}
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"slack-creds","key":"webhookUrl"}}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("test-ref: %d %s", rec.Code, rec.Body.String())
+	}
+	if gotName != "slack-creds" || gotKey != "webhookUrl" {
+		t.Errorf("secretReader called with (%q,%q), want (slack-creds, webhookUrl)", gotName, gotKey)
+	}
+	if sink.got != 1 {
+		t.Errorf("sink should have received 1 send, got %d", sink.got)
+	}
+	// The secret value must never appear in the response.
+	if strings.Contains(rec.Body.String(), "hooks.example.test") {
+		t.Error("response leaked the secret value")
+	}
+}
+
+func TestChannelTestRefUnsupportedType(t *testing.T) {
+	d, _, _ := testDeps("rt", "wsecret", nil)
+	d.secretRead = true
+	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
+	// telegram is intentionally unsupported (needs a non-secret chat id).
+	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"telegram","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported type: got %d, want 400", rec.Code)
+	}
+}
+
+func TestChannelTestRefEmptySecret(t *testing.T) {
+	d, _, _ := testDeps("rt", "wsecret", nil)
+	d.secretRead = true
+	d.secretReader = func(context.Context, string, string) (string, error) { return "", nil }
+	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty secret: got %d, want 400", rec.Code)
+	}
+}

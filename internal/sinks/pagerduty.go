@@ -3,7 +3,6 @@ package sinks
 import (
 	"context"
 	"fmt"
-	"os"
 
 	pd "github.com/PagerDuty/go-pagerduty"
 
@@ -32,7 +31,7 @@ func pdSeverity(s alert.Severity) string {
 }
 
 func (p *PagerDutySink) Send(ctx context.Context, a *alert.Alert) error {
-	routingKey := os.Getenv("PAGERDUTY_ROUTING_KEY")
+	routingKey := cred(ctx, "PAGERDUTY_ROUTING_KEY")
 	if routingKey == "" {
 		return nil
 	}

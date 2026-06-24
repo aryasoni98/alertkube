@@ -47,6 +47,16 @@ Open the read-only web console (rides the metrics port, guarded by api.token):
     `helm get manifest` and any CI logs that render the chart. For production
     use the `*SecretKeyRef` fields to reference a pre-existing Secret instead.
 {{- end }}
+{{- if .Values.api.allowSecretRead }}
+{{- $warn = true }}
+
+[!] Secret read is ENABLED (api.allowSecretRead).
+    The controller has `get` on Secrets in namespace {{ .Release.Namespace }} so
+    the console can test a channel whose credential lives in a Secret. The value
+    is read at send-time only and never returned to the client, but this is the
+    one place the zero-secrets-read posture bends. Set api.allowSecretRead=false
+    if you do not use in-UI channel credential testing.
+{{- end }}
 {{- if not $warn }}
 
 No default-posture security warnings. /api/alerts is token-guarded,

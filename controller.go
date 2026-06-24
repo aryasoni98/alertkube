@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -160,13 +162,42 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	} else {
 		klog.Infof("console write auth: token mode (shared ALERTKUBE_API_WRITE_TOKEN)")
 	}
+	// Phase 2b (opt-in): Secret-reference channel testing. Off unless
+	// ALERTKUBE_ALLOW_SECRET_READ=true, which (via the chart) also grants the
+	// controller secrets:get in its own namespace. The reader is namespace- and
+	// key-scoped and never returns the value to a client.
+	secretRead := strings.EqualFold(os.Getenv("ALERTKUBE_ALLOW_SECRET_READ"), "true")
+	var secretReader func(context.Context, string, string) (string, error)
+	if secretRead {
+		ns := os.Getenv("POD_NAMESPACE")
+		if ns == "" {
+			klog.Warningf("ALERTKUBE_ALLOW_SECRET_READ is set but POD_NAMESPACE is empty; Secret-reference channel testing stays disabled")
+			secretRead = false
+		} else {
+			secretReader = func(ctx context.Context, name, key string) (string, error) {
+				s, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return "", err
+				}
+				b, ok := s.Data[key]
+				if !ok {
+					return "", fmt.Errorf("key %q not in secret %q", key, name)
+				}
+				return string(b), nil
+			}
+			klog.Infof("Secret-reference channel testing ENABLED (api.allowSecretRead): the controller may read Secrets in namespace %q to test channel credentials", ns)
+		}
+	}
+
 	installConsoleHandlers(consoleDeps{
-		apiToken:  apiToken,
-		writeGate: newWriteGate(writeToken, rbacAuth),
-		cfg:       cfg,
-		store:     store,
-		silStore:  silStore,
-		reg:       reg,
+		apiToken:     apiToken,
+		writeGate:    newWriteGate(writeToken, rbacAuth),
+		cfg:          cfg,
+		store:        store,
+		silStore:     silStore,
+		reg:          reg,
+		secretRead:   secretRead,
+		secretReader: secretReader,
 	})
 
 	setupReceiver(cfg, store, emit, dispatchResolved)

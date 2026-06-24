@@ -390,11 +390,30 @@ async function testChannel(name) {
   else { cell.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); cell.className = "chan-result bad"; }
 }
 
+async function testChannelByRef() {
+  const msg = $("#ref-msg");
+  const name = $("#ref-name").value.trim();
+  const key = $("#ref-key").value.trim();
+  if (!name || !key) { msg.textContent = "secret name and key required"; msg.className = "chan-result bad"; return; }
+  msg.textContent = "testing…";
+  msg.className = "chan-result";
+  const res = await fetchWrite("/api/channels/test-ref", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: $("#ref-type").value, secretRef: { name, key } }),
+  });
+  if (res.status === 403) { msg.textContent = "✗ disabled — needs api.allowSecretRead + write token"; msg.className = "chan-result bad"; return; }
+  if (res.status === 401) { msg.textContent = "✗ write token rejected"; msg.className = "chan-result bad"; return; }
+  if (res.data && res.data.ok) { msg.textContent = "✓ credential valid — channel reachable"; msg.className = "chan-result ok"; }
+  else { msg.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); msg.className = "chan-result bad"; }
+}
+
 function initChannels() {
   $("#chan-table").addEventListener("click", (e) => {
     const name = e.target && e.target.getAttribute && e.target.getAttribute("data-test");
     if (name) testChannel(name);
   });
+  $("#ref-test").addEventListener("click", testChannelByRef);
 }
 
 // ---- Author (UI-as-PR: edit, validate, diff, export) ----

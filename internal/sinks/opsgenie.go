@@ -36,7 +36,7 @@ func ogPriority(s alert.Severity) string {
 }
 
 func (*OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
-	apiKey := os.Getenv("OPSGENIE_API_KEY")
+	apiKey := cred(ctx, "OPSGENIE_API_KEY")
 	if apiKey == "" {
 		return nil
 	}
