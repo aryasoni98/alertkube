@@ -67,6 +67,49 @@
 
 ---
 
+## 0b. Re-Audit (Round 3) — Deferred Items Delivered
+
+> The Round 2 "deferred" backlog has now been implemented and re-verified. Only the CRD option remains deliberately deferred (gated by ADR-0001/ADR-0003).
+
+### Re-verification (all green)
+
+| Check | Round 2 → Round 3 |
+| --- | --- |
+| Build / vet / lint | ✅ → ✅ (0 lint issues) |
+| Tests (`-race`, atomic cover) | ✅ → ✅ |
+| Total coverage | 67.9% → **70.0%** (CI gate ratcheted 63% → 66%) |
+| Azure source coverage | 52.6% → **59.1%** |
+| GCP source coverage | 54.8% → **63.7%** |
+| `govulncheck` | clean → **clean** |
+
+### What was delivered
+
+| ID(s) | Change |
+| --- | --- |
+| STB-5 | **Per-sink circuit breaker** (`internal/sinks/breaker.go`): opens after 5 consecutive failures, short-circuits sends for a 30s cooldown, half-open probe recovery. Resolves bypass it. New `alertkube_sink_breaker_open` gauge + `circuit_open` suppressed-reason. |
+| FEAT-3 | **Google Chat** (cardsV2) and **Mattermost** (Slack-compatible) sinks, fully wired into `KnownSinks`, `buildSinks`, the console channel test, and the Helm chart (values/helpers/secret/deployment/NOTES). |
+| FEAT-4 | **Maintenance windows** (`internal/config/maintenance.go`): recurring daily HH:MM suppression with optional weekdays + IANA timezone and midnight-wrap, validated at load, wired into the router (`maintenance` suppressed-reason), shown in the console config tab. |
+| UI-6 | **Sortable alert columns** (severity-aware/time/state, `aria-sort`) and **expandable detail rows** (events/logs inline, persists across refresh). |
+| UI-4 | **Mobile card-stacking** for the alerts table (`<=600px` via `data-label` cells) plus sticky headers. |
+| UI-2 | **Live updates via SSE** (`/api/events`): leader-scoped, token-gated broadcast hub pings on every active-set change; the console streams it with fetch + ReadableStream (bearer-safe) and capped-backoff reconnect, with the 15s poll as fallback. Carries no payload, so no secrets. |
+| TST (cloud) | Azure/GCP source coverage raised with `Name()` pinning, `pollErr` metric assertions, and list-error-path tests (records `CloudPollErrors`, emits nothing, no panic). |
+
+### New tests added (Round 3)
+
+- `internal/sinks/breaker_test.go` — breaker state machine + Dispatch-level short-circuit/recovery/resolve-bypass.
+- `internal/sinks/newsinks_test.go` — Google Chat + Mattermost payloads, runbook-URL guard, resolved color, no-op-without-creds.
+- `internal/config/maintenance_test.go` — same-day/wrap/day-restriction/timezone/empty + load validation.
+- `internal/router/router_test.go` — maintenance suppression + resolve bypass.
+- `internal/metrics/events_test.go` — SSE hub coalescing/unsubscribe, handler 503/401/stream.
+- `internal/sources/azure/coverage_test.go`, `internal/sources/gcp/coverage_test.go` — names, pollErr, list-error paths.
+- `internal/ui/ui_test.go` — sortable headers, expand logic, mobile CSS, SSE client.
+
+### Still deferred (deliberate)
+
+- **FEAT-2 (CRD option)** — a product-direction change gated by ADR-0001 (client-go vs controller-runtime) and ADR-0003 (ConfigMap state). Out of scope for an additive hardening pass; revisit per the ROADMAP decision gates.
+
+---
+
 ## 1. Executive Summary
 
 AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes alerting controller. It is at the top decile of OSS controllers I have reviewed for code hygiene, comment quality, security posture, and operational thoughtfulness. The code reads like it was written by someone who has run alerting in production: nearly every non-obvious decision has a comment explaining *why* (timeout budgets, leader-flap re-entrancy, fail-closed auth, SSRF guards, clone-before-unlock, snapshot poisoning defenses).
@@ -86,17 +129,17 @@ AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes 
 
 ### Overall scorecard
 
-> Grades in parentheses are post-resolution (Round 2). See section 0 for details.
+> Grades in parentheses are post-resolution (Round 2/3). See sections 0 and 0b for details.
 
 | Dimension | Grade | One-line verdict |
 | --- | --- | --- |
-| **Stability** | A (A) | Disciplined concurrency, graceful drain, fail-closed defaults, restart-safe state; now with state-health metrics. |
+| **Stability** | A (A) | Disciplined concurrency, graceful drain, fail-closed defaults, restart-safe state; now with state-health metrics and a per-sink circuit breaker. |
 | **Security** | A (A) | Constant-time auth, SSRF guard, zero-secrets-read default, distroless nonroot, signed releases; chart now fails closed on unauthenticated read. |
-| **Performance** | A- (A) | Bounded pools, rate limiters, regex cache (now capped), gen-based save skipping; client QPS/burst tunable, cloud-poll jitter, cached /api/config, O(1) escalation drop. |
-| **User-friendliness** | A- (A) | Outstanding docs; config validation; now a `validate` CLI for cluster-free linting and clearer first-run token guidance. |
-| **UI / UX design** | B+ (A-) | Read-only console now keyboard-navigable, themable (light/dark), with visible focus and aria-live. SSE/mobile-cards deferred. |
-| **Test coverage** | B+ (A-) | 63.5% → 67.9%; collectors 3.2% → 70.3%; new root pipeline, snapshot-fuzz, cloud error-path tests; e2e expanded 1 → 4 scenarios. |
-| **Maintainability** | A (A) | Small focused packages, no dead code, no TODOs, idiomatic Go, strong CI; coverage gate ratcheted. |
+| **Performance** | A- (A) | Bounded pools, rate limiters, capped regex cache, gen-based save skipping; client QPS/burst tunable, cloud-poll jitter, cached /api/config, O(1) escalation drop, SSE replaces console polling. |
+| **User-friendliness** | A- (A) | Outstanding docs; config validation; `validate` CLI for cluster-free linting; maintenance windows; clearer first-run token guidance. |
+| **UI / UX design** | B+ (A) | Console: keyboard nav, light/dark theme, focus + aria-live, sortable/expandable alerts, mobile cards, and SSE live updates. |
+| **Test coverage** | B+ (A-) | 63.5% → 70.0%; collectors 3.2% → 70.3%; Azure/GCP raised; new pipeline, breaker, maintenance, SSE, snapshot-fuzz tests; e2e expanded 1 → 4 scenarios. |
+| **Maintainability** | A (A) | Small focused packages, no dead code, no TODOs, idiomatic Go, strong CI; coverage gate ratcheted to 66%. |
 
 **Top recommendation:** the engineering is launch-grade. The highest-leverage investments now are (1) **expanding e2e** beyond crashloop smoke into resolve/upgrade/HA/grouping flows, (2) **UI/UX upgrades** (keyboard nav, light theme, SSE/live updates, mobile), and (3) **closing coverage gaps** in cloud sources and the root package wiring.
 
