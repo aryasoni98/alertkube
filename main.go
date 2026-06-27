@@ -40,6 +40,13 @@ type runtimeFlags struct {
 }
 
 func main() {
+	// Subcommands (version, validate) run without a cluster connection and must
+	// be dispatched before flag.Parse so `alertkube validate --config x` is not
+	// mistaken for controller flags. They own their own flag sets.
+	if handled, code := dispatchSubcommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
+
 	flags := parseFlags()
 	klog.Infof("%s %s starting", appName, version)
 
@@ -88,7 +95,7 @@ func parseFlags() runtimeFlags {
 	} else {
 		flag.StringVar(&f.kubeconfig, "kubeconfig", "", "kubeconfig path")
 	}
-	flag.StringVar(&f.configPath, "config", os.Getenv("ALERTKUBE_CONFIG"), "YAML config path")
+	flag.StringVar(&f.configPath, "config", envConfigPath(), "YAML config path")
 	flag.StringVar(&f.watchNamespace, "watch-namespace", os.Getenv("WATCH_NAMESPACE"), "restrict informers to one namespace (disables node alerts; required for namespace-scoped RBAC)")
 	flag.BoolVar(&f.leaderElect, "leader-elect", env.Bool("LEADER_ELECT", false), "enable leader election via a Lease (required when replicas > 1)")
 	flag.StringVar(&f.leaderElectionNS, "leader-election-namespace", env.Or("LEADER_ELECTION_NAMESPACE", "kube-system"), "namespace holding the Lease object")
@@ -102,3 +109,8 @@ func waitForSignal() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 }
+
+// envConfigPath is the config path from the ALERTKUBE_CONFIG env var. Shared by
+// the --config flag default and the `validate` subcommand so both resolve the
+// same fallback.
+func envConfigPath() string { return os.Getenv("ALERTKUBE_CONFIG") }

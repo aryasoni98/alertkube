@@ -2,11 +2,19 @@ package sources
 
 import (
 	"context"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
 )
+
+// maxStartupJitter caps the random delay before a source's first poll. Spreading
+// the first poll keeps many sources (regions x services) from hitting the
+// provider API in the same instant, which would otherwise risk throttling and
+// a synchronized error spike. Bounded so startup still surfaces cloud alerts
+// quickly.
+const maxStartupJitter = 5 * time.Second
 
 // Run polls every source on its own goroutine until ctx is cancelled, then
 // blocks until all in-flight polls return. Add it to the controller
@@ -15,8 +23,8 @@ import (
 // Each source gets its own ticker so a slow provider API cannot delay the
 // others. time.Ticker coalesces ticks (its channel buffers at most one), so a
 // poll that overruns the interval simply skips the missed ticks instead of
-// piling up a backlog of overlapping polls. The first poll runs immediately so
-// startup does not wait a full interval for the first cloud alert.
+// piling up a backlog of overlapping polls. The first poll runs after a small
+// bounded jitter so many sources do not stampede the provider API at once.
 func Run(ctx context.Context, interval time.Duration, emit Emit, srcs ...Source) {
 	if len(srcs) == 0 || interval <= 0 {
 		return
@@ -32,7 +40,7 @@ func Run(ctx context.Context, interval time.Duration, emit Emit, srcs ...Source)
 	wg.Wait()
 }
 
-// runOne drives a single source: an immediate poll, then one poll per tick
+// runOne drives a single source: a jittered first poll, then one poll per tick
 // until ctx is cancelled.
 func runOne(ctx context.Context, interval time.Duration, emit Emit, s Source) {
 	poll := func() {
@@ -45,6 +53,18 @@ func runOne(ctx context.Context, interval time.Duration, emit Emit, s Source) {
 			}
 		}()
 		s.Poll(ctx, emit)
+	}
+	// Stagger the first poll by a bounded random delay so concurrent sources do
+	// not all call the provider API at the same instant. Cap at the interval so
+	// a sub-jitter interval is not overshot.
+	if jitter := startupJitter(interval); jitter > 0 {
+		t := time.NewTimer(jitter)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
 	}
 	if ctx.Err() == nil {
 		poll()
@@ -59,4 +79,16 @@ func runOne(ctx context.Context, interval time.Duration, emit Emit, s Source) {
 			poll()
 		}
 	}
+}
+
+// startupJitter returns a random delay in [0, min(interval, maxStartupJitter)).
+func startupJitter(interval time.Duration) time.Duration {
+	limit := maxStartupJitter
+	if interval < limit {
+		limit = interval
+	}
+	if limit <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(limit)))
 }

@@ -7,6 +7,18 @@ spec:
   {{- if and (gt (int .Values.replicaCount) 1) (not .Values.leaderElection.enabled) }}
   {{- fail "replicaCount > 1 requires leaderElection.enabled=true, otherwise every replica fires duplicate alerts" }}
   {{- end }}
+  {{- /*
+    Fail closed on read-auth: /api/alerts and the console data endpoints expose
+    active alert contents (and the alerting topology). With no read token AND no
+    NetworkPolicy, the metrics port is an open introspection surface. Require an
+    explicit opt-out (api.allowUnauthenticatedRead=true) so an unguarded install
+    is a deliberate choice, never an accident. Mirrors the receiver's
+    fail-closed model.
+  */}}
+  {{- $hasToken := or .Values.api.token .Values.api.tokenSecretKeyRef.name }}
+  {{- if and (not $hasToken) (not .Values.networkPolicy.enabled) (not .Values.api.allowUnauthenticatedRead) }}
+  {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept an open /api/alerts and console" }}
+  {{- end }}
   replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
     {{- if .Values.leaderElection.enabled }}
@@ -134,6 +146,16 @@ spec:
               {{- include "alertkube.genericWebhookUrl" . | indent 14 }}
             - name: METRICS_ADDR
               value: ":{{ .Values.metrics.port }}"
+            {{- if .Values.client }}
+            {{- if .Values.client.qps }}
+            - name: ALERTKUBE_CLIENT_QPS
+              value: {{ .Values.client.qps | quote }}
+            {{- end }}
+            {{- if .Values.client.burst }}
+            - name: ALERTKUBE_CLIENT_BURST
+              value: {{ .Values.client.burst | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

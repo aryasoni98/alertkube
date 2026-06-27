@@ -41,6 +41,16 @@ rbac:
   # -- RBAC scope: `cluster` (all namespaces + nodes) or `namespace`.
   scope: cluster   # cluster | namespace
 
+# Kubernetes REST client throttling. client-go's library defaults (5 QPS /
+# 10 burst) can throttle the initial list/watch sync and on-demand event/log
+# enrichment on large clusters; alertkube raises them. Lower for
+# API-server-constrained clusters, raise for very large ones.
+client:
+  # -- Client-side QPS to the API server (0 = controller default of 50).
+  qps: 50
+  # -- Client-side burst to the API server (0 = controller default of 100).
+  burst: 100
+
 image:
   # -- Controller image repository.
   repository: ghcr.io/aryasoni98/alertkube
@@ -196,6 +206,12 @@ api:
   # send-time only and never returned to the client. Leave false unless you need
   # in-UI channel credential validation.
   allowSecretRead: false
+  # -- Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no
+  # api.token and no networkPolicy are set. The chart fails closed by default:
+  # an install with neither a token nor a NetworkPolicy is rejected unless this
+  # is explicitly true, so an open introspection surface is always a deliberate
+  # choice. Mirrors the receiver's allowAnonymous model.
+  allowUnauthenticatedRead: false
 
 # Fold alert storms: first alert of a group dispatches immediately,
 # later same-group alerts within the window collapse into one summary

@@ -48,6 +48,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
 | api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
+| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
 | api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
 | api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
@@ -93,6 +94,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | behavior.pvcPendingSeconds | int | `300` | Seconds a PVC may stay Pending before alerting. |
 | behavior.resolveTTLSeconds | int | `600` | Seconds an alert may stay unseen before it is treated as resolved. |
 | behavior.startupGraceSeconds | int | `30` | Mute alerts fired during the first N seconds after start (0 disables). |
+| client.burst | int | `100` | Client-side burst to the API server (0 = controller default of 100). |
+| client.qps | int | `50` | Client-side QPS to the API server (0 = controller default of 50). |
 | cluster | string | `"Change-Me"` | Cluster name shown in every alert. |
 | discord.webhookUrl | string | `""` | Discord channel webhook URL (inline; prefer the Secret ref). |
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |

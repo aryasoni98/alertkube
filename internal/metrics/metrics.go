@@ -81,10 +81,30 @@ var (
 		prometheus.CounterOpts{Name: "alertkube_runtime_mutations_total", Help: "Control-plane mutations made via the console API, by action."},
 		[]string{"action"},
 	)
+	// StateSnapshotBytes is the size of the last serialized state snapshot. It
+	// trends toward the ConfigMap object limit on busy clusters; watch it
+	// against StateSaveSkipped to see the cliff (ADR-0003) before saves start
+	// being dropped.
+	StateSnapshotBytes = prometheus.NewGauge(
+		prometheus.GaugeOpts{Name: "alertkube_state_snapshot_bytes", Help: "Size in bytes of the last state snapshot serialized for persistence."},
+	)
+	// StateSaveSkipped counts state saves dropped because the snapshot exceeded
+	// the ConfigMap size guard. A non-zero value means persisted state is going
+	// stale and a restart will lose recent resolves/mutes - raise an alert on it.
+	StateSaveSkipped = prometheus.NewCounter(
+		prometheus.CounterOpts{Name: "alertkube_state_save_skipped_total", Help: "State saves skipped because the snapshot exceeded the size limit."},
+	)
+	// AlertsDropped counts alerts that failed delivery to every sink on their
+	// route (distinct from rate-limited suppression). The dedupe state is rolled
+	// back so the next firing retries; a sustained non-zero rate means a sink is
+	// persistently failing.
+	AlertsDropped = prometheus.NewCounter(
+		prometheus.CounterOpts{Name: "alertkube_alerts_dropped_total", Help: "Alerts whose every routed sink failed delivery (dedupe rolled back for retry)."},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors, RuntimeMutations)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors, RuntimeMutations, StateSnapshotBytes, StateSaveSkipped, AlertsDropped)
 }
 
 // alertsHandler and receiverHandler are installed after the server

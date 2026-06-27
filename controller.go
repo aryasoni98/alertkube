@@ -603,6 +603,7 @@ func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg 
 		// EndsAt is mutated by Touch while sink goroutines read the alert.
 		cp := *a
 		if !dispatch(reg, &cp, route) {
+			metrics.AlertsDropped.Inc()
 			store.MarkFailed(a.Fingerprint)
 		}
 	}

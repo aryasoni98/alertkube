@@ -1,7 +1,6 @@
 package alert
 
 import (
-	"strings"
 	"sync"
 	"time"
 )
@@ -30,9 +29,11 @@ type Store struct {
 	// recent is a bounded ring of fired/resolved alert copies (Details
 	// stripped) for the /api/alerts endpoint.
 	recent []*Alert
-	// escalated tracks fingerprint|ruleKey pairs that already escalated
-	// so each rule fires at most once per alert lifetime.
-	escalated map[string]bool
+	// escalated tracks which rule keys have already escalated each
+	// fingerprint, keyed fingerprint -> set(ruleKey). The nested map lets a
+	// resolve drop a fingerprint's marks in O(1) (delete the inner map)
+	// instead of scanning every mark by prefix.
+	escalated map[string]map[string]bool
 }
 
 func NewStore(muteWindow, resolveTTL time.Duration, onResolved func(*Alert)) *Store {
@@ -42,7 +43,7 @@ func NewStore(muteWindow, resolveTTL time.Duration, onResolved func(*Alert)) *St
 		muteWindow: muteWindow,
 		resolveTTL: resolveTTL,
 		onResolved: onResolved,
-		escalated:  map[string]bool{},
+		escalated:  map[string]map[string]bool{},
 	}
 }
 
@@ -299,14 +300,18 @@ func (s *Store) Overdue(after time.Duration, ruleKey string, match map[string]st
 		if !a.StartsAt.Before(cutoff) {
 			continue
 		}
-		key := fp + "|" + ruleKey
-		if s.escalated[key] {
+		if s.escalated[fp][ruleKey] {
 			continue
 		}
 		if !a.MatchLabels(match) {
 			continue
 		}
-		s.escalated[key] = true
+		marks := s.escalated[fp]
+		if marks == nil {
+			marks = map[string]bool{}
+			s.escalated[fp] = marks
+		}
+		marks[ruleKey] = true
 		out = append(out, a.Clone())
 	}
 	return out
@@ -315,10 +320,5 @@ func (s *Store) Overdue(after time.Duration, ruleKey string, match map[string]st
 // dropEscalationsLocked clears escalation marks for a fingerprint.
 // Caller holds s.mu.
 func (s *Store) dropEscalationsLocked(fp string) {
-	prefix := fp + "|"
-	for k := range s.escalated {
-		if strings.HasPrefix(k, prefix) {
-			delete(s.escalated, k)
-		}
-	}
+	delete(s.escalated, fp)
 }

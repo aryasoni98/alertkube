@@ -73,6 +73,7 @@ jobs:
             --set image.pullPolicy=Never \
             --set persistence.enabled=false \
             --set behavior.startupGraceSeconds=0 \
+            --set api.allowUnauthenticatedRead=true \
             --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
             --wait --timeout 180s
 
@@ -144,6 +145,7 @@ jobs:
             --set replicaCount=2 \
             --set leaderElection.enabled=true \
             --set leaderElection.namespace="${RELEASE_NS}" \
+            --set api.allowUnauthenticatedRead=true \
             --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
             --wait --timeout 180s
 

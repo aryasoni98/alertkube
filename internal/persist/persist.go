@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"alertkube/internal/alert"
+	"alertkube/internal/metrics"
 )
 
 // dataKey is the ConfigMap key holding the JSON snapshot.
@@ -71,7 +72,9 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("marshal snapshot: %w", err)
 	}
+	metrics.StateSnapshotBytes.Set(float64(len(body)))
 	if len(body) > maxSnapshotBytes {
+		metrics.StateSaveSkipped.Inc()
 		return fmt.Errorf("snapshot is %d bytes (limit %d); skipping save", len(body), maxSnapshotBytes)
 	}
 	cms := p.client.CoreV1().ConfigMaps(p.namespace)
