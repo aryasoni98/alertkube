@@ -145,6 +145,27 @@ Every audit finding and every Round-2 "deferred" item (STB-2/STB-5, FEAT-2/3/4, 
 
 ---
 
+## 0d. Re-Audit (Round 5) — Refactor & Dead-Code Cleanup
+
+> A maintainability pass: consolidate duplication, confirm there is no dead code or unused files, keep everything green.
+
+### Findings
+
+- **Dead Go code:** `deadcode -test ./...` reports **0** unused functions. (Plain `deadcode` flags three test-only helpers — `Store.ActiveCount`, `silence.Store.SetOnChange`, `simple.evaluate` — but each is exercised by tests, so they are intentionally kept.)
+- **Unused files:** none. The `docs/` landing page (`*.jsx`, `alertkube.css`, `ds/`) is published live by `.github/workflows/pages.yml`; `build.sh`, `scripts/`, and all `docs/design`/`docs/security` notes are referenced. No empty directories.
+- **Duplication:** the AWS/Azure/GCP source packages each reimplemented `emitFiring` / `emitResolve` / `pollErr` (+ Azure `strVal`).
+
+### Change
+
+- Extracted the shared logic into **`internal/sources/cloud.go`** (`EmitFiring` / `EmitResolve` / `PollErr` / `StrVal`); each provider package keeps a thin wrapper passing its own provider labels. **Net −36 lines**, one tested implementation, all call sites and behavior unchanged. Removed the now-unused `metrics`/`klog` imports from the three provider files. Added `internal/sources/cloud_test.go`.
+- **Verified:** build / vet / `golangci-lint` (0 issues) / `-race` tests all green; `deadcode -test` = 0; `go.mod`/`go.sum` unchanged.
+
+### Verdict
+
+The codebase was already lean and modular (small focused packages, generic `simple[T]` watcher, shared `httpx`/`templates`/`textutil`, no TODOs). This pass removed the one remaining cross-package duplication; no further dead code or unused files exist to remove.
+
+---
+
 ## 1. Executive Summary
 
 AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes alerting controller. It is at the top decile of OSS controllers I have reviewed for code hygiene, comment quality, security posture, and operational thoughtfulness. The code reads like it was written by someone who has run alerting in production: nearly every non-obvious decision has a comment explaining *why* (timeout budgets, leader-flap re-entrancy, fail-closed auth, SSRF guards, clone-before-unlock, snapshot poisoning defenses).
