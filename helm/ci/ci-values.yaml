@@ -1,0 +1,9 @@
+# chart-testing (ct) lint/install values. ct picks up helm/ci/*-values.yaml
+# automatically. These provide the minimum a real install needs so the chart's
+# fail-closed guards (required cluster, authenticated read API) are satisfied
+# during CI without weakening the secure defaults shipped in values.yaml.
+cluster: ci-test
+api:
+  # A read token satisfies the fail-closed read-auth guard; in CI this is a
+  # throwaway value, never a real credential.
+  token: ci-lint-token

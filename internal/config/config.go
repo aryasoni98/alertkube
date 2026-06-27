@@ -200,6 +200,12 @@ type Config struct {
 	// alert stream by internal/rules. Each fires a derived alert (kind
 	// Derived) through the same dedupe/route/group/sink pipeline.
 	Rules []Rule `yaml:"rules"`
+
+	// Maintenance windows suppress matching alerts on a recurring daily
+	// schedule (e.g. a nightly backup window or a weekly patch window),
+	// complementing the one-shot `silences` (which expire at a single RFC3339
+	// instant). Evaluated on every routing decision.
+	Maintenance []MaintenanceWindow `yaml:"maintenance"`
 }
 
 type Route struct {
@@ -326,14 +332,16 @@ const InformerResyncSeconds = 300
 // only reference these. Kept here so Validate can fail fast on typos
 // instead of dispatch silently skipping an unknown name.
 var KnownSinks = map[string]bool{
-	"slack":     true,
-	"pagerduty": true,
-	"teams":     true,
-	"webhook":   true,
-	"stdout":    true,
-	"discord":   true,
-	"telegram":  true,
-	"opsgenie":  true,
+	"slack":      true,
+	"pagerduty":  true,
+	"teams":      true,
+	"webhook":    true,
+	"stdout":     true,
+	"discord":    true,
+	"telegram":   true,
+	"opsgenie":   true,
+	"googlechat": true,
+	"mattermost": true,
 }
 
 // Validate rejects configurations that would otherwise fail open at
@@ -502,6 +510,11 @@ func (c *Config) Validate() error {
 		}
 		if ru.Absent != nil && ru.Absent.ForSeconds <= 0 {
 			return fmt.Errorf("rules[%d] (%s): absent.forSeconds must be positive", i, ru.Name)
+		}
+	}
+	for i, w := range c.Maintenance {
+		if err := w.validate(); err != nil {
+			return fmt.Errorf("maintenance[%d]: %w", i, err)
 		}
 	}
 	return nil

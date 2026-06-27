@@ -45,6 +45,14 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["get", "list", "watch"]
+{{- if .Values.crds.silences.enabled }}
+# Silence CRD watch (opt-in): the controller reads silences.alertkube.io via a
+# dynamic informer. Read-only - it never creates/updates/deletes them; operators
+# manage them with kubectl/GitOps.
+- apiGroups: ["alertkube.io"]
+  resources: ["silences"]
+  verbs: ["get", "list", "watch"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -89,6 +97,12 @@ rules:
 - apiGroups: ["autoscaling"]
   resources: ["horizontalpodautoscalers"]
   verbs: ["get", "list", "watch"]
+{{- if .Values.crds.silences.enabled }}
+# Silence CRD watch (opt-in), namespace-scoped. Read-only.
+- apiGroups: ["alertkube.io"]
+  resources: ["silences"]
+  verbs: ["get", "list", "watch"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -82,14 +82,71 @@ async function fetchWrite(path, opts) {
 }
 
 // ---- Tabs ----
+// activateTab selects one tab and reveals its panel, implementing the ARIA
+// tabs pattern: the selected tab is the only one in the focus order
+// (roving tabindex), the rest are removed from Tab order.
+function activateTab(tab, focus) {
+  $$(".tab").forEach((t) => {
+    const selected = t === tab;
+    t.setAttribute("aria-selected", selected ? "true" : "false");
+    t.tabIndex = selected ? 0 : -1;
+  });
+  $$(".tabpanel").forEach((p) => p.classList.add("hidden"));
+  $("#tab-" + tab.dataset.tab).classList.remove("hidden");
+  if (focus) tab.focus();
+}
+
 function initTabs() {
-  $$(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      $$(".tab").forEach((t) => t.setAttribute("aria-selected", "false"));
-      tab.setAttribute("aria-selected", "true");
-      $$(".tabpanel").forEach((p) => p.classList.add("hidden"));
-      $("#tab-" + tab.dataset.tab).classList.remove("hidden");
+  const tabs = $$(".tab");
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => activateTab(tab, false));
+    // Keyboard support per the WAI-ARIA tabs pattern: Left/Right (and
+    // Home/End) move between tabs and activate them; the roving tabindex keeps
+    // a single Tab stop.
+    tab.addEventListener("keydown", (e) => {
+      let next = -1;
+      switch (e.key) {
+        case "ArrowRight": case "ArrowDown": next = (i + 1) % tabs.length; break;
+        case "ArrowLeft": case "ArrowUp": next = (i - 1 + tabs.length) % tabs.length; break;
+        case "Home": next = 0; break;
+        case "End": next = tabs.length - 1; break;
+        default: return;
+      }
+      e.preventDefault();
+      activateTab(tabs[next], true);
     });
+  });
+}
+
+// ---- Theme (light/dark) ----
+const THEME_KEY = "alertkube.theme";
+function applyTheme(theme) {
+  // theme is "light", "dark", or null (follow the OS preference).
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.setAttribute("data-theme", theme);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  const btn = $("#theme-toggle");
+  if (btn) {
+    const dark = theme === "dark" ||
+      (!theme && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    btn.textContent = dark ? "☀" : "☾";
+    btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+  }
+}
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  applyTheme(saved);
+  const btn = $("#theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    // Resolve the currently effective theme, then flip it and pin the choice.
+    const current = document.documentElement.getAttribute("data-theme") ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = current === "dark" ? "light" : "dark";
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
   });
 }
 
@@ -109,10 +166,12 @@ function initAuth() {
     setWriteToken($("#write-token").value.trim());
     hideAuth();
     refresh();
+    connectEvents();
   });
   $("#token-clear").addEventListener("click", () => {
     setToken("");
     setWriteToken("");
+    if (sseAbort) sseAbort.abort();
     $("#token").value = "";
     $("#write-token").value = "";
     showAuth("Tokens cleared.");
@@ -120,32 +179,116 @@ function initAuth() {
 }
 
 // ---- Alerts ----
+// Sort state for the alerts table. Clicking a column header cycles asc/desc.
+let alertSort = { key: "Severity", dir: "asc" };
+// Fingerprints whose detail row is expanded (persists across refreshes).
+const expandedAlerts = new Set();
+
+// severityRank orders severities critical > warning > info for sensible sorting.
+function severityRank(s) {
+  return { critical: 0, warning: 1, info: 2 }[String(s || "").toLowerCase()] ?? 3;
+}
+
+function sortAlerts(rows) {
+  const { key, dir } = alertSort;
+  const mul = dir === "desc" ? -1 : 1;
+  return rows.slice().sort((a, b) => {
+    let av, bv;
+    if (key === "Severity") { av = severityRank(a.Severity); bv = severityRank(b.Severity); }
+    else if (key === "StartsAt") { av = new Date(a.StartsAt).getTime() || 0; bv = new Date(b.StartsAt).getTime() || 0; }
+    else if (key === "Resolved") { av = a.Resolved ? 1 : 0; bv = b.Resolved ? 1 : 0; }
+    else { av = String(a[key] || "").toLowerCase(); bv = String(b[key] || "").toLowerCase(); }
+    if (av < bv) return -1 * mul;
+    if (av > bv) return 1 * mul;
+    return 0;
+  });
+}
+
+// detailHTML renders an alert's Details map (events/logs) for the expanded row.
+function detailHTML(a) {
+  const d = a.Details || {};
+  const keys = Object.keys(d);
+  if (!keys.length) return '<span class="muted small">No additional detail (enrichment is dropped from recent/resolved entries).</span>';
+  return keys.map((k) => `<div class="detail-block"><div class="detail-h">${esc(k)}</div><pre class="raw">${esc(d[k])}</pre></div>`).join("");
+}
+
+function fp(a) { return a.Fingerprint || (a.Kind + "/" + a.Namespace + "/" + a.Name + "/" + a.Reason); }
+
 function renderAlerts() {
   const filter = ($("#alert-filter").value || "").toLowerCase();
   const showResolved = $("#show-resolved").checked;
-  const rows = (showResolved ? [...lastAlerts.active, ...lastAlerts.recent] : lastAlerts.active)
+  let rows = (showResolved ? [...lastAlerts.active, ...lastAlerts.recent] : lastAlerts.active)
     .filter((a) => {
       if (!filter) return true;
       return [a.Name, a.Namespace, a.Reason, a.Summary, a.Kind]
         .some((v) => String(v || "").toLowerCase().includes(filter));
     });
+  rows = sortAlerts(rows);
 
   const tbody = $("#alerts-table tbody");
   tbody.innerHTML = rows.map((a) => {
     const sev = String(a.Severity || "info").toLowerCase();
     const state = a.Resolved ? '<span class="state-resolved">resolved</span>' : '<span class="state-firing">firing</span>';
-    return `<tr>
-      <td><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td>
-      <td>${esc(a.Kind)}</td>
-      <td>${esc(a.Namespace)}</td>
-      <td>${esc(a.Name)}</td>
-      <td>${esc(a.Reason)}</td>
-      <td class="wrap">${esc(a.Summary)}</td>
-      <td>${esc(ago(a.StartsAt))}</td>
-      <td>${state}</td>
+    const id = fp(a);
+    const open = expandedAlerts.has(id);
+    const main = `<tr class="alert-row${open ? " expanded" : ""}" data-fp="${esc(id)}" tabindex="0" aria-expanded="${open}">
+      <td data-label="Sev"><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td>
+      <td data-label="Kind">${esc(a.Kind)}</td>
+      <td data-label="Namespace">${esc(a.Namespace)}</td>
+      <td data-label="Name">${esc(a.Name)}</td>
+      <td data-label="Reason">${esc(a.Reason)}</td>
+      <td data-label="Summary" class="wrap">${esc(a.Summary)}</td>
+      <td data-label="Since">${esc(ago(a.StartsAt))}</td>
+      <td data-label="State">${state}</td>
     </tr>`;
+    const detail = open
+      ? `<tr class="alert-detail" data-detail="${esc(id)}"><td colspan="8">${detailHTML(a)}</td></tr>`
+      : "";
+    return main + detail;
   }).join("");
   $("#alerts-empty").classList.toggle("hidden", rows.length > 0);
+  updateSortIndicators();
+}
+
+// updateSortIndicators reflects the active sort column/direction on the headers.
+function updateSortIndicators() {
+  $$(".th-sort").forEach((b) => {
+    const active = b.dataset.sort === alertSort.key;
+    b.setAttribute("aria-sort", active ? (alertSort.dir === "asc" ? "ascending" : "descending") : "none");
+    b.dataset.active = active ? "true" : "false";
+    b.dataset.dir = active ? alertSort.dir : "";
+  });
+}
+
+function initAlertsTable() {
+  // Header click toggles sort.
+  $$(".th-sort").forEach((b) => {
+    b.addEventListener("click", () => {
+      const key = b.dataset.sort;
+      if (alertSort.key === key) {
+        alertSort.dir = alertSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        alertSort = { key, dir: "asc" };
+      }
+      renderAlerts();
+    });
+  });
+  // Row click/Enter toggles the expanded detail row.
+  const tbody = $("#alerts-table tbody");
+  const toggle = (tr) => {
+    const id = tr && tr.getAttribute("data-fp");
+    if (!id) return;
+    if (expandedAlerts.has(id)) expandedAlerts.delete(id);
+    else expandedAlerts.add(id);
+    renderAlerts();
+  };
+  tbody.addEventListener("click", (e) => toggle(e.target.closest(".alert-row")));
+  tbody.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("alert-row")) {
+      e.preventDefault();
+      toggle(e.target);
+    }
+  });
 }
 
 // ---- Config ----
@@ -215,6 +358,18 @@ function renderConfig(cfg, raw) {
     : '<span class="muted">No config silences.</span>';
   $("#cfg-silences").innerHTML = cfgSilHTML;
   if ($("#sil-config")) $("#sil-config").innerHTML = cfgSilHTML;
+
+  // Maintenance windows (recurring suppression)
+  const maint = cfg.maintenance || [];
+  $("#cfg-maintenance").innerHTML = maint.length
+    ? maint.map((w) => {
+        const m = Object.entries(w.matchers || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(", ");
+        const days = (w.days && w.days.length) ? w.days.join(",") : "every day";
+        const tz = w.timezone || "UTC";
+        const name = w.name ? `<strong>${esc(w.name)}</strong> ` : "";
+        return `<div>${name}${esc(m)} <span class="muted">${esc(w.start)}–${esc(w.end)} ${esc(tz)} (${esc(days)})</span></div>`;
+      }).join("")
+    : '<span class="muted">No maintenance windows.</span>';
 
   lastConfigYaml = raw || "";
   $("#cfg-raw").textContent = lastConfigYaml;
@@ -661,6 +816,53 @@ function initAuthor() {
   $("#auth-download").addEventListener("click", downloadAuthor);
 }
 
+// ---- Live updates (SSE) ----
+// EventSource cannot attach an Authorization header, so we stream /api/events
+// with fetch + a ReadableStream reader and parse the SSE frames ourselves. On a
+// "change" event we refresh; the 15s poll below stays as a fallback when the
+// stream is unavailable (no token, follower 503, or a proxy that buffers it).
+let sseAbort = null;
+let sseBackoff = 2000;
+
+async function connectEvents() {
+  if (!token()) return;
+  if (sseAbort) sseAbort.abort();
+  const ctrl = new AbortController();
+  sseAbort = ctrl;
+  try {
+    const res = await fetch("/api/events", {
+      headers: { Authorization: "Bearer " + token(), Accept: "text/event-stream" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) return; // fall back to polling
+    sseBackoff = 2000; // reset backoff on a good connection
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      // SSE frames are separated by a blank line.
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        if (/^event:\s*change/m.test(frame)) refresh();
+      }
+    }
+  } catch (_) {
+    // aborted or network error; the reconnect below handles it
+  } finally {
+    if (sseAbort === ctrl) sseAbort = null;
+    // Reconnect with capped backoff as long as we still have a token.
+    if (token()) {
+      sseBackoff = Math.min(sseBackoff * 2, 30000);
+      setTimeout(connectEvents, sseBackoff);
+    }
+  }
+}
+
 // ---- Refresh orchestration ----
 async function refresh() {
   if (!token()) { showAuth(); return; }
@@ -697,6 +899,7 @@ async function refresh() {
 
 // ---- init ----
 window.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   initTabs();
   initAuth();
   initValidate();
@@ -704,9 +907,13 @@ window.addEventListener("DOMContentLoaded", () => {
   initAuthor();
   initFormBuilders();
   initChannels();
+  initAlertsTable();
   $("#refresh").addEventListener("click", refresh);
   $("#alert-filter").addEventListener("input", renderAlerts);
   $("#show-resolved").addEventListener("change", renderAlerts);
   refresh();
+  connectEvents();
+  // Polling stays as a fallback when the SSE stream is unavailable; the
+  // interval is generous because live changes arrive via /api/events.
   setInterval(refresh, 15000);
 });

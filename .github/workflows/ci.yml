@@ -45,10 +45,11 @@ jobs:
 
       - name: Coverage gate
         # Fails the build if total statement coverage drops below the floor.
-        # Ratchet target: raise toward 60% then 70% as root-package and e2e
-        # tests land (see docs/ROADMAP.md Phase 1.1.1). Only ever raise this.
+        # Ratchet target: raise toward 75% as more e2e/root tests land
+        # (see docs/ROADMAP.md). Only ever raise this. Current measured total is
+        # ~70%; the gate is held a few points below to absorb normal churn.
         env:
-          COVERAGE_THRESHOLD: "53"
+          COVERAGE_THRESHOLD: "66"
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
           echo "Total coverage: ${total}% (gate: ${COVERAGE_THRESHOLD}%)"

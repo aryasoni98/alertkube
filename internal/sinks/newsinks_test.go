@@ -171,3 +171,93 @@ func TestRunbookURLGuardNewSinks(t *testing.T) {
 		}
 	}
 }
+
+func TestGoogleChatSend(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)
+
+	a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
+	a.Cluster = "prod"
+	a.Summary = "container OOMKilled"
+	a.Annotations["runbook-url"] = "https://wiki.example/runbook"
+	if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	p := (*payloads)[0]
+	if !strings.Contains(p["text"].(string), "OOMKilled") {
+		t.Fatalf("fallback text missing reason: %v", p["text"])
+	}
+	cards, ok := p["cardsV2"].([]any)
+	if !ok || len(cards) != 1 {
+		t.Fatalf("cardsV2 missing: %v", p["cardsV2"])
+	}
+	// The runbook button URL must be present.
+	raw, _ := json.Marshal(p)
+	if !strings.Contains(string(raw), "https://wiki.example/runbook") {
+		t.Fatalf("runbook link missing: %s", raw)
+	}
+}
+
+func TestGoogleChatRunbookGuard(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityWarning)
+	a.Annotations["runbook-url"] = "javascript:alert(1)"
+	if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	raw, _ := json.Marshal((*payloads)[0])
+	if strings.Contains(string(raw), "javascript:") {
+		t.Fatalf("unsafe runbook leaked: %s", raw)
+	}
+}
+
+func TestMattermostSend(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
+
+	a := alert.New(alert.KindJob, "ns", "batch-1", "JobFailed", alert.SeverityWarning)
+	a.Cluster = "prod"
+	a.Summary = "job failed"
+	if err := NewMattermost().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	p := (*payloads)[0]
+	atts, ok := p["attachments"].([]any)
+	if !ok || len(atts) != 1 {
+		t.Fatalf("attachments missing: %v", p["attachments"])
+	}
+	att := atts[0].(map[string]any)
+	if !strings.Contains(att["title"].(string), "JobFailed") {
+		t.Fatalf("title missing reason: %v", att["title"])
+	}
+	// Warning color is the amber severity swatch.
+	if att["color"] != alert.SeverityWarning.Color() {
+		t.Fatalf("warning color = %v, want %v", att["color"], alert.SeverityWarning.Color())
+	}
+}
+
+func TestMattermostResolvedColor(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+	a.Resolved = true
+	if err := NewMattermost().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	att := (*payloads)[0]["attachments"].([]any)[0].(map[string]any)
+	if att["color"] != alert.ResolvedColorHex {
+		t.Fatalf("resolved color = %v, want %v", att["color"], alert.ResolvedColorHex)
+	}
+}
+
+func TestGoogleChatMattermostNoopWithoutCreds(t *testing.T) {
+	t.Setenv("GOOGLECHAT_WEBHOOK_URL", "")
+	t.Setenv("MATTERMOST_WEBHOOK_URL", "")
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+	for _, s := range []Sink{NewGoogleChat(), NewMattermost()} {
+		if err := s.Send(context.Background(), a); err != nil {
+			t.Fatalf("%s: unconfigured sink must no-op, got %v", s.Name(), err)
+		}
+	}
+}

@@ -17,18 +17,19 @@
     <div class="topbar-right">
       <span id="cluster" class="cluster"></span>
       <span id="conn" class="conn" data-state="idle">—</span>
+      <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">◐</button>
       <button id="refresh" type="button" class="btn">Refresh</button>
     </div>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
-    <button class="tab" role="tab" data-tab="alerts" aria-selected="false">Alerts</button>
-    <button class="tab" role="tab" data-tab="config" aria-selected="false">Config</button>
-    <button class="tab" role="tab" data-tab="author" aria-selected="false">Author</button>
-    <button class="tab" role="tab" data-tab="channels" aria-selected="false">Channels</button>
-    <button class="tab" role="tab" data-tab="silences" aria-selected="false">Silences</button>
-    <button class="tab" role="tab" data-tab="suppression" aria-selected="false">Suppression</button>
+  <nav class="tabs" role="tablist" aria-label="Console sections">
+    <button class="tab" role="tab" id="tabbtn-overview" aria-controls="tab-overview" data-tab="overview" aria-selected="true">Overview</button>
+    <button class="tab" role="tab" id="tabbtn-alerts" aria-controls="tab-alerts" data-tab="alerts" aria-selected="false" tabindex="-1">Alerts</button>
+    <button class="tab" role="tab" id="tabbtn-config" aria-controls="tab-config" data-tab="config" aria-selected="false" tabindex="-1">Config</button>
+    <button class="tab" role="tab" id="tabbtn-author" aria-controls="tab-author" data-tab="author" aria-selected="false" tabindex="-1">Author</button>
+    <button class="tab" role="tab" id="tabbtn-channels" aria-controls="tab-channels" data-tab="channels" aria-selected="false" tabindex="-1">Channels</button>
+    <button class="tab" role="tab" id="tabbtn-silences" aria-controls="tab-silences" data-tab="silences" aria-selected="false" tabindex="-1">Silences</button>
+    <button class="tab" role="tab" id="tabbtn-suppression" aria-controls="tab-suppression" data-tab="suppression" aria-selected="false" tabindex="-1">Suppression</button>
   </nav>
 
   <main>
@@ -42,7 +43,7 @@
         <span class="pulse-dot" aria-hidden="true"></span>
         <div>
           <strong id="hero-cluster">Waiting for cluster</strong>
-          <span id="hero-status">Connect with a read token to load live data.</span>
+          <span id="hero-status" aria-live="polite">Connect with a read token to load live data.</span>
         </div>
       </div>
     </section>
@@ -69,7 +70,7 @@
     </div>
 
     <!-- Overview -->
-    <section id="tab-overview" class="tabpanel" role="tabpanel">
+    <section id="tab-overview" class="tabpanel" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
       <div class="stat-grid">
         <div class="stat stat-active"><div class="stat-top"><span>Live</span><i></i></div><div class="stat-num" id="ov-active">—</div><div class="stat-lbl">Active alerts</div></div>
         <div class="stat stat-critical"><div class="stat-top"><span>High risk</span><i></i></div><div class="stat-num" id="ov-critical">—</div><div class="stat-lbl">Critical</div></div>
@@ -83,7 +84,7 @@
     </section>
 
     <!-- Alerts -->
-    <section id="tab-alerts" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-alerts" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-alerts" tabindex="0">
       <div class="toolbar">
         <input id="alert-filter" type="search" placeholder="Filter by name / namespace / reason…" />
         <label class="chk"><input type="checkbox" id="show-resolved" /> show recent/resolved</label>
@@ -91,7 +92,14 @@
       <div class="table-wrap">
         <table id="alerts-table">
           <thead><tr>
-            <th>Sev</th><th>Kind</th><th>Namespace</th><th>Name</th><th>Reason</th><th>Summary</th><th>Since</th><th>State</th>
+            <th><button type="button" class="th-sort" data-sort="Severity">Sev</button></th>
+            <th><button type="button" class="th-sort" data-sort="Kind">Kind</button></th>
+            <th><button type="button" class="th-sort" data-sort="Namespace">Namespace</button></th>
+            <th><button type="button" class="th-sort" data-sort="Name">Name</button></th>
+            <th><button type="button" class="th-sort" data-sort="Reason">Reason</button></th>
+            <th>Summary</th>
+            <th><button type="button" class="th-sort" data-sort="StartsAt">Since</button></th>
+            <th><button type="button" class="th-sort" data-sort="Resolved">State</button></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -100,13 +108,14 @@
     </section>
 
     <!-- Config -->
-    <section id="tab-config" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-config" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-config" tabindex="0">
       <div class="cfg-grid">
         <div class="card"><h3>Sources (enable/disable)</h3><div id="cfg-sources"></div></div>
         <div class="card"><h3>Channels &amp; routing</h3><div id="cfg-routing"></div></div>
         <div class="card span2"><h3>Alert patterns (rules)</h3><div id="cfg-rules"></div></div>
         <div class="card"><h3>Pattern grouping (timeframe)</h3><div id="cfg-grouping"></div></div>
         <div class="card"><h3>Silences</h3><div id="cfg-silences"></div></div>
+        <div class="card"><h3>Maintenance windows</h3><div id="cfg-maintenance"></div></div>
       </div>
 
       <div class="card">
@@ -126,7 +135,7 @@
     </section>
 
     <!-- Author (UI-as-PR: edit config, validate, diff, export — no live mutation) -->
-    <section id="tab-author" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-author" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-author" tabindex="0">
       <div class="card">
         <h3>Author config changes <span class="muted small">(GitOps-preserving)</span></h3>
         <p class="muted small">Edit the controller config here to change alert patterns (rules), pattern grouping, routing, and channels. This does <strong>not</strong> apply changes — Git stays the source of truth. Validate, review the diff, then export the YAML and commit it to your ConfigMap / Helm values. (Channel <em>credentials</em> are managed separately — Phase 2.)</p>
@@ -174,7 +183,7 @@
     </section>
 
     <!-- Channels (test-fire configured sinks) -->
-    <section id="tab-channels" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-channels" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-channels" tabindex="0">
       <div class="card">
         <h3>Notification channels</h3>
         <p class="muted small">Configured sinks. <strong>Test</strong> sends one synthetic alert through the sink using its existing credentials — no secrets are read or stored by the console.</p>
@@ -213,7 +222,7 @@
     </section>
 
     <!-- Silences -->
-    <section id="tab-silences" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-silences" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-silences" tabindex="0">
       <div class="card">
         <h3>Create a runtime silence</h3>
         <p class="muted small">Time-boxed mute applied immediately — survives leader failover but lives <strong>outside Git</strong>. Use for transient noise; durable changes belong in config. Requires a write token.</p>
@@ -258,7 +267,7 @@
     </section>
 
     <!-- Suppression -->
-    <section id="tab-suppression" class="tabpanel hidden" role="tabpanel">
+    <section id="tab-suppression" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-suppression" tabindex="0">
       <p class="muted small">Counts from <code>/metrics</code>. Suppression keeps noise out of your channels — silences, inhibitions, mute windows, grouping, and dedupe all report here.</p>
       <div class="table-wrap">
         <table id="supp-table">
@@ -270,7 +279,7 @@
     </section>
   </main>
 
-  <footer class="foot muted small">AlertKube console · read-only · Phase 0</footer>
+  <footer class="foot muted small">AlertKube console · read-only</footer>
 
   <script src="app.js" defer></script>
 </body>

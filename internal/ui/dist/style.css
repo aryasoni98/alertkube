@@ -685,3 +685,138 @@ tbody tr:hover {
     transition-duration: .01ms !important;
   }
 }
+
+/* ============================================================================
+   Accessibility + theming (audit follow-ups)
+   - Visible keyboard focus on every interactive control (WCAG 2.4.7).
+   - Light theme: respects the OS preference and a manual override stored by
+     app.js as data-theme on <html>. Dark stays the default.
+   ========================================================================== */
+
+/* Strong, consistent focus ring for keyboard users. :focus-visible keeps it
+   off mouse clicks but on for keyboard/AT navigation. */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.tab:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Tabs draw their own underline; give the focus ring room without clipping. */
+.tab:focus-visible { outline-offset: -2px; }
+
+/* Theme toggle button in the topbar. */
+.theme-toggle {
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: 32px; height: 32px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+
+/* Light theme tokens. Applied when the user selects light (data-theme="light")
+   OR when the OS prefers light and the user has not pinned a theme. */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --bg-2: rgba(255, 255, 255, .86);
+  --bg-3: rgba(226, 232, 240, .7);
+  --border: rgba(15, 23, 42, .14);
+  --fg: #0f1d33;
+  --muted: #50617a;
+  --accent: #0d9488;
+  --accent-2: #2563eb;
+  --accent-3: #7c3aed;
+  --crit: #dc2626;
+  --warn: #b45309;
+  --info: #15803d;
+  --shadow: 0 18px 60px rgba(15, 23, 42, .12);
+}
+:root[data-theme="light"] .btn.primary { color: #fff; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f5f7fb;
+    --bg-2: rgba(255, 255, 255, .86);
+    --bg-3: rgba(226, 232, 240, .7);
+    --border: rgba(15, 23, 42, .14);
+    --fg: #0f1d33;
+    --muted: #50617a;
+    --accent: #0d9488;
+    --accent-2: #2563eb;
+    --accent-3: #7c3aed;
+    --crit: #dc2626;
+    --warn: #b45309;
+    --info: #15803d;
+    --shadow: 0 18px 60px rgba(15, 23, 42, .12);
+  }
+  :root:not([data-theme]) .btn.primary { color: #fff; }
+}
+
+/* Sticky table headers so column labels stay visible when a long alert/silence
+   table scrolls inside its .table-wrap (helps on small viewports too). */
+.table-wrap { max-height: 70vh; overflow-y: auto; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-2);
+}
+
+/* ============================================================================
+   Alerts table: sortable headers, expandable detail rows, mobile card-stacking
+   ========================================================================== */
+
+/* Sortable column header buttons look like plain headers but are real buttons
+   for keyboard + screen-reader support. */
+.th-sort {
+  background: none; border: none; color: inherit; font: inherit; font-weight: 600;
+  cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 4px;
+}
+.th-sort:hover { color: var(--accent); }
+.th-sort[data-active="true"] { color: var(--accent); }
+.th-sort[data-active="true"]::after { content: "▲"; font-size: 9px; }
+.th-sort[data-active="true"][data-dir="desc"]::after { content: "▼"; }
+
+/* Expandable alert rows. */
+.alert-row { cursor: pointer; }
+.alert-row:hover { background: var(--bg-3); }
+.alert-row.expanded { background: var(--bg-3); }
+.alert-detail > td { padding: 0 12px 12px; }
+.detail-block { margin-top: 8px; }
+.detail-h {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--muted); margin-bottom: 4px;
+}
+.alert-detail .raw { margin: 0; max-height: 320px; overflow: auto; }
+
+/* Mobile: stack each table row as a labelled card so 8 columns do not overflow.
+   The data-label on each cell (set in app.js) becomes the field name. Applies to
+   the alerts, silences, channels, and suppression tables. */
+@media (max-width: 600px) {
+  #alerts-table thead { position: absolute; left: -9999px; }
+  #alerts-table, #alerts-table tbody, #alerts-table tr, #alerts-table td { display: block; width: 100%; }
+  #alerts-table tr.alert-row {
+    border: 1px solid var(--border); border-radius: 12px;
+    margin-bottom: 10px; padding: 6px 10px; background: var(--bg-2);
+  }
+  #alerts-table tr.alert-row td {
+    display: flex; justify-content: space-between; gap: 12px;
+    border: none; padding: 4px 0; text-align: right;
+  }
+  #alerts-table tr.alert-row td::before {
+    content: attr(data-label);
+    font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); text-align: left; flex: 0 0 auto;
+  }
+  #alerts-table td.wrap { text-align: right; }
+  .alert-detail > td { display: block; }
+}

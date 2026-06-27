@@ -31,6 +31,9 @@ Two layers live here:
 | Scenario | Layer | Asserts |
 | --- | --- | --- |
 | Pod CrashLoopBackOff → alert | smoke + chainsaw | controller emits a `CrashLoopBackOff` alert for the pod |
+| Resolve on pod delete | chainsaw | deleting a firing pod emits a synthetic resolve (delete path) |
+| OOMKilled → alert | chainsaw | a container killed by the OOM killer emits an `OOMKilled` alert |
+| ImagePullBackOff → alert | chainsaw | a pod with an unpullable image emits an image-pull alert |
 | Chart installs & becomes Ready | smoke | Deployment rolls out, `/readyz` 200 |
 | HA leader election | smoke (ha job) | 2 replicas run; exactly one is the leader |
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -18,7 +19,7 @@ import (
 // runWithLeaderElection blocks until the process either wins the lease and
 // finishes, or is asked to exit. Only the leader runs the controller body;
 // followers wait while serving /healthz + /metrics.
-func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, flags runtimeFlags) {
+func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, cfg *config.Config, flags runtimeFlags) {
 	id, _ := os.Hostname()
 	if flags.leaderElectionLeaseID != "" {
 		id = flags.leaderElectionLeaseID
@@ -54,7 +55,7 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadCtx context.Context) {
 				klog.Infof("%s acquired leadership (id=%s)", appName, id)
-				runController(leadCtx, clientset, cfg, flags.watchNamespace)
+				runController(leadCtx, clientset, dynClient, cfg, flags.watchNamespace)
 			},
 			OnStoppedLeading: func() {
 				klog.Warningf("%s lost leadership (id=%s)", appName, id)

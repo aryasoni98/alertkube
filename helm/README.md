@@ -48,6 +48,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
 | api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
+| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
 | api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
 | api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
@@ -93,7 +94,11 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | behavior.pvcPendingSeconds | int | `300` | Seconds a PVC may stay Pending before alerting. |
 | behavior.resolveTTLSeconds | int | `600` | Seconds an alert may stay unseen before it is treated as resolved. |
 | behavior.startupGraceSeconds | int | `30` | Mute alerts fired during the first N seconds after start (0 disables). |
+| client.burst | int | `100` | Client-side burst to the API server (0 = controller default of 100). |
+| client.qps | int | `50` | Client-side QPS to the API server (0 = controller default of 50). |
 | cluster | string | `"Change-Me"` | Cluster name shown in every alert. |
+| crds.keep | bool | `true` | Keep CRDs on `helm uninstall` (helm.sh/resource-policy: keep) so active Silence objects survive a reinstall. Set false to let Helm delete them. |
+| crds.silences.enabled | bool | `false` | Install the Silence CRD + RBAC and watch silences.alertkube.io. |
 | discord.webhookUrl | string | `""` | Discord channel webhook URL (inline; prefer the Secret ref). |
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |
 | escalations | list | `[]` | Escalation rules; re-dispatch unresolved alerts to extra sinks after a delay. |
@@ -114,6 +119,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | genericWebhook.signingSecret | string | `""` | Optional HMAC-SHA256 signing key for request signatures. |
 | genericWebhook.url | string | `""` | Endpoint that receives the raw Alert JSON via POST. |
 | genericWebhook.urlSecretKeyRef | object | `{}` | Secret reference for the webhook URL (`{key, name}`). |
+| googlechat.webhookUrl | string | `""` | Google Chat space incoming-webhook URL (inline; prefer the Secret ref). |
+| googlechat.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Google Chat webhook URL (`{key, name}`). |
 | grouping.by | list | `["kind","namespace","reason","severity"]` | Grouping key fields. |
 | grouping.enabled | bool | `false` | Fold alert storms into one summary per group. |
 | grouping.windowSeconds | int | `30` | Window in seconds during which same-group alerts collapse. |
@@ -124,6 +131,9 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | inhibitions | list | `[{"duration":"10m","equal":["node"],"source":{"kind":"Node","reason":"NodeNotReady"},"target":{"kind":"Pod"}}]` | Inhibition rules that suppress targets while a source alert is active. |
 | leaderElection.enabled | bool | `false` | Enable HA leader election via a coordination Lease. |
 | leaderElection.namespace | string | `""` | Namespace for the Lease (defaults to the release namespace). |
+| maintenance | list | `[]` | Recurring daily maintenance windows that suppress matching alerts. |
+| mattermost.webhookUrl | string | `""` | Mattermost incoming-webhook URL (inline; prefer the Secret ref). |
+| mattermost.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Mattermost webhook URL (`{key, name}`). |
 | metrics.enabled | bool | `true` | Expose the metrics/health HTTP server. |
 | metrics.port | int | `9090` | Port for `/metrics`, `/healthz`, `/readyz`. |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator `ServiceMonitor`. |

@@ -11,6 +11,7 @@ import (
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 
@@ -37,9 +38,19 @@ type runtimeFlags struct {
 	leaderElect           bool
 	leaderElectionNS      string
 	leaderElectionLeaseID string
+	// watchSilenceCRD enables watching the alertkube.io Silence CRD via a
+	// dynamic informer (opt-in; requires the CRD installed + RBAC).
+	watchSilenceCRD bool
 }
 
 func main() {
+	// Subcommands (version, validate) run without a cluster connection and must
+	// be dispatched before flag.Parse so `alertkube validate --config x` is not
+	// mistaken for controller flags. They own their own flag sets.
+	if handled, code := dispatchSubcommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
+
 	flags := parseFlags()
 	klog.Infof("%s %s starting", appName, version)
 
@@ -62,14 +73,27 @@ func main() {
 
 	clientset := buildClient(ctx, flags.kubeconfig)
 
+	// Optional Silence CRD watch via a dynamic client (opt-in). Built here so
+	// both the leader and the direct path share one client. A build failure is
+	// non-fatal: log and continue without CRD watching, mirroring cloud sources.
+	var dynClient dynamic.Interface
+	if flags.watchSilenceCRD {
+		dc, derr := buildDynamicClient(flags.kubeconfig)
+		if derr != nil {
+			klog.Errorf("silence CRD watch requested but dynamic client init failed (continuing without it): %v", derr)
+		} else {
+			dynClient = dc
+		}
+	}
+
 	// Metrics + health start outside the leader-election gate so the pod
 	// can still be scraped and probed when it is a hot-standby follower.
 	srv := metrics.Serve(cfg.MetricsAddr)
 
 	if flags.leaderElect {
-		runWithLeaderElection(ctx, clientset, cfg, flags)
+		runWithLeaderElection(ctx, clientset, dynClient, cfg, flags)
 	} else {
-		runController(ctx, clientset, cfg, flags.watchNamespace)
+		runController(ctx, clientset, dynClient, cfg, flags.watchNamespace)
 	}
 
 	if srv != nil {
@@ -88,11 +112,12 @@ func parseFlags() runtimeFlags {
 	} else {
 		flag.StringVar(&f.kubeconfig, "kubeconfig", "", "kubeconfig path")
 	}
-	flag.StringVar(&f.configPath, "config", os.Getenv("ALERTKUBE_CONFIG"), "YAML config path")
+	flag.StringVar(&f.configPath, "config", envConfigPath(), "YAML config path")
 	flag.StringVar(&f.watchNamespace, "watch-namespace", os.Getenv("WATCH_NAMESPACE"), "restrict informers to one namespace (disables node alerts; required for namespace-scoped RBAC)")
 	flag.BoolVar(&f.leaderElect, "leader-elect", env.Bool("LEADER_ELECT", false), "enable leader election via a Lease (required when replicas > 1)")
 	flag.StringVar(&f.leaderElectionNS, "leader-election-namespace", env.Or("LEADER_ELECTION_NAMESPACE", "kube-system"), "namespace holding the Lease object")
 	flag.StringVar(&f.leaderElectionLeaseID, "leader-election-id", os.Getenv("POD_NAME"), "lease holder identity (defaults to POD_NAME or hostname)")
+	flag.BoolVar(&f.watchSilenceCRD, "watch-silence-crd", env.Bool("ALERTKUBE_WATCH_SILENCE_CRD", false), "watch the alertkube.io Silence CRD via a dynamic informer (opt-in; requires the CRD + RBAC)")
 	flag.Parse()
 	return f
 }
@@ -102,3 +127,8 @@ func waitForSignal() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 }
+
+// envConfigPath is the config path from the ALERTKUBE_CONFIG env var. Shared by
+// the --config flag default and the `validate` subcommand so both resolve the
+// same fallback.
+func envConfigPath() string { return os.Getenv("ALERTKUBE_CONFIG") }

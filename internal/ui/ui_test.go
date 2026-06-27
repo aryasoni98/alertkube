@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,5 +54,94 @@ func TestSPAFallbackServesIndex(t *testing.T) {
 	}
 	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("fallback content-type = %q, want text/html", ct)
+	}
+}
+
+func bodyOf(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	res := get(t, h, path)
+	defer res.Body.Close()
+	b := new(strings.Builder)
+	if _, err := io.Copy(b, res.Body); err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return b.String()
+}
+
+func TestConsoleAccessibilityMarkup(t *testing.T) {
+	html := bodyOf(t, Handler(), "/")
+	// Tabs must be linked to their panels for assistive tech.
+	for _, want := range []string{
+		`role="tablist"`,
+		`aria-controls="tab-overview"`,
+		`aria-labelledby="tabbtn-overview"`,
+		`id="theme-toggle"`,
+		`aria-live="polite"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("index.html missing accessibility markup: %q", want)
+		}
+	}
+}
+
+func TestConsoleThemingAndFocusStyles(t *testing.T) {
+	css := bodyOf(t, Handler(), "/style.css")
+	for _, want := range []string{
+		":focus-visible",
+		"prefers-color-scheme: light",
+		`data-theme="light"`,
+		".theme-toggle",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css missing %q", want)
+		}
+	}
+}
+
+func TestConsoleKeyboardNavScript(t *testing.T) {
+	js := bodyOf(t, Handler(), "/app.js")
+	for _, want := range []string{
+		"ArrowRight",
+		"roving",
+		"initTheme",
+		"data-theme",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
+func TestConsoleAlertsTableInteractivity(t *testing.T) {
+	html := bodyOf(t, Handler(), "/")
+	for _, want := range []string{
+		`class="th-sort"`,
+		`data-sort="Severity"`,
+		`data-sort="StartsAt"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("index.html missing sortable-header markup: %q", want)
+		}
+	}
+	js := bodyOf(t, Handler(), "/app.js")
+	for _, want := range []string{"initAlertsTable", "expandedAlerts", "sortAlerts", "data-label"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing alerts-table logic: %q", want)
+		}
+	}
+	css := bodyOf(t, Handler(), "/style.css")
+	for _, want := range []string{".th-sort", ".alert-detail", "max-width: 600px"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css missing alerts-table styles: %q", want)
+		}
+	}
+}
+
+func TestConsoleSSEClient(t *testing.T) {
+	js := bodyOf(t, Handler(), "/app.js")
+	for _, want := range []string{"connectEvents", "/api/events", "change", "getReader"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing SSE client logic: %q", want)
+		}
 	}
 }

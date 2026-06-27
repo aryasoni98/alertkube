@@ -275,11 +275,15 @@ func (a *Alert) MatchLabels(want map[string]string) bool {
 }
 
 // regexCache memoizes compiled namespace/reason matchers (nil sentinels for
-// invalid patterns) so MatchLabels does not recompile per alert. It is
-// intentionally unbounded: patterns only ever come from config (routing,
-// inhibition, escalation, severity-override matchers), so the key set is
-// bounded by config size, not by untrusted input. If alert-supplied label
-// values ever feed these matchers, add a size cap here.
+// invalid patterns) so MatchLabels does not recompile per alert. Patterns come
+// from config (routing, inhibition, escalation, severity-override matchers), so
+// the key set is normally bounded by config size, not by untrusted input. As a
+// defense-in-depth guard against any future caller that feeds alert-supplied
+// values here, the cache is hard-capped at regexCacheMax entries: once full it
+// stops memoizing new patterns (compiling them per call) rather than growing
+// without bound.
+const regexCacheMax = 4096
+
 var (
 	regexCacheMu sync.RWMutex
 	regexCache   = map[string]*regexp.Regexp{}
@@ -306,21 +310,32 @@ func matchOrRegex(s, pattern string) bool {
 		}
 		compiled, err := regexp.Compile(anchored)
 		if err != nil {
-			// Cache a sentinel so we don't recompile on every call.
-			regexCacheMu.Lock()
-			regexCache[pattern] = nil
-			regexCacheMu.Unlock()
+			// Invalid pattern: fall back to literal equality. Only memoize the
+			// nil sentinel while there is room, so a flood of distinct invalid
+			// patterns cannot grow the cache without bound.
+			cacheRegex(pattern, nil)
 			return false
 		}
-		regexCacheMu.Lock()
-		regexCache[pattern] = compiled
-		regexCacheMu.Unlock()
+		cacheRegex(pattern, compiled)
 		re = compiled
 	}
 	if re == nil {
 		return false
 	}
 	return re.MatchString(s)
+}
+
+// cacheRegex memoizes a compiled pattern (or a nil sentinel) under the cache
+// cap. Once regexCache holds regexCacheMax entries it stops admitting new ones,
+// so an unexpected flood of distinct patterns recompiles per call instead of
+// growing memory without bound.
+func cacheRegex(pattern string, re *regexp.Regexp) {
+	regexCacheMu.Lock()
+	defer regexCacheMu.Unlock()
+	if _, exists := regexCache[pattern]; !exists && len(regexCache) >= regexCacheMax {
+		return
+	}
+	regexCache[pattern] = re
 }
 
 // GroupKey builds a stable key for grouping alerts together. The values are

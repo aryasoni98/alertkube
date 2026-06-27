@@ -59,6 +59,7 @@ jobs:
         run: |
           helm template alertkube helm \
             --set cluster=ci-test \
+            --set api.allowUnauthenticatedRead=true \
             --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
             > /tmp/render.yaml
           test -s /tmp/render.yaml
@@ -79,6 +80,7 @@ jobs:
         run: |
           helm template alertkube helm \
             --set cluster=ci-test \
+            --set api.allowUnauthenticatedRead=true \
             --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
             --set metrics.serviceMonitor.enabled=true \
             > /tmp/render-sm.yaml
@@ -88,6 +90,7 @@ jobs:
         run: |
           helm template alertkube helm \
             --set cluster=ci-test \
+            --set api.allowUnauthenticatedRead=true \
             --set rbac.scope=namespace \
             --set replicaCount=2 \
             --set leaderElection.enabled=true \
@@ -98,6 +101,7 @@ jobs:
         run: |
           helm template alertkube helm \
             --set cluster=ci-test \
+            --set api.allowUnauthenticatedRead=true \
             --set slack.webhookUrl=https://hooks.slack.com/services/T/B/X \
             --set metrics.serviceMonitor.enabled=true \
             --set prometheusRule.enabled=true \

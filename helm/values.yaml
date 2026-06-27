@@ -41,6 +41,29 @@ rbac:
   # -- RBAC scope: `cluster` (all namespaces + nodes) or `namespace`.
   scope: cluster   # cluster | namespace
 
+# Kubernetes REST client throttling. client-go's library defaults (5 QPS /
+# 10 burst) can throttle the initial list/watch sync and on-demand event/log
+# enrichment on large clusters; alertkube raises them. Lower for
+# API-server-constrained clusters, raise for very large ones.
+client:
+  # -- Client-side QPS to the API server (0 = controller default of 50).
+  qps: 50
+  # -- Client-side burst to the API server (0 = controller default of 100).
+  burst: 100
+
+# Opt-in CRDs. When enabled, the chart installs the CRD and grants the
+# controller read-only RBAC, and the controller watches it via a dynamic
+# informer (no controller-runtime; see ADR-0001). Off by default - the
+# ConfigMap remains the source of truth for routing/rules; this only adds a
+# kubectl/GitOps-native way to manage silences.
+crds:
+  # -- Keep CRDs on `helm uninstall` (helm.sh/resource-policy: keep) so active
+  # Silence objects survive a reinstall. Set false to let Helm delete them.
+  keep: true
+  silences:
+    # -- Install the Silence CRD + RBAC and watch silences.alertkube.io.
+    enabled: false
+
 image:
   # -- Controller image repository.
   repository: ghcr.io/aryasoni98/alertkube
@@ -103,6 +126,22 @@ discord:
   webhookUrlSecretKeyRef: {}
     # key: discordWebhookUrl
     # name: alertkube-discord
+
+googlechat:
+  # -- Google Chat space incoming-webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Google Chat webhook URL (`{key, name}`).
+  webhookUrlSecretKeyRef: {}
+    # key: googlechatWebhookUrl
+    # name: alertkube-googlechat
+
+mattermost:
+  # -- Mattermost incoming-webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Mattermost webhook URL (`{key, name}`).
+  webhookUrlSecretKeyRef: {}
+    # key: mattermostWebhookUrl
+    # name: alertkube-mattermost
 
 telegram:
   # -- Telegram bot token from @BotFather (inline; prefer the Secret ref).
@@ -196,6 +235,12 @@ api:
   # send-time only and never returned to the client. Leave false unless you need
   # in-UI channel credential validation.
   allowSecretRead: false
+  # -- Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no
+  # api.token and no networkPolicy are set. The chart fails closed by default:
+  # an install with neither a token nor a NetworkPolicy is rejected unless this
+  # is explicitly true, so an open introspection surface is always a deliberate
+  # choice. Mirrors the receiver's allowAnonymous model.
+  allowUnauthenticatedRead: false
 
 # Fold alert storms: first alert of a group dispatches immediately,
 # later same-group alerts within the window collapse into one summary
@@ -451,6 +496,19 @@ inhibitions:
 
 # -- Standing silence rules.
 silences: []
+
+# Recurring maintenance windows: suppress matching alerts on a daily schedule
+# (optionally restricted to weekdays), unlike one-shot `silences` that end at a
+# single timestamp. Times are HH:MM in the window's timezone (IANA name; empty =
+# UTC); a window may wrap midnight (start > end).
+# -- Recurring daily maintenance windows that suppress matching alerts.
+maintenance: []
+  # - name: nightly-backup
+  #   matchers: {namespace: prod, reason: PVCPending}
+  #   start: "23:00"
+  #   end: "02:00"
+  #   days: [sat, sun]     # optional; empty = every day
+  #   timezone: UTC        # optional; empty = UTC
 
 # -- Custom correlation rules; each fires a derived alert (kind Derived) when
 # its condition holds. Exactly one of count/all/absent per rule.

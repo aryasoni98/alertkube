@@ -28,6 +28,16 @@ type Router struct {
 	// reads against API writes.
 	runtimeSilences *silence.Store
 
+	// maintenance holds recurring daily suppression windows (backup/patch
+	// windows). Like config silences they are operator-controlled (from Git).
+	maintenance []config.MaintenanceWindow
+
+	// crdSilences, when set, returns Silence CRs as config.Silence values. It is
+	// a func (not a slice) so the router reads the live cached set on every
+	// decision without the router importing the crd package. Nil when CRD
+	// watching is disabled.
+	crdSilences func() []config.Silence
+
 	mu             sync.Mutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
 }
@@ -50,6 +60,10 @@ func (r *Router) Route(a *alert.Alert) []string {
 	if !a.Resolved {
 		if r.silenced(a) {
 			metrics.AlertsSuppressed.WithLabelValues("silenced").Inc()
+			return nil
+		}
+		if r.inMaintenance(a, time.Now()) {
+			metrics.AlertsSuppressed.WithLabelValues("maintenance").Inc()
 			return nil
 		}
 		if r.inhibited(a) {
@@ -91,6 +105,19 @@ func (r *Router) SetRuntimeSilences(s *silence.Store) {
 	r.runtimeSilences = s
 }
 
+// SetMaintenance wires recurring maintenance windows. Call before the first
+// Route. Windows are operator-controlled (config/Git) like config silences.
+func (r *Router) SetMaintenance(w []config.MaintenanceWindow) {
+	r.maintenance = w
+}
+
+// SetCRDSilences wires a provider of Silence-CRD-backed silences. The provider
+// returns the live cached set (matchers + RFC3339 until); the router applies the
+// same expiry/matching it uses for file silences. Call before the first Route.
+func (r *Router) SetCRDSilences(provider func() []config.Silence) {
+	r.crdSilences = provider
+}
+
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
@@ -107,12 +134,37 @@ func (r *Router) silenced(a *alert.Alert) bool {
 			return true
 		}
 	}
+	// Silence CRs (kubectl/GitOps-managed). Same shape and matching as file
+	// silences; the CRD's etcd is their source of truth. Nil provider when CRD
+	// watching is disabled.
+	if r.crdSilences != nil {
+		for _, s := range r.crdSilences() {
+			if !a.MatchLabels(s.Matchers) {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, s.Until); err == nil && now.Before(t) {
+				return true
+			}
+		}
+	}
 	// Runtime (UI-created) silences: time-boxed mutes added without a redeploy.
 	if r.runtimeSilences != nil {
 		for _, s := range r.runtimeSilences.Active(now) {
 			if a.MatchLabels(s.Matchers) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// inMaintenance reports whether a recurring maintenance window currently
+// suppresses the alert. Kept separate from silenced() so the suppression metric
+// can attribute it to "maintenance" rather than "silenced".
+func (r *Router) inMaintenance(a *alert.Alert, now time.Time) bool {
+	for _, w := range r.maintenance {
+		if a.MatchLabels(w.Matchers) && w.Active(now) {
+			return true
 		}
 	}
 	return false

@@ -49,12 +49,14 @@ type consoleDeps struct {
 // reads. Only types whose single credential fully drives a test send are listed;
 // e.g. telegram is omitted because it also needs a (non-secret) chat id.
 var channelCredEnv = map[string]string{
-	"slack":     "SLACK_WEBHOOK_URL",
-	"discord":   "DISCORD_WEBHOOK_URL",
-	"teams":     "TEAMS_WEBHOOK_URL",
-	"webhook":   "GENERIC_WEBHOOK_URL",
-	"pagerduty": "PAGERDUTY_ROUTING_KEY",
-	"opsgenie":  "OPSGENIE_API_KEY",
+	"slack":      "SLACK_WEBHOOK_URL",
+	"discord":    "DISCORD_WEBHOOK_URL",
+	"teams":      "TEAMS_WEBHOOK_URL",
+	"webhook":    "GENERIC_WEBHOOK_URL",
+	"pagerduty":  "PAGERDUTY_ROUTING_KEY",
+	"opsgenie":   "OPSGENIE_API_KEY",
+	"googlechat": "GOOGLECHAT_WEBHOOK_URL",
+	"mattermost": "MATTERMOST_WEBHOOK_URL",
 }
 
 // readAuthorized enforces the read token and writes 401 on mismatch.
@@ -110,6 +112,11 @@ func installConsoleHandlers(d consoleDeps) {
 	metrics.SetRenderHandler(newRenderHandler(d))
 	metrics.SetSilencesHandler(newSilencesHandler(d))
 	metrics.SetChannelsHandler(newChannelsHandler(d))
+	// The SSE stream reuses the read token; install the same check the read
+	// endpoints use so a follower/pre-controller process serves 503.
+	metrics.SetEventsAuth(func(req *http.Request) bool {
+		return d.apiToken == "" || authz.BearerEqual(req.Header.Get("Authorization"), d.apiToken)
+	})
 }
 
 // newAlertsHandler serves the read-only active + recent alert view.
@@ -128,22 +135,42 @@ func newAlertsHandler(d consoleDeps) http.Handler {
 
 // newConfigHandler serves a read-only snapshot of the loaded config. The config
 // holds no secrets (sink credentials are env/Secrets, never the YAML) but it is
-// gated by the read token because it still exposes the alerting topology.
+// gated by the read token because it still exposes the alerting topology. The
+// config is immutable for the life of the controller (changes ship via a
+// rollout, which restarts the process), so the JSON body is rendered once at
+// construction instead of re-marshaling YAML->map->JSON on every request.
 func newConfigHandler(d consoleDeps) http.Handler {
+	body, err := renderConfigBody(d.cfg)
+	if err != nil {
+		// A config that cannot be marshaled is a programming error (it was just
+		// loaded and validated); fail every request loudly rather than silently.
+		klog.Errorf("console: pre-render config failed: %v", err)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if !d.readAuthorized(req, w) {
 			return
 		}
-		raw, err := yaml.Marshal(d.cfg)
-		if err != nil {
+		if body == nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		var m map[string]any
-		_ = yaml.Unmarshal(raw, &m)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"config": m, "yaml": string(raw)})
+		_, _ = w.Write(body)
 	})
+}
+
+// renderConfigBody marshals the loaded config into the {config, yaml} JSON the
+// console expects. Called once per controller run (config is immutable).
+func renderConfigBody(cfg *config.Config) ([]byte, error) {
+	raw, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"config": m, "yaml": string(raw)})
 }
 
 // newValidateHandler runs the startup validator against a candidate YAML body.
