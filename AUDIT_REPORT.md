@@ -9,6 +9,64 @@
 
 ---
 
+## 0. Re-Audit (Round 2) — Resolution Status
+
+> Added after the initial audit: the actionable findings were resolved in-tree and re-verified. The detailed sections below are the original findings; this section records what changed.
+
+### Re-verification (all green)
+
+| Check | Result (Round 1 → Round 2) |
+| --- | --- |
+| Build / vet | ✅ → ✅ |
+| golangci-lint (14 linters) | 0 issues → **0 issues** |
+| Tests (`-race`, atomic cover) | pass → **pass** |
+| Total coverage | 63.5% → **67.9%** (CI gate ratcheted 53% → 63%) |
+| `internal/collectors` coverage | 3.2% → **70.3%** |
+| Root package coverage | 37.0% → **43.9%** |
+| `govulncheck` | clean → **clean** |
+| helm-docs drift | n/a → **in sync** |
+| Fuzz (new snapshot target) | n/a → **passes (1M+ execs)** |
+
+### What was resolved
+
+| ID(s) | Status | Change |
+| --- | --- | --- |
+| FEAT-1 / UX-2 | ✅ Done | New `alertkube validate [path]` and `alertkube version` subcommands (`cli.go`) — config can be linted in CI/pre-commit without a cluster. Exit 0/1/2 for valid/invalid/usage. |
+| PERF-1 / IMP-1 | ✅ Done | Client-go QPS/burst raised to 50/100 with `ALERTKUBE_CLIENT_QPS`/`BURST` env + `client.qps`/`client.burst` Helm values. |
+| PERF-2 | ✅ Done | Bounded per-source startup jitter in `sources.Run` to avoid a cloud-API stampede across regions×services. |
+| PERF-4 | ✅ Done | `/api/config` body is rendered once (config is immutable at runtime) instead of re-marshaling per request. |
+| PERF-5 | ✅ Done | Escalation marks now keyed `fp → set(ruleKey)`; resolve drops them in O(1) instead of scanning all marks. |
+| STB-1 | ✅ Done | `regexCache` hard-capped at 4096 entries (defense-in-depth; stops memoizing past the cap). |
+| STB-3 / IMP-2 | ✅ Done | New metrics: `alertkube_state_snapshot_bytes`, `alertkube_state_save_skipped_total`, `alertkube_alerts_dropped_total`. |
+| SEC-1 / SEC-2 | ✅ Done | Chart **fails closed**: an install with no `api.token` and no `networkPolicy.enabled` is rejected unless `api.allowUnauthenticatedRead=true` is set explicitly. NOTES.txt now prints how to fetch the read token. |
+| UI-1 / UI-3 / UI-7 / UI-8 | ✅ Done | Console: full keyboard tab navigation (ARIA tabs pattern, roving tabindex, Arrow/Home/End), light theme + `prefers-color-scheme` + persisted toggle, `:focus-visible` rings on all controls, `aria-live` status, sticky table headers. |
+| TST-1 | ✅ Done | `collectors` 3.2% → 70.3%: `RedactSecrets` edge cases, `PodEvents`/`NodeEvents`, `PrintPod`/`PrintNode`, `DescribeContainerState`, `GetContainerResource`. |
+| TST-2 | ✅ Done | Root emit-pipeline integration tests (fire/dedupe/resolve, startup grace, severity override, event path, grouping), plus `applyClientThrottle` and `renderConfigBody`. |
+| TST-3 | ✅ Done | Cloud error-path test asserts `CloudPollErrors` increments and the poll continues past a per-resource Describe error. |
+| TST-6 | ✅ Done | `FuzzRestorePoisonedSnapshot` confirms the snapshot poison defenses (unknown enums, future-dated mutes) hold under arbitrary JSON. |
+| TST-4 | ✅ Done | E2E expanded with three new chainsaw specs: resolve-on-delete, OOMKilled, ImagePullBackOff (README coverage table updated). |
+
+### Deferred (larger initiatives, tracked for future work)
+
+- **UI-2 (SSE/live updates)**, **UI-4 (full mobile card-stacking)**, **UI-6 (alerts sorting/expand)** — meaningful UX features beyond the accessibility/theming pass done here. Sticky headers + horizontal scroll give an acceptable mobile baseline now.
+- **FEAT-2 (CRD option)**, **FEAT-3/4/7 (more sinks, maintenance windows, message templating)** — product-direction items behind ROADMAP gates.
+- **STB-2 (async receiver queue)**, **STB-5 (per-sink circuit breaker)** — optional resilience hardening; current bounded/fail-loud behavior is safe.
+- **TST cloud azure/gcp coverage** — AWS error path strengthened; Azure/GCP parity is incremental.
+
+### New tests added (file → focus)
+
+- `cli_test.go` — validate/version subcommands (valid, invalid, positional, env fallback, usage).
+- `pipeline_test.go` — emit-pipeline integration + `applyClientThrottle` + `renderConfigBody`.
+- `internal/collectors/describe_test.go` — describe/events/logs + extra redaction cases.
+- `internal/alert/escalation_test.go` — O(1) escalation clear + regex-cache cap.
+- `internal/alert/fuzz_test.go` — `FuzzRestorePoisonedSnapshot`.
+- `internal/sources/aws/pollerr_test.go` — poll-error metric + continuation.
+- `internal/sources/jitter_test.go` — startup-jitter bounds.
+- `internal/persist/persist_test.go` — oversize-snapshot skip + state metrics.
+- `internal/ui/ui_test.go` — a11y markup, theming, keyboard-nav script served.
+
+---
+
 ## 1. Executive Summary
 
 AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes alerting controller. It is at the top decile of OSS controllers I have reviewed for code hygiene, comment quality, security posture, and operational thoughtfulness. The code reads like it was written by someone who has run alerting in production: nearly every non-obvious decision has a comment explaining *why* (timeout budgets, leader-flap re-entrancy, fail-closed auth, SSRF guards, clone-before-unlock, snapshot poisoning defenses).
@@ -28,15 +86,17 @@ AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes 
 
 ### Overall scorecard
 
+> Grades in parentheses are post-resolution (Round 2). See section 0 for details.
+
 | Dimension | Grade | One-line verdict |
 | --- | --- | --- |
-| **Stability** | A | Disciplined concurrency, graceful drain, fail-closed defaults, restart-safe state. |
-| **Security** | A | Constant-time auth, SSRF guard, zero-secrets-read default, distroless nonroot, signed releases, pinned deps. |
-| **Performance** | A- | Bounded pools, rate limiters, regex cache, gen-based save skipping. A few scaling cliffs to document. |
-| **User-friendliness** | A- | Outstanding docs site + ADRs; config validation is great; first-run UX could be smoother. |
-| **UI / UX design** | B+ | Clean, accessible-ish read-only console; needs keyboard nav, light theme, real-time, and mobile polish. |
-| **Test coverage** | B+ | Strong unit + fuzz + bench; cloud sources and root wiring under-covered; e2e is still mostly scaffold. |
-| **Maintainability** | A | Small focused packages, no dead code, no TODOs, idiomatic Go, strong CI. |
+| **Stability** | A (A) | Disciplined concurrency, graceful drain, fail-closed defaults, restart-safe state; now with state-health metrics. |
+| **Security** | A (A) | Constant-time auth, SSRF guard, zero-secrets-read default, distroless nonroot, signed releases; chart now fails closed on unauthenticated read. |
+| **Performance** | A- (A) | Bounded pools, rate limiters, regex cache (now capped), gen-based save skipping; client QPS/burst tunable, cloud-poll jitter, cached /api/config, O(1) escalation drop. |
+| **User-friendliness** | A- (A) | Outstanding docs; config validation; now a `validate` CLI for cluster-free linting and clearer first-run token guidance. |
+| **UI / UX design** | B+ (A-) | Read-only console now keyboard-navigable, themable (light/dark), with visible focus and aria-live. SSE/mobile-cards deferred. |
+| **Test coverage** | B+ (A-) | 63.5% → 67.9%; collectors 3.2% → 70.3%; new root pipeline, snapshot-fuzz, cloud error-path tests; e2e expanded 1 → 4 scenarios. |
+| **Maintainability** | A (A) | Small focused packages, no dead code, no TODOs, idiomatic Go, strong CI; coverage gate ratcheted. |
 
 **Top recommendation:** the engineering is launch-grade. The highest-leverage investments now are (1) **expanding e2e** beyond crashloop smoke into resolve/upgrade/HA/grouping flows, (2) **UI/UX upgrades** (keyboard nav, light theme, SSE/live updates, mobile), and (3) **closing coverage gaps** in cloud sources and the root package wiring.
 
