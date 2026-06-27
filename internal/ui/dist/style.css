@@ -685,3 +685,88 @@ tbody tr:hover {
     transition-duration: .01ms !important;
   }
 }
+
+/* ============================================================================
+   Accessibility + theming (audit follow-ups)
+   - Visible keyboard focus on every interactive control (WCAG 2.4.7).
+   - Light theme: respects the OS preference and a manual override stored by
+     app.js as data-theme on <html>. Dark stays the default.
+   ========================================================================== */
+
+/* Strong, consistent focus ring for keyboard users. :focus-visible keeps it
+   off mouse clicks but on for keyboard/AT navigation. */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.tab:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Tabs draw their own underline; give the focus ring room without clipping. */
+.tab:focus-visible { outline-offset: -2px; }
+
+/* Theme toggle button in the topbar. */
+.theme-toggle {
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: 32px; height: 32px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+
+/* Light theme tokens. Applied when the user selects light (data-theme="light")
+   OR when the OS prefers light and the user has not pinned a theme. */
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --bg-2: rgba(255, 255, 255, .86);
+  --bg-3: rgba(226, 232, 240, .7);
+  --border: rgba(15, 23, 42, .14);
+  --fg: #0f1d33;
+  --muted: #50617a;
+  --accent: #0d9488;
+  --accent-2: #2563eb;
+  --accent-3: #7c3aed;
+  --crit: #dc2626;
+  --warn: #b45309;
+  --info: #15803d;
+  --shadow: 0 18px 60px rgba(15, 23, 42, .12);
+}
+:root[data-theme="light"] .btn.primary { color: #fff; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f5f7fb;
+    --bg-2: rgba(255, 255, 255, .86);
+    --bg-3: rgba(226, 232, 240, .7);
+    --border: rgba(15, 23, 42, .14);
+    --fg: #0f1d33;
+    --muted: #50617a;
+    --accent: #0d9488;
+    --accent-2: #2563eb;
+    --accent-3: #7c3aed;
+    --crit: #dc2626;
+    --warn: #b45309;
+    --info: #15803d;
+    --shadow: 0 18px 60px rgba(15, 23, 42, .12);
+  }
+  :root:not([data-theme]) .btn.primary { color: #fff; }
+}
+
+/* Sticky table headers so column labels stay visible when a long alert/silence
+   table scrolls inside its .table-wrap (helps on small viewports too). */
+.table-wrap { max-height: 70vh; overflow-y: auto; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-2);
+}

@@ -82,14 +82,71 @@ async function fetchWrite(path, opts) {
 }
 
 // ---- Tabs ----
+// activateTab selects one tab and reveals its panel, implementing the ARIA
+// tabs pattern: the selected tab is the only one in the focus order
+// (roving tabindex), the rest are removed from Tab order.
+function activateTab(tab, focus) {
+  $$(".tab").forEach((t) => {
+    const selected = t === tab;
+    t.setAttribute("aria-selected", selected ? "true" : "false");
+    t.tabIndex = selected ? 0 : -1;
+  });
+  $$(".tabpanel").forEach((p) => p.classList.add("hidden"));
+  $("#tab-" + tab.dataset.tab).classList.remove("hidden");
+  if (focus) tab.focus();
+}
+
 function initTabs() {
-  $$(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      $$(".tab").forEach((t) => t.setAttribute("aria-selected", "false"));
-      tab.setAttribute("aria-selected", "true");
-      $$(".tabpanel").forEach((p) => p.classList.add("hidden"));
-      $("#tab-" + tab.dataset.tab).classList.remove("hidden");
+  const tabs = $$(".tab");
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => activateTab(tab, false));
+    // Keyboard support per the WAI-ARIA tabs pattern: Left/Right (and
+    // Home/End) move between tabs and activate them; the roving tabindex keeps
+    // a single Tab stop.
+    tab.addEventListener("keydown", (e) => {
+      let next = -1;
+      switch (e.key) {
+        case "ArrowRight": case "ArrowDown": next = (i + 1) % tabs.length; break;
+        case "ArrowLeft": case "ArrowUp": next = (i - 1 + tabs.length) % tabs.length; break;
+        case "Home": next = 0; break;
+        case "End": next = tabs.length - 1; break;
+        default: return;
+      }
+      e.preventDefault();
+      activateTab(tabs[next], true);
     });
+  });
+}
+
+// ---- Theme (light/dark) ----
+const THEME_KEY = "alertkube.theme";
+function applyTheme(theme) {
+  // theme is "light", "dark", or null (follow the OS preference).
+  if (theme === "light" || theme === "dark") {
+    document.documentElement.setAttribute("data-theme", theme);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  const btn = $("#theme-toggle");
+  if (btn) {
+    const dark = theme === "dark" ||
+      (!theme && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    btn.textContent = dark ? "☀" : "☾";
+    btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+  }
+}
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  applyTheme(saved);
+  const btn = $("#theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    // Resolve the currently effective theme, then flip it and pin the choice.
+    const current = document.documentElement.getAttribute("data-theme") ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = current === "dark" ? "light" : "dark";
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
   });
 }
 
@@ -697,6 +754,7 @@ async function refresh() {
 
 // ---- init ----
 window.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   initTabs();
   initAuth();
   initValidate();
