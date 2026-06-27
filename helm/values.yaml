@@ -51,6 +51,19 @@ client:
   # -- Client-side burst to the API server (0 = controller default of 100).
   burst: 100
 
+# Opt-in CRDs. When enabled, the chart installs the CRD and grants the
+# controller read-only RBAC, and the controller watches it via a dynamic
+# informer (no controller-runtime; see ADR-0001). Off by default - the
+# ConfigMap remains the source of truth for routing/rules; this only adds a
+# kubectl/GitOps-native way to manage silences.
+crds:
+  # -- Keep CRDs on `helm uninstall` (helm.sh/resource-policy: keep) so active
+  # Silence objects survive a reinstall. Set false to let Helm delete them.
+  keep: true
+  silences:
+    # -- Install the Silence CRD + RBAC and watch silences.alertkube.io.
+    enabled: false
+
 image:
   # -- Controller image repository.
   repository: ghcr.io/aryasoni98/alertkube

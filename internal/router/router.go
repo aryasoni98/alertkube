@@ -32,6 +32,12 @@ type Router struct {
 	// windows). Like config silences they are operator-controlled (from Git).
 	maintenance []config.MaintenanceWindow
 
+	// crdSilences, when set, returns Silence CRs as config.Silence values. It is
+	// a func (not a slice) so the router reads the live cached set on every
+	// decision without the router importing the crd package. Nil when CRD
+	// watching is disabled.
+	crdSilences func() []config.Silence
+
 	mu             sync.Mutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
 }
@@ -105,6 +111,13 @@ func (r *Router) SetMaintenance(w []config.MaintenanceWindow) {
 	r.maintenance = w
 }
 
+// SetCRDSilences wires a provider of Silence-CRD-backed silences. The provider
+// returns the live cached set (matchers + RFC3339 until); the router applies the
+// same expiry/matching it uses for file silences. Call before the first Route.
+func (r *Router) SetCRDSilences(provider func() []config.Silence) {
+	r.crdSilences = provider
+}
+
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
@@ -119,6 +132,19 @@ func (r *Router) silenced(a *alert.Alert) bool {
 		}
 		if t, err := time.Parse(time.RFC3339, s.Until); err == nil && now.Before(t) {
 			return true
+		}
+	}
+	// Silence CRs (kubectl/GitOps-managed). Same shape and matching as file
+	// silences; the CRD's etcd is their source of truth. Nil provider when CRD
+	// watching is disabled.
+	if r.crdSilences != nil {
+		for _, s := range r.crdSilences() {
+			if !a.MatchLabels(s.Matchers) {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, s.Until); err == nil && now.Before(t) {
+				return true
+			}
 		}
 	}
 	// Runtime (UI-created) silences: time-boxed mutes added without a redeploy.

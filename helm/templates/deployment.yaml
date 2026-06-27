@@ -72,6 +72,9 @@ spec:
             - "--leader-elect=true"
             - "--leader-election-namespace={{ .Values.leaderElection.namespace | default .Release.Namespace }}"
             {{- end }}
+            {{- if .Values.crds.silences.enabled }}
+            - "--watch-silence-crd=true"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}

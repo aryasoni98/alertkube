@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -20,6 +21,7 @@ import (
 	"alertkube/internal/alert"
 	"alertkube/internal/authz"
 	"alertkube/internal/config"
+	"alertkube/internal/crd"
 	"alertkube/internal/group"
 	"alertkube/internal/metrics"
 	"alertkube/internal/persist"
@@ -56,7 +58,7 @@ const informerResyncPeriod = config.InformerResyncSeconds * time.Second
 // observable in the logs (e.g. when diagnosing leader flap).
 var controllerRuns atomic.Uint64
 
-func runController(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string) {
+func runController(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, cfg *config.Config, watchNamespace string) {
 	if n := controllerRuns.Add(1); n > 1 {
 		klog.Infof("controller starting (leadership acquisition #%d): rebuilding informers/store/grouper; startup grace re-applies to this sync", n)
 	}
@@ -64,6 +66,18 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
 	r.SetMaintenance(cfg.Maintenance)
+
+	// Optional Silence CRD watch: a dynamic informer keeps an in-memory store of
+	// Silence CRs the router consults like file silences. The CRD's etcd is its
+	// source of truth (no ConfigMap persistence). Started below on the wg so the
+	// shutdown sequence drains it; a sync failure (missing CRD/RBAC) is logged
+	// and the controller continues without it. nil dynClient = feature off.
+	var crdSyncer *crd.Syncer
+	if dynClient != nil {
+		crdStore := crd.NewSilenceStore()
+		crdSyncer = crd.NewSyncer(dynClient, crdStore, watchNamespace)
+		r.SetCRDSilences(crdStore.List)
+	}
 
 	// Runtime silences: time-boxed mutes created from the console without a
 	// redeploy. Persisted into the state ConfigMap (below) so they survive a
@@ -264,6 +278,18 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 			ruleEngine.Run(ctx) // evaluates Absent (heartbeat) rules on a timer
 		}()
 		klog.Infof("rule engine enabled: %d rule(s)", len(cfg.Rules))
+	}
+	if crdSyncer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// A sync failure (CRD not installed / missing RBAC) is logged once;
+			// the controller keeps running without CRD-backed silences.
+			if err := crdSyncer.Run(ctx); err != nil {
+				klog.Errorf("silence CRD watch disabled (continuing without it): %v", err)
+			}
+		}()
+		klog.Infof("silence CRD watch enabled")
 	}
 
 	<-ctx.Done()

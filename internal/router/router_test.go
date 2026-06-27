@@ -254,3 +254,38 @@ func TestRouteMaintenanceWindowInactiveAllowsRouting(t *testing.T) {
 		t.Fatal("an inactive maintenance window must not suppress alerts")
 	}
 }
+
+func TestRouteCRDSilenceSuppresses(t *testing.T) {
+	r := New(
+		[]config.Route{{Match: map[string]string{}, Sinks: []string{"slack"}}},
+		nil, nil, []string{"slack"},
+	)
+	future := time.Now().Add(time.Hour).Format(time.RFC3339)
+	r.SetCRDSilences(func() []config.Silence {
+		return []config.Silence{{Matchers: map[string]string{"namespace": "prod"}, Until: future}}
+	})
+
+	prod := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if got := r.Route(prod); got != nil {
+		t.Fatalf("prod alert should be suppressed by the Silence CR, got %v", got)
+	}
+	dev := alert.New(alert.KindPod, "dev", "p", "X", alert.SeverityCritical)
+	if got := r.Route(dev); got == nil {
+		t.Fatal("dev alert must not be suppressed by a prod-only Silence CR")
+	}
+}
+
+func TestRouteCRDSilenceExpired(t *testing.T) {
+	r := New(
+		[]config.Route{{Match: map[string]string{}, Sinks: []string{"slack"}}},
+		nil, nil, []string{"slack"},
+	)
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	r.SetCRDSilences(func() []config.Silence {
+		return []config.Silence{{Matchers: map[string]string{"namespace": "prod"}, Until: past}}
+	})
+	prod := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if got := r.Route(prod); got == nil {
+		t.Fatal("an expired Silence CR must not suppress alerts")
+	}
+}

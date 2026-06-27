@@ -97,6 +97,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | client.burst | int | `100` | Client-side burst to the API server (0 = controller default of 100). |
 | client.qps | int | `50` | Client-side QPS to the API server (0 = controller default of 50). |
 | cluster | string | `"Change-Me"` | Cluster name shown in every alert. |
+| crds.keep | bool | `true` | Keep CRDs on `helm uninstall` (helm.sh/resource-policy: keep) so active Silence objects survive a reinstall. Set false to let Helm delete them. |
+| crds.silences.enabled | bool | `false` | Install the Silence CRD + RBAC and watch silences.alertkube.io. |
 | discord.webhookUrl | string | `""` | Discord channel webhook URL (inline; prefer the Secret ref). |
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |
 | escalations | list | `[]` | Escalation rules; re-dispatch unresolved alerts to extra sinks after a delay. |

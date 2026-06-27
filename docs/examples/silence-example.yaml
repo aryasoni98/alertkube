@@ -1,0 +1,24 @@
+# Example AlertKube Silence custom resource.
+#
+# Requires the Silence CRD installed and the controller watching it:
+#   helm upgrade --install alertkube ./helm \
+#     --set cluster=my-cluster --set api.token=... \
+#     --set crds.silences.enabled=true
+#
+# Apply with: kubectl apply -f docs/examples/silence-example.yaml
+# List with:  kubectl get silences
+#
+# Matchers use the same semantics as config-file silences: `namespace` and
+# `reason` accept anchored regexes; all other keys are exact-match. The silence
+# stops applying after `until` (RFC3339).
+apiVersion: alertkube.io/v1alpha1
+kind: Silence
+metadata:
+  name: mute-prod-crashloops
+  namespace: alertkube
+spec:
+  matchers:
+    namespace: prod
+    reason: CrashLoopBackOff
+  until: "2030-01-01T00:00:00Z"
+  comment: "Known flaky deploy; muted while the fix rolls out (JIRA-1234)."

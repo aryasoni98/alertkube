@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -87,6 +88,21 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 	// client-go's default loading rules (KUBECONFIG env, etc.) and let it
 	// surface a useful error if nothing is usable.
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+// buildDynamicClient resolves a dynamic client from the same rest.Config the
+// typed client uses (honoring QPS/burst throttling), for watching AlertKube
+// CRDs via a dynamic informer. Unlike buildClient it does not retry: it is
+// called after buildClient has already proven the apiserver reachable, and a
+// failure here is reported to the caller so the controller continues without
+// CRD watching rather than failing startup.
+func buildDynamicClient(kubeconfig string) (dynamic.Interface, error) {
+	cfg, err := buildConfig(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	applyClientThrottle(cfg)
+	return dynamic.NewForConfig(cfg)
 }
 
 // applyClientThrottle raises the REST client's QPS/burst above client-go's

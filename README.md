@@ -44,10 +44,11 @@ docker pull ghcr.io/aryasoni98/alertkube:v1.0.0
 
 - **Watchers:** pod restarts/crashloops/OOM/SIGKILL/image-pull, node readiness/pressure/cordon, workload availability, failed jobs, missed CronJobs, maxed HPAs, lost/pending PVCs.
 - **Routing:** match by severity, kind, namespace, reason, name, node, or labels.
-- **Suppression:** fingerprint mute window, time-bounded silences, source/target inhibitions, optional storm grouping.
+- **Suppression:** fingerprint mute window, time-bounded silences, recurring maintenance windows, source/target inhibitions, optional storm grouping.
 - **State:** ConfigMap persistence preserves active alerts and mute history across restarts.
 - **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and Alertmanager webhook receiver.
 - **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, Grafana dashboard.
+- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; watched via a client-go dynamic informer — no controller-runtime, see [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
 - **Web console (read-only):** embedded single-binary UI on the metrics port — view active alerts, the loaded config (rules, grouping, routing, channels, silences), and suppression counts. Guarded by `api.token`; config stays source-of-truth in Git.
 
 ## Web Console
