@@ -23,11 +23,9 @@ import (
 	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
 	compute "google.golang.org/api/compute/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
-	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
-	"alertkube/internal/metrics"
 	"alertkube/internal/sources"
 )
 
@@ -94,22 +92,14 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 // emitFiring publishes a firing cloud alert. Identity is (kind, scope, name)
 // where scope is "project/location"; a resolve targets exactly that cluster.
 func emitFiring(emit sources.Emit, k alert.Kind, scope, name, reason, summary string, sev alert.Severity, details map[string]string) {
-	a := alert.New(k, scope, name, reason, sev)
-	a.Summary = summary
-	a.Labels["provider"] = provider
-	for key, v := range details {
-		if v != "" {
-			a.Details[key] = v
-		}
-	}
-	emit(a)
+	sources.EmitFiring(emit, k, scope, name, reason, summary, sev,
+		map[string]string{"provider": provider}, details)
 }
 
 func emitResolve(emit sources.Emit, k alert.Kind, scope, name string) {
-	emit(&alert.Alert{Kind: k, Namespace: scope, Name: name, Resolved: true})
+	sources.EmitResolve(emit, k, scope, name)
 }
 
 func pollErr(source, scope string, err error) {
-	metrics.CloudPollErrors.WithLabelValues(source).Inc()
-	klog.Warningf("%s poll failed (%s): %v", source, scope, err)
+	sources.PollErr(source, scope, err)
 }

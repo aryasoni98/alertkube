@@ -49,11 +49,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
-	"alertkube/internal/metrics"
 	"alertkube/internal/sources"
 )
 
@@ -314,33 +312,22 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 // emitFiring publishes a firing cloud alert. Identity is (kind, region, name);
 // reason completes the dedupe fingerprint. The region rides in Namespace so a
 // resolve (which the store matches on kind+namespace+name) targets exactly one
-// cloud resource and never clears an unrelated one.
+// cloud resource and never clears an unrelated one. Delegates to the shared
+// sources.EmitFiring with AWS's provider+region labels.
 func emitFiring(emit sources.Emit, k alert.Kind, region, name, reason, summary string, sev alert.Severity, details map[string]string) {
-	a := alert.New(k, region, name, reason, sev)
-	a.Summary = summary
-	a.Labels["provider"] = provider
-	a.Labels["region"] = region
-	for key, v := range details {
-		if v != "" {
-			a.Details[key] = v
-		}
-	}
-	emit(a)
+	sources.EmitFiring(emit, k, region, name, reason, summary, sev,
+		map[string]string{"provider": provider, "region": region}, details)
 }
 
-// emitResolve clears any active alert for one cloud resource. Mirrors
-// watchers.emitResolve: identity only, Resolved=true, no reason/severity - the
-// store resolves every active alert for kind+region+name. A resolve for a
-// resource with no active alert is a no-op (Store.ResolveObject only fires for
-// matches), so callers may emit it for every healthy resource each poll
-// without producing spurious "resolved" notifications.
+// emitResolve clears any active alert for one cloud resource (see
+// sources.EmitResolve). A resolve for a resource with no active alert is a
+// no-op, so callers may emit it for every healthy resource each poll.
 func emitResolve(emit sources.Emit, k alert.Kind, region, name string) {
-	emit(&alert.Alert{Kind: k, Namespace: region, Name: name, Resolved: true})
+	sources.EmitResolve(emit, k, region, name)
 }
 
 // pollErr records a per-source poll failure on the shared metric and logs it,
 // so a blinded cloud source is observable without crashing the controller.
 func pollErr(source, region string, err error) {
-	metrics.CloudPollErrors.WithLabelValues(source).Inc()
-	klog.Warningf("%s poll failed in region %s: %v", source, region, err)
+	sources.PollErr(source, region, err)
 }
