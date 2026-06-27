@@ -101,10 +101,17 @@ var (
 	AlertsDropped = prometheus.NewCounter(
 		prometheus.CounterOpts{Name: "alertkube_alerts_dropped_total", Help: "Alerts whose every routed sink failed delivery (dedupe rolled back for retry)."},
 	)
+	// SinkBreakerOpen is 1 while a sink's circuit breaker is open (sends are
+	// short-circuited after sustained failures), 0 otherwise. A value stuck at 1
+	// means that sink's endpoint is down and alerts are not reaching it.
+	SinkBreakerOpen = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "alertkube_sink_breaker_open", Help: "1 when a sink's circuit breaker is open (delivery short-circuited)."},
+		[]string{"sink"},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors, RuntimeMutations, StateSnapshotBytes, StateSaveSkipped, AlertsDropped)
+	prometheus.MustRegister(AlertsTotal, AlertsSuppressed, SinkSendDuration, SinkErrors, ActiveAlerts, DispatchInflight, EscalationsTotal, EnrichmentSaturated, ReceivedAlerts, CloudPollErrors, RuntimeMutations, StateSnapshotBytes, StateSaveSkipped, AlertsDropped, SinkBreakerOpen)
 }
 
 // alertsHandler and receiverHandler are installed after the server

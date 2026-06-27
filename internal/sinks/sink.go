@@ -41,12 +41,14 @@ type Registry struct {
 	mu       sync.RWMutex
 	sinks    map[string]Sink
 	limiters map[string]*rate.Limiter
+	breakers map[string]*breaker
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
 		sinks:    map[string]Sink{},
 		limiters: map[string]*rate.Limiter{},
+		breakers: map[string]*breaker{},
 	}
 }
 
@@ -56,6 +58,9 @@ func (r *Registry) Add(s Sink) {
 	r.sinks[s.Name()] = s
 	if _, ok := r.limiters[s.Name()]; !ok {
 		r.limiters[s.Name()] = rate.NewLimiter(defaultSinkRate, defaultSinkBurst)
+	}
+	if _, ok := r.breakers[s.Name()]; !ok {
+		r.breakers[s.Name()] = newBreaker()
 	}
 }
 
@@ -139,19 +144,35 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 		r.mu.RLock()
 		s, ok := r.sinks[name]
 		limiter := r.limiters[name]
+		brk := r.breakers[name]
 		r.mu.RUnlock()
 		if !ok || (!a.Resolved && !s.Supports(a.Severity)) {
 			continue
 		}
+		// Circuit breaker: when a sink has failed repeatedly its breaker opens
+		// and short-circuits sends until a cooldown elapses, so a dead endpoint
+		// stops burning the per-sink timeout on every alert. Resolves bypass the
+		// breaker: a resolve must always be attempted so a recovering incident
+		// sink can close its incident even while the breaker is open.
+		if brk != nil && !a.Resolved && !brk.Allow() {
+			metrics.AlertsSuppressed.WithLabelValues("circuit_open").Inc()
+			metrics.SinkBreakerOpen.WithLabelValues(name).Set(1)
+			klog.Warningf("sink %q circuit open: skipping %s (endpoint failing)", name, a)
+			continue
+		}
 		attempted++
 		wg.Add(1)
-		go func(name string, s Sink, limiter *rate.Limiter) {
+		go func(name string, s Sink, limiter *rate.Limiter, brk *breaker) {
 			defer wg.Done()
 			metrics.DispatchInflight.WithLabelValues(name).Inc()
 			defer metrics.DispatchInflight.WithLabelValues(name).Dec()
 			defer func() {
 				if rec := recover(); rec != nil {
 					metrics.SinkErrors.WithLabelValues(name).Inc()
+					if brk != nil {
+						brk.Record(false)
+						setBreakerGauge(name, brk)
+					}
 					klog.Errorf("sink %q panic: %v\n%s", name, rec, debug.Stack())
 				}
 			}()
@@ -163,6 +184,13 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 					// A drop here means the alert never reaches this sink -
 					// surface which one, loudly, instead of a V(2) whisper.
 					metrics.AlertsSuppressed.WithLabelValues("ratelimited").Inc()
+					// Allow() may have consumed a half-open probe; record a
+					// failure so the breaker is never stranded half-open (which
+					// would block every later send) when we bail before sending.
+					if brk != nil {
+						brk.Record(false)
+						setBreakerGauge(name, brk)
+					}
 					klog.Warningf("sink %q dropped %s: rate limit not acquired within %s", name, a, perSinkTimeout)
 					return
 				}
@@ -178,9 +206,24 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 			} else {
 				succeeded.Add(1)
 			}
+			// Feed the breaker. A resolve still records its outcome so a sink
+			// that recovers via a resolve probe re-closes its breaker.
+			if brk != nil {
+				brk.Record(err == nil)
+				setBreakerGauge(name, brk)
+			}
 			metrics.SinkSendDuration.WithLabelValues(name, result).Observe(time.Since(start).Seconds())
-		}(name, s, limiter)
+		}(name, s, limiter, brk)
 	}
 	wg.Wait()
 	return attempted == 0 || succeeded.Load() > 0
+}
+
+// setBreakerGauge mirrors a breaker's open/closed state onto the metric.
+func setBreakerGauge(name string, b *breaker) {
+	v := 0.0
+	if b.Open() {
+		v = 1
+	}
+	metrics.SinkBreakerOpen.WithLabelValues(name).Set(v)
 }
