@@ -110,6 +110,41 @@
 
 ---
 
+## 0c. Re-Audit (Round 4) — CRD Option Delivered
+
+> The last deferred item (FEAT-2) is now implemented in a way that **upholds** ADR-0001 and ADR-0003 rather than reversing them, documented in the new ADR-0004.
+
+### Re-verification (all green)
+
+| Check | Round 3 → Round 4 |
+| --- | --- |
+| Build / vet / lint | ✅ → ✅ (0 lint issues) |
+| Tests (`-race`, atomic cover) | ✅ → ✅ |
+| Total coverage | 70.0% → **69.7%** (new CRD code; still > 66% gate; `internal/crd` 79.6%) |
+| `govulncheck` | clean → **clean** |
+| `go.mod`/`go.sum` | unchanged (no new deps; dynamic client already vendored) |
+| helm render/lint (CRD on + namespace scope) | n/a → **passes** |
+
+### What was delivered (FEAT-2)
+
+- **`alertkube.io/v1alpha1` `Silence` CRD** — operators manage silences with `kubectl`/GitOps as first-class objects (`kubectl get silences`), with a validated OpenAPI schema and printer columns.
+- **Watched via a client-go dynamic informer** (`internal/crd`), not controller-runtime: a ~170-line package with a `Syncer` + in-memory `SilenceStore`. ADR-0001 holds.
+- **The CRD's etcd is its source of truth** — nothing is persisted to the state ConfigMap for it; the controller reads it **read-only** (get/list/watch). ADR-0003 holds.
+- **Router** consults CR silences exactly like file silences (same matcher semantics + RFC3339 expiry), composing with the existing config / annotation / runtime-API / maintenance suppression sources.
+- **Fully opt-in and fail-soft**: `crds.silences.enabled` (Helm) / `--watch-silence-crd` (flag) / `ALERTKUBE_WATCH_SILENCE_CRD` (env), off by default; a missing CRD or RBAC logs once and the controller continues. Default installs are unchanged.
+- **Decision recorded** in [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md); example CR in `docs/examples/silence-example.yaml`.
+
+### New tests added (Round 4)
+
+- `internal/crd/silence_test.go` — dynamic fake informer (populate / live add / live delete), `parseSilence` validation (missing matchers / until / bad RFC3339), store reflection. Package coverage **79.6%**.
+- `internal/router/router_test.go` — CR silence suppression + expired-CR no-op.
+
+### Backlog now fully cleared
+
+Every audit finding and every Round-2 "deferred" item (STB-2/STB-5, FEAT-2/3/4, UI-1/2/3/4/6/7/8, TST-1..6, SEC, PERF) is now resolved. No deferred items remain.
+
+---
+
 ## 1. Executive Summary
 
 AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes alerting controller. It is at the top decile of OSS controllers I have reviewed for code hygiene, comment quality, security posture, and operational thoughtfulness. The code reads like it was written by someone who has run alerting in production: nearly every non-obvious decision has a comment explaining *why* (timeout budgets, leader-flap re-entrancy, fail-closed auth, SSRF guards, clone-before-unlock, snapshot poisoning defenses).
@@ -129,7 +164,7 @@ AlertKube is a **mature, exceptionally well-engineered** open-source Kubernetes 
 
 ### Overall scorecard
 
-> Grades in parentheses are post-resolution (Round 2/3). See sections 0 and 0b for details.
+> Grades in parentheses are post-resolution (Rounds 2-4). See sections 0, 0b, and 0c for details.
 
 | Dimension | Grade | One-line verdict |
 | --- | --- | --- |
