@@ -129,6 +129,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | inhibitions | list | `[{"duration":"10m","equal":["node"],"source":{"kind":"Node","reason":"NodeNotReady"},"target":{"kind":"Pod"}}]` | Inhibition rules that suppress targets while a source alert is active. |
 | leaderElection.enabled | bool | `false` | Enable HA leader election via a coordination Lease. |
 | leaderElection.namespace | string | `""` | Namespace for the Lease (defaults to the release namespace). |
+| maintenance | list | `[]` | Recurring daily maintenance windows that suppress matching alerts. |
 | mattermost.webhookUrl | string | `""` | Mattermost incoming-webhook URL (inline; prefer the Secret ref). |
 | mattermost.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Mattermost webhook URL (`{key, name}`). |
 | metrics.enabled | bool | `true` | Expose the metrics/health HTTP server. |

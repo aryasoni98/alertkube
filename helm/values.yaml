@@ -484,6 +484,19 @@ inhibitions:
 # -- Standing silence rules.
 silences: []
 
+# Recurring maintenance windows: suppress matching alerts on a daily schedule
+# (optionally restricted to weekdays), unlike one-shot `silences` that end at a
+# single timestamp. Times are HH:MM in the window's timezone (IANA name; empty =
+# UTC); a window may wrap midnight (start > end).
+# -- Recurring daily maintenance windows that suppress matching alerts.
+maintenance: []
+  # - name: nightly-backup
+  #   matchers: {namespace: prod, reason: PVCPending}
+  #   start: "23:00"
+  #   end: "02:00"
+  #   days: [sat, sun]     # optional; empty = every day
+  #   timezone: UTC        # optional; empty = UTC
+
 # -- Custom correlation rules; each fires a derived alert (kind Derived) when
 # its condition holds. Exactly one of count/all/absent per rule.
 rules: []

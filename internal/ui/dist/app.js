@@ -357,6 +357,18 @@ function renderConfig(cfg, raw) {
   $("#cfg-silences").innerHTML = cfgSilHTML;
   if ($("#sil-config")) $("#sil-config").innerHTML = cfgSilHTML;
 
+  // Maintenance windows (recurring suppression)
+  const maint = cfg.maintenance || [];
+  $("#cfg-maintenance").innerHTML = maint.length
+    ? maint.map((w) => {
+        const m = Object.entries(w.matchers || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(", ");
+        const days = (w.days && w.days.length) ? w.days.join(",") : "every day";
+        const tz = w.timezone || "UTC";
+        const name = w.name ? `<strong>${esc(w.name)}</strong> ` : "";
+        return `<div>${name}${esc(m)} <span class="muted">${esc(w.start)}–${esc(w.end)} ${esc(tz)} (${esc(days)})</span></div>`;
+      }).join("")
+    : '<span class="muted">No maintenance windows.</span>';
+
   lastConfigYaml = raw || "";
   $("#cfg-raw").textContent = lastConfigYaml;
 

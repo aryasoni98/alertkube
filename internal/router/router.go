@@ -28,6 +28,10 @@ type Router struct {
 	// reads against API writes.
 	runtimeSilences *silence.Store
 
+	// maintenance holds recurring daily suppression windows (backup/patch
+	// windows). Like config silences they are operator-controlled (from Git).
+	maintenance []config.MaintenanceWindow
+
 	mu             sync.Mutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
 }
@@ -50,6 +54,10 @@ func (r *Router) Route(a *alert.Alert) []string {
 	if !a.Resolved {
 		if r.silenced(a) {
 			metrics.AlertsSuppressed.WithLabelValues("silenced").Inc()
+			return nil
+		}
+		if r.inMaintenance(a, time.Now()) {
+			metrics.AlertsSuppressed.WithLabelValues("maintenance").Inc()
 			return nil
 		}
 		if r.inhibited(a) {
@@ -91,6 +99,12 @@ func (r *Router) SetRuntimeSilences(s *silence.Store) {
 	r.runtimeSilences = s
 }
 
+// SetMaintenance wires recurring maintenance windows. Call before the first
+// Route. Windows are operator-controlled (config/Git) like config silences.
+func (r *Router) SetMaintenance(w []config.MaintenanceWindow) {
+	r.maintenance = w
+}
+
 func (r *Router) silenced(a *alert.Alert) bool {
 	now := time.Now()
 	// Annotation-based silence: `alert-silence-until: RFC3339`
@@ -113,6 +127,18 @@ func (r *Router) silenced(a *alert.Alert) bool {
 			if a.MatchLabels(s.Matchers) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// inMaintenance reports whether a recurring maintenance window currently
+// suppresses the alert. Kept separate from silenced() so the suppression metric
+// can attribute it to "maintenance" rather than "silenced".
+func (r *Router) inMaintenance(a *alert.Alert, now time.Time) bool {
+	for _, w := range r.maintenance {
+		if a.MatchLabels(w.Matchers) && w.Active(now) {
+			return true
 		}
 	}
 	return false

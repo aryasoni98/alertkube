@@ -212,3 +212,45 @@ func TestInhibitionExpires(t *testing.T) {
 		t.Fatalf("expired inhibitions should be pruned, got %d", n)
 	}
 }
+
+func TestRouteMaintenanceWindowSuppresses(t *testing.T) {
+	r := New(
+		[]config.Route{{Match: map[string]string{}, Sinks: []string{"slack"}}},
+		nil, nil, []string{"slack"},
+	)
+	// An always-on window (00:00-23:59) matching prod must drop prod alerts.
+	r.SetMaintenance([]config.MaintenanceWindow{
+		{Matchers: map[string]string{"namespace": "prod"}, Start: "00:00", End: "23:59"},
+	})
+
+	prod := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if got := r.Route(prod); got != nil {
+		t.Fatalf("prod alert should be suppressed by the maintenance window, got %v", got)
+	}
+	// A non-matching namespace still routes.
+	dev := alert.New(alert.KindPod, "dev", "p", "X", alert.SeverityCritical)
+	if got := r.Route(dev); got == nil {
+		t.Fatal("dev alert must not be suppressed by a prod-only window")
+	}
+	// Resolves bypass maintenance (must always reach sinks).
+	res := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	res.Resolved = true
+	if got := r.Route(res); got == nil {
+		t.Fatal("resolve must bypass the maintenance window")
+	}
+}
+
+func TestRouteMaintenanceWindowInactiveAllowsRouting(t *testing.T) {
+	r := New(
+		[]config.Route{{Match: map[string]string{}, Sinks: []string{"slack"}}},
+		nil, nil, []string{"slack"},
+	)
+	// An empty window (start==end) is never active, so alerts route normally.
+	r.SetMaintenance([]config.MaintenanceWindow{
+		{Matchers: map[string]string{"namespace": "prod"}, Start: "03:00", End: "03:00"},
+	})
+	prod := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
+	if got := r.Route(prod); got == nil {
+		t.Fatal("an inactive maintenance window must not suppress alerts")
+	}
+}

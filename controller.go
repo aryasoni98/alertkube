@@ -63,6 +63,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
+	r.SetMaintenance(cfg.Maintenance)
 
 	// Runtime silences: time-boxed mutes created from the console without a
 	// redeploy. Persisted into the state ConfigMap (below) so they survive a
