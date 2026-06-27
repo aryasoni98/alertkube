@@ -114,6 +114,22 @@ discord:
     # key: discordWebhookUrl
     # name: alertkube-discord
 
+googlechat:
+  # -- Google Chat space incoming-webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Google Chat webhook URL (`{key, name}`).
+  webhookUrlSecretKeyRef: {}
+    # key: googlechatWebhookUrl
+    # name: alertkube-googlechat
+
+mattermost:
+  # -- Mattermost incoming-webhook URL (inline; prefer the Secret ref).
+  webhookUrl: ""
+  # -- Secret reference for the Mattermost webhook URL (`{key, name}`).
+  webhookUrlSecretKeyRef: {}
+    # key: mattermostWebhookUrl
+    # name: alertkube-mattermost
+
 telegram:
   # -- Telegram bot token from @BotFather (inline; prefer the Secret ref).
   botToken: ""

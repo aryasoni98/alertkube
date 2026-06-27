@@ -326,14 +326,16 @@ const InformerResyncSeconds = 300
 // only reference these. Kept here so Validate can fail fast on typos
 // instead of dispatch silently skipping an unknown name.
 var KnownSinks = map[string]bool{
-	"slack":     true,
-	"pagerduty": true,
-	"teams":     true,
-	"webhook":   true,
-	"stdout":    true,
-	"discord":   true,
-	"telegram":  true,
-	"opsgenie":  true,
+	"slack":      true,
+	"pagerduty":  true,
+	"teams":      true,
+	"webhook":    true,
+	"stdout":     true,
+	"discord":    true,
+	"telegram":   true,
+	"opsgenie":   true,
+	"googlechat": true,
+	"mattermost": true,
 }
 
 // Validate rejects configurations that would otherwise fail open at

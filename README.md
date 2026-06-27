@@ -14,7 +14,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/aryasoni98/alertkube)](https://goreportcard.com/report/github.com/aryasoni98/alertkube)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences/inhibitions/grouping, and sends alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, webhooks, or stdout.
+alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences/inhibitions/grouping, and sends alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhooks, or stdout.
 
 ## Install
 
@@ -46,7 +46,7 @@ docker pull ghcr.io/aryasoni98/alertkube:v1.0.0
 - **Routing:** match by severity, kind, namespace, reason, name, node, or labels.
 - **Suppression:** fingerprint mute window, time-bounded silences, source/target inhibitions, optional storm grouping.
 - **State:** ConfigMap persistence preserves active alerts and mute history across restarts.
-- **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, generic webhook, stdout, and Alertmanager webhook receiver.
+- **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and Alertmanager webhook receiver.
 - **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, Grafana dashboard.
 - **Web console (read-only):** embedded single-binary UI on the metrics port — view active alerts, the loaded config (rules, grouping, routing, channels, silences), and suppression counts. Guarded by `api.token`; config stays source-of-truth in Git.
 

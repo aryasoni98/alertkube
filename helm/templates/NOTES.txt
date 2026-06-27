@@ -44,7 +44,7 @@ Open the read-only web console (rides the metrics port, guarded by api.token):
     port and to bound controller egress to your sinks.
 {{- end }}
 {{- $inline := false }}
-{{- range $v := list .Values.api.token .Values.api.writeToken .Values.receiver.token .Values.slack.webhookUrl .Values.slack.botToken .Values.opsgenie.apiKey .Values.pagerduty.routingKey .Values.teams.webhookUrl .Values.discord.webhookUrl .Values.telegram.botToken .Values.genericWebhook.url .Values.genericWebhook.signingSecret }}
+{{- range $v := list .Values.api.token .Values.api.writeToken .Values.receiver.token .Values.slack.webhookUrl .Values.slack.botToken .Values.opsgenie.apiKey .Values.pagerduty.routingKey .Values.teams.webhookUrl .Values.discord.webhookUrl .Values.googlechat.webhookUrl .Values.mattermost.webhookUrl .Values.telegram.botToken .Values.genericWebhook.url .Values.genericWebhook.signingSecret }}
 {{- if $v }}{{ $inline = true }}{{ end }}
 {{- end }}
 {{- if $inline }}

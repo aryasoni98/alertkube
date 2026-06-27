@@ -117,6 +117,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | genericWebhook.signingSecret | string | `""` | Optional HMAC-SHA256 signing key for request signatures. |
 | genericWebhook.url | string | `""` | Endpoint that receives the raw Alert JSON via POST. |
 | genericWebhook.urlSecretKeyRef | object | `{}` | Secret reference for the webhook URL (`{key, name}`). |
+| googlechat.webhookUrl | string | `""` | Google Chat space incoming-webhook URL (inline; prefer the Secret ref). |
+| googlechat.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Google Chat webhook URL (`{key, name}`). |
 | grouping.by | list | `["kind","namespace","reason","severity"]` | Grouping key fields. |
 | grouping.enabled | bool | `false` | Fold alert storms into one summary per group. |
 | grouping.windowSeconds | int | `30` | Window in seconds during which same-group alerts collapse. |
@@ -127,6 +129,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | inhibitions | list | `[{"duration":"10m","equal":["node"],"source":{"kind":"Node","reason":"NodeNotReady"},"target":{"kind":"Pod"}}]` | Inhibition rules that suppress targets while a source alert is active. |
 | leaderElection.enabled | bool | `false` | Enable HA leader election via a coordination Lease. |
 | leaderElection.namespace | string | `""` | Namespace for the Lease (defaults to the release namespace). |
+| mattermost.webhookUrl | string | `""` | Mattermost incoming-webhook URL (inline; prefer the Secret ref). |
+| mattermost.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Mattermost webhook URL (`{key, name}`). |
 | metrics.enabled | bool | `true` | Expose the metrics/health HTTP server. |
 | metrics.port | int | `9090` | Port for `/metrics`, `/healthz`, `/readyz`. |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator `ServiceMonitor`. |

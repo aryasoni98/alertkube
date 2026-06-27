@@ -106,6 +106,12 @@ spec:
             - name: DISCORD_WEBHOOK_URL
               valueFrom:
               {{- include "alertkube.discordWebhookUrl" . | indent 14 }}
+            - name: GOOGLECHAT_WEBHOOK_URL
+              valueFrom:
+              {{- include "alertkube.googlechatWebhookUrl" . | indent 14 }}
+            - name: MATTERMOST_WEBHOOK_URL
+              valueFrom:
+              {{- include "alertkube.mattermostWebhookUrl" . | indent 14 }}
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
               {{- include "alertkube.telegramBotToken" . | indent 14 }}

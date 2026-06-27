@@ -49,12 +49,14 @@ type consoleDeps struct {
 // reads. Only types whose single credential fully drives a test send are listed;
 // e.g. telegram is omitted because it also needs a (non-secret) chat id.
 var channelCredEnv = map[string]string{
-	"slack":     "SLACK_WEBHOOK_URL",
-	"discord":   "DISCORD_WEBHOOK_URL",
-	"teams":     "TEAMS_WEBHOOK_URL",
-	"webhook":   "GENERIC_WEBHOOK_URL",
-	"pagerduty": "PAGERDUTY_ROUTING_KEY",
-	"opsgenie":  "OPSGENIE_API_KEY",
+	"slack":      "SLACK_WEBHOOK_URL",
+	"discord":    "DISCORD_WEBHOOK_URL",
+	"teams":      "TEAMS_WEBHOOK_URL",
+	"webhook":    "GENERIC_WEBHOOK_URL",
+	"pagerduty":  "PAGERDUTY_ROUTING_KEY",
+	"opsgenie":   "OPSGENIE_API_KEY",
+	"googlechat": "GOOGLECHAT_WEBHOOK_URL",
+	"mattermost": "MATTERMOST_WEBHOOK_URL",
 }
 
 // readAuthorized enforces the read token and writes 401 on mismatch.

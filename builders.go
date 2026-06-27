@@ -119,6 +119,8 @@ func buildSinks(cfg *config.Config) *sinks.Registry {
 	reg.Add(sinks.NewDiscord())
 	reg.Add(sinks.NewTelegram())
 	reg.Add(sinks.NewOpsgenie())
+	reg.Add(sinks.NewGoogleChat())
+	reg.Add(sinks.NewMattermost())
 	for name, sr := range cfg.SinkRates {
 		reg.SetRate(name, rate.Limit(sr.PerSecond), sr.Burst)
 	}

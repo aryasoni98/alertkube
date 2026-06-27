@@ -112,6 +112,32 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "alertkube.googlechatWebhookUrl" -}}
+{{- if .Values.googlechat.webhookUrlSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.googlechat.webhookUrlSecretKeyRef.key }}
+    name: {{ .Values.googlechat.webhookUrlSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: googlechatWebhookUrl
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
+{{- define "alertkube.mattermostWebhookUrl" -}}
+{{- if .Values.mattermost.webhookUrlSecretKeyRef.name }}
+  secretKeyRef:
+    key: {{ .Values.mattermost.webhookUrlSecretKeyRef.key }}
+    name: {{ .Values.mattermost.webhookUrlSecretKeyRef.name }}
+{{- else }}
+  secretKeyRef:
+    key: mattermostWebhookUrl
+    name: {{ include "alertkube.fullname" . }}
+    optional: true
+{{- end }}
+{{- end }}
+
 {{- define "alertkube.telegramBotToken" -}}
 {{- if .Values.telegram.botTokenSecretKeyRef.name }}
   secretKeyRef:
