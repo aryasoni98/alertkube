@@ -177,32 +177,116 @@ function initAuth() {
 }
 
 // ---- Alerts ----
+// Sort state for the alerts table. Clicking a column header cycles asc/desc.
+let alertSort = { key: "Severity", dir: "asc" };
+// Fingerprints whose detail row is expanded (persists across refreshes).
+const expandedAlerts = new Set();
+
+// severityRank orders severities critical > warning > info for sensible sorting.
+function severityRank(s) {
+  return { critical: 0, warning: 1, info: 2 }[String(s || "").toLowerCase()] ?? 3;
+}
+
+function sortAlerts(rows) {
+  const { key, dir } = alertSort;
+  const mul = dir === "desc" ? -1 : 1;
+  return rows.slice().sort((a, b) => {
+    let av, bv;
+    if (key === "Severity") { av = severityRank(a.Severity); bv = severityRank(b.Severity); }
+    else if (key === "StartsAt") { av = new Date(a.StartsAt).getTime() || 0; bv = new Date(b.StartsAt).getTime() || 0; }
+    else if (key === "Resolved") { av = a.Resolved ? 1 : 0; bv = b.Resolved ? 1 : 0; }
+    else { av = String(a[key] || "").toLowerCase(); bv = String(b[key] || "").toLowerCase(); }
+    if (av < bv) return -1 * mul;
+    if (av > bv) return 1 * mul;
+    return 0;
+  });
+}
+
+// detailHTML renders an alert's Details map (events/logs) for the expanded row.
+function detailHTML(a) {
+  const d = a.Details || {};
+  const keys = Object.keys(d);
+  if (!keys.length) return '<span class="muted small">No additional detail (enrichment is dropped from recent/resolved entries).</span>';
+  return keys.map((k) => `<div class="detail-block"><div class="detail-h">${esc(k)}</div><pre class="raw">${esc(d[k])}</pre></div>`).join("");
+}
+
+function fp(a) { return a.Fingerprint || (a.Kind + "/" + a.Namespace + "/" + a.Name + "/" + a.Reason); }
+
 function renderAlerts() {
   const filter = ($("#alert-filter").value || "").toLowerCase();
   const showResolved = $("#show-resolved").checked;
-  const rows = (showResolved ? [...lastAlerts.active, ...lastAlerts.recent] : lastAlerts.active)
+  let rows = (showResolved ? [...lastAlerts.active, ...lastAlerts.recent] : lastAlerts.active)
     .filter((a) => {
       if (!filter) return true;
       return [a.Name, a.Namespace, a.Reason, a.Summary, a.Kind]
         .some((v) => String(v || "").toLowerCase().includes(filter));
     });
+  rows = sortAlerts(rows);
 
   const tbody = $("#alerts-table tbody");
   tbody.innerHTML = rows.map((a) => {
     const sev = String(a.Severity || "info").toLowerCase();
     const state = a.Resolved ? '<span class="state-resolved">resolved</span>' : '<span class="state-firing">firing</span>';
-    return `<tr>
-      <td><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td>
-      <td>${esc(a.Kind)}</td>
-      <td>${esc(a.Namespace)}</td>
-      <td>${esc(a.Name)}</td>
-      <td>${esc(a.Reason)}</td>
-      <td class="wrap">${esc(a.Summary)}</td>
-      <td>${esc(ago(a.StartsAt))}</td>
-      <td>${state}</td>
+    const id = fp(a);
+    const open = expandedAlerts.has(id);
+    const main = `<tr class="alert-row${open ? " expanded" : ""}" data-fp="${esc(id)}" tabindex="0" aria-expanded="${open}">
+      <td data-label="Sev"><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td>
+      <td data-label="Kind">${esc(a.Kind)}</td>
+      <td data-label="Namespace">${esc(a.Namespace)}</td>
+      <td data-label="Name">${esc(a.Name)}</td>
+      <td data-label="Reason">${esc(a.Reason)}</td>
+      <td data-label="Summary" class="wrap">${esc(a.Summary)}</td>
+      <td data-label="Since">${esc(ago(a.StartsAt))}</td>
+      <td data-label="State">${state}</td>
     </tr>`;
+    const detail = open
+      ? `<tr class="alert-detail" data-detail="${esc(id)}"><td colspan="8">${detailHTML(a)}</td></tr>`
+      : "";
+    return main + detail;
   }).join("");
   $("#alerts-empty").classList.toggle("hidden", rows.length > 0);
+  updateSortIndicators();
+}
+
+// updateSortIndicators reflects the active sort column/direction on the headers.
+function updateSortIndicators() {
+  $$(".th-sort").forEach((b) => {
+    const active = b.dataset.sort === alertSort.key;
+    b.setAttribute("aria-sort", active ? (alertSort.dir === "asc" ? "ascending" : "descending") : "none");
+    b.dataset.active = active ? "true" : "false";
+    b.dataset.dir = active ? alertSort.dir : "";
+  });
+}
+
+function initAlertsTable() {
+  // Header click toggles sort.
+  $$(".th-sort").forEach((b) => {
+    b.addEventListener("click", () => {
+      const key = b.dataset.sort;
+      if (alertSort.key === key) {
+        alertSort.dir = alertSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        alertSort = { key, dir: "asc" };
+      }
+      renderAlerts();
+    });
+  });
+  // Row click/Enter toggles the expanded detail row.
+  const tbody = $("#alerts-table tbody");
+  const toggle = (tr) => {
+    const id = tr && tr.getAttribute("data-fp");
+    if (!id) return;
+    if (expandedAlerts.has(id)) expandedAlerts.delete(id);
+    else expandedAlerts.add(id);
+    renderAlerts();
+  };
+  tbody.addEventListener("click", (e) => toggle(e.target.closest(".alert-row")));
+  tbody.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("alert-row")) {
+      e.preventDefault();
+      toggle(e.target);
+    }
+  });
 }
 
 // ---- Config ----
@@ -762,6 +846,7 @@ window.addEventListener("DOMContentLoaded", () => {
   initAuthor();
   initFormBuilders();
   initChannels();
+  initAlertsTable();
   $("#refresh").addEventListener("click", refresh);
   $("#alert-filter").addEventListener("input", renderAlerts);
   $("#show-resolved").addEventListener("change", renderAlerts);

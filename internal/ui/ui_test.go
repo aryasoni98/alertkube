@@ -111,3 +111,28 @@ func TestConsoleKeyboardNavScript(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleAlertsTableInteractivity(t *testing.T) {
+	html := bodyOf(t, Handler(), "/")
+	for _, want := range []string{
+		`class="th-sort"`,
+		`data-sort="Severity"`,
+		`data-sort="StartsAt"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("index.html missing sortable-header markup: %q", want)
+		}
+	}
+	js := bodyOf(t, Handler(), "/app.js")
+	for _, want := range []string{"initAlertsTable", "expandedAlerts", "sortAlerts", "data-label"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing alerts-table logic: %q", want)
+		}
+	}
+	css := bodyOf(t, Handler(), "/style.css")
+	for _, want := range []string{".th-sort", ".alert-detail", "max-width: 600px"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css missing alerts-table styles: %q", want)
+		}
+	}
+}

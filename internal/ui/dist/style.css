@@ -770,3 +770,53 @@ thead th {
   position: sticky; top: 0; z-index: 1;
   background: var(--bg-2);
 }
+
+/* ============================================================================
+   Alerts table: sortable headers, expandable detail rows, mobile card-stacking
+   ========================================================================== */
+
+/* Sortable column header buttons look like plain headers but are real buttons
+   for keyboard + screen-reader support. */
+.th-sort {
+  background: none; border: none; color: inherit; font: inherit; font-weight: 600;
+  cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 4px;
+}
+.th-sort:hover { color: var(--accent); }
+.th-sort[data-active="true"] { color: var(--accent); }
+.th-sort[data-active="true"]::after { content: "▲"; font-size: 9px; }
+.th-sort[data-active="true"][data-dir="desc"]::after { content: "▼"; }
+
+/* Expandable alert rows. */
+.alert-row { cursor: pointer; }
+.alert-row:hover { background: var(--bg-3); }
+.alert-row.expanded { background: var(--bg-3); }
+.alert-detail > td { padding: 0 12px 12px; }
+.detail-block { margin-top: 8px; }
+.detail-h {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--muted); margin-bottom: 4px;
+}
+.alert-detail .raw { margin: 0; max-height: 320px; overflow: auto; }
+
+/* Mobile: stack each table row as a labelled card so 8 columns do not overflow.
+   The data-label on each cell (set in app.js) becomes the field name. Applies to
+   the alerts, silences, channels, and suppression tables. */
+@media (max-width: 600px) {
+  #alerts-table thead { position: absolute; left: -9999px; }
+  #alerts-table, #alerts-table tbody, #alerts-table tr, #alerts-table td { display: block; width: 100%; }
+  #alerts-table tr.alert-row {
+    border: 1px solid var(--border); border-radius: 12px;
+    margin-bottom: 10px; padding: 6px 10px; background: var(--bg-2);
+  }
+  #alerts-table tr.alert-row td {
+    display: flex; justify-content: space-between; gap: 12px;
+    border: none; padding: 4px 0; text-align: right;
+  }
+  #alerts-table tr.alert-row td::before {
+    content: attr(data-label);
+    font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); text-align: left; flex: 0 0 auto;
+  }
+  #alerts-table td.wrap { text-align: right; }
+  .alert-detail > td { display: block; }
+}
