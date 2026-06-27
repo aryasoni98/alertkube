@@ -110,7 +110,12 @@ func runController(ctx context.Context, clientset kubernetes.Interface, cfg *con
 		time.Duration(cfg.Behavior.ResolveTTLSeconds)*time.Second,
 		dispatchResolved,
 	)
-	store.SetOnChange(func(n int) { metrics.ActiveAlerts.Set(float64(n)) })
+	store.SetOnChange(func(n int) {
+		metrics.ActiveAlerts.Set(float64(n))
+		// Notify any connected consoles (SSE) so they refresh live instead of
+		// waiting for their poll interval.
+		metrics.PublishChange()
+	})
 
 	// Restore persisted state before the informers start so the initial
 	// sync sees the prior mute history and pending resolves survive the
@@ -434,6 +439,7 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, per
 	metrics.ClearRenderHandler()
 	metrics.ClearSilencesHandler()
 	metrics.ClearChannelsHandler()
+	metrics.ClearEventsAuth()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()

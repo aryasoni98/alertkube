@@ -112,6 +112,11 @@ func installConsoleHandlers(d consoleDeps) {
 	metrics.SetRenderHandler(newRenderHandler(d))
 	metrics.SetSilencesHandler(newSilencesHandler(d))
 	metrics.SetChannelsHandler(newChannelsHandler(d))
+	// The SSE stream reuses the read token; install the same check the read
+	// endpoints use so a follower/pre-controller process serves 503.
+	metrics.SetEventsAuth(func(req *http.Request) bool {
+		return d.apiToken == "" || authz.BearerEqual(req.Header.Get("Authorization"), d.apiToken)
+	})
 }
 
 // newAlertsHandler serves the read-only active + recent alert view.

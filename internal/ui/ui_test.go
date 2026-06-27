@@ -136,3 +136,12 @@ func TestConsoleAlertsTableInteractivity(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleSSEClient(t *testing.T) {
+	js := bodyOf(t, Handler(), "/app.js")
+	for _, want := range []string{"connectEvents", "/api/events", "change", "getReader"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js missing SSE client logic: %q", want)
+		}
+	}
+}

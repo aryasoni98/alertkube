@@ -206,6 +206,15 @@ func TestMuxRoutes(t *testing.T) {
 		}
 	})
 
+	t.Run("events route 503 until installed", func(t *testing.T) {
+		ClearEventsAuth()
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/api/events uninstalled: got %d, want 503", rec.Code)
+		}
+	})
+
 	// Clean up globals so other packages' expectations are not affected.
 	alertsHandler.Store(nil)
 	receiverHandler.Store(nil)

@@ -236,6 +236,10 @@ func buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/channels", dynamic(&channelsHandler))
 	mux.HandleFunc("/api/channels/test", dynamic(&channelsHandler))
 	mux.HandleFunc("/api/channels/test-ref", dynamic(&channelsHandler))
+	// /api/events streams Server-Sent Events (a "change" ping on every
+	// active-set change) so the console updates live instead of polling. Token
+	// gate + leader-scoping are handled inside the handler via eventsAuth.
+	mux.HandleFunc("/api/events", eventsHandler())
 	// The embedded console SPA. Mounted on the catch-all "/" so any non-API
 	// path serves the app shell; the exact routes above are more specific and
 	// win. Static assets carry no secrets and are served without auth - the

@@ -166,10 +166,12 @@ function initAuth() {
     setWriteToken($("#write-token").value.trim());
     hideAuth();
     refresh();
+    connectEvents();
   });
   $("#token-clear").addEventListener("click", () => {
     setToken("");
     setWriteToken("");
+    if (sseAbort) sseAbort.abort();
     $("#token").value = "";
     $("#write-token").value = "";
     showAuth("Tokens cleared.");
@@ -814,6 +816,53 @@ function initAuthor() {
   $("#auth-download").addEventListener("click", downloadAuthor);
 }
 
+// ---- Live updates (SSE) ----
+// EventSource cannot attach an Authorization header, so we stream /api/events
+// with fetch + a ReadableStream reader and parse the SSE frames ourselves. On a
+// "change" event we refresh; the 15s poll below stays as a fallback when the
+// stream is unavailable (no token, follower 503, or a proxy that buffers it).
+let sseAbort = null;
+let sseBackoff = 2000;
+
+async function connectEvents() {
+  if (!token()) return;
+  if (sseAbort) sseAbort.abort();
+  const ctrl = new AbortController();
+  sseAbort = ctrl;
+  try {
+    const res = await fetch("/api/events", {
+      headers: { Authorization: "Bearer " + token(), Accept: "text/event-stream" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) return; // fall back to polling
+    sseBackoff = 2000; // reset backoff on a good connection
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      // SSE frames are separated by a blank line.
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        if (/^event:\s*change/m.test(frame)) refresh();
+      }
+    }
+  } catch (_) {
+    // aborted or network error; the reconnect below handles it
+  } finally {
+    if (sseAbort === ctrl) sseAbort = null;
+    // Reconnect with capped backoff as long as we still have a token.
+    if (token()) {
+      sseBackoff = Math.min(sseBackoff * 2, 30000);
+      setTimeout(connectEvents, sseBackoff);
+    }
+  }
+}
+
 // ---- Refresh orchestration ----
 async function refresh() {
   if (!token()) { showAuth(); return; }
@@ -863,5 +912,8 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#alert-filter").addEventListener("input", renderAlerts);
   $("#show-resolved").addEventListener("change", renderAlerts);
   refresh();
+  connectEvents();
+  // Polling stays as a fallback when the SSE stream is unavailable; the
+  // interval is generous because live changes arrive via /api/events.
   setInterval(refresh, 15000);
 });
