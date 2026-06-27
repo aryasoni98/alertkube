@@ -1,0 +1,83 @@
+# Chainsaw e2e: a resolved condition must produce a resolve the controller emits.
+# A crash-looping pod fires CrashLoopBackOff; deleting the pod must make the
+# controller emit a synthetic resolve (the pod-delete path, not the TTL sweep).
+# Assumes alertkube is installed in the `alertkube` namespace with the stdout
+# sink in the routing (see test/e2e/README.md).
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: resolve-on-delete
+spec:
+  namespace: alertkube-e2e
+  steps:
+    - name: Create a crash-looping pod
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: resolver
+              spec:
+                restartPolicy: Always
+                containers:
+                  - name: resolver
+                    image: busybox:1.36
+                    command: ["/bin/false"]
+                    resources:
+                      requests: { cpu: 1m, memory: 8Mi }
+                      limits: { cpu: 10m, memory: 16Mi }
+    - name: Wait for CrashLoopBackOff
+      try:
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: resolver
+              status:
+                (containerStatuses[0].state.waiting.reason): CrashLoopBackOff
+    - name: Assert the firing alert was emitted
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              for _ in $(seq 1 30); do
+                if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
+                     | grep -E "resolver" | grep -Eiq "CrashLoopBackOff"; then
+                  echo "firing alert observed for pod resolver"
+                  exit 0
+                fi
+                sleep 6
+              done
+              echo "no CrashLoopBackOff alert for pod resolver within timeout"
+              kubectl logs -n alertkube deploy/alertkube --tail=50 || true
+              exit 1
+    - name: Delete the pod and assert a resolve is emitted
+      try:
+        - script:
+            content: kubectl delete pod resolver -n alertkube-e2e --wait=true
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              # The pod-delete path emits a synthetic resolve for the object.
+              # alertkube logs resolves through the stdout sink as Resolved=true
+              # (or "resolved"); match either to stay robust to format tweaks.
+              for _ in $(seq 1 30); do
+                if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
+                     | grep -E "resolver" | grep -Eiq "resolv"; then
+                  echo "resolve observed for pod resolver"
+                  exit 0
+                fi
+                sleep 6
+              done
+              echo "no resolve for pod resolver within timeout"
+              kubectl logs -n alertkube deploy/alertkube --tail=80 || true
+              exit 1
+      finally:
+        - description: Show controller logs on failure
+          script:
+            content: kubectl logs -n alertkube deploy/alertkube --tail=80 || true

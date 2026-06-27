@@ -1,0 +1,63 @@
+# Chainsaw e2e: an OOMKilled container must produce an OOMKilled alert.
+# The pod requests far more memory than its limit allows and is killed by the
+# OOM killer; alertkube's pod watcher detects the OOMKilled last-termination
+# reason and fires a critical alert. Assumes alertkube is installed in the
+# `alertkube` namespace with the stdout sink (see test/e2e/README.md).
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: oomkilled-alert
+spec:
+  namespace: alertkube-e2e
+  steps:
+    - name: Create a pod that exceeds its memory limit
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: hungry
+              spec:
+                restartPolicy: Always
+                containers:
+                  - name: hungry
+                    image: polinux/stress:latest
+                    command: ["stress"]
+                    # Allocate ~150Mi against a 32Mi limit -> OOMKilled.
+                    args: ["--vm", "1", "--vm-bytes", "150M", "--vm-hang", "0"]
+                    resources:
+                      requests: { cpu: 10m, memory: 16Mi }
+                      limits: { cpu: 100m, memory: 32Mi }
+    - name: Wait for an OOMKilled termination
+      try:
+        - assert:
+            timeout: 3m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: hungry
+              status:
+                (containerStatuses[0].lastState.terminated.reason || containerStatuses[0].state.terminated.reason): OOMKilled
+    - name: Assert the controller emitted an OOMKilled alert
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              for _ in $(seq 1 30); do
+                if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
+                     | grep -E "hungry" | grep -Eiq "OOMKilled"; then
+                  echo "OOMKilled alert observed for pod hungry"
+                  exit 0
+                fi
+                sleep 6
+              done
+              echo "no OOMKilled alert for pod hungry within timeout"
+              kubectl logs -n alertkube deploy/alertkube --tail=50 || true
+              exit 1
+      finally:
+        - description: Show controller logs on failure
+          script:
+            content: kubectl logs -n alertkube deploy/alertkube --tail=80 || true

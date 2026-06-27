@@ -1,0 +1,58 @@
+# Chainsaw e2e: a pod referencing a non-existent image must produce an
+# ImagePullBackOff alert (warning severity). Assumes alertkube is installed in
+# the `alertkube` namespace with the stdout sink (see test/e2e/README.md).
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: imagepull-alert
+spec:
+  namespace: alertkube-e2e
+  steps:
+    - name: Create a pod with an unpullable image
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: badimage
+              spec:
+                restartPolicy: Always
+                containers:
+                  - name: badimage
+                    image: example.invalid/does-not-exist:nope
+                    resources:
+                      requests: { cpu: 1m, memory: 8Mi }
+                      limits: { cpu: 10m, memory: 16Mi }
+    - name: Wait for ImagePullBackOff / ErrImagePull
+      try:
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: badimage
+              status:
+                (containerStatuses[0].state.waiting.reason): (contains('ImagePullBackOff ErrImagePull', @))
+    - name: Assert the controller emitted an image-pull alert
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              for _ in $(seq 1 30); do
+                if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
+                     | grep -E "badimage" | grep -Eiq "ImagePullBackOff|ErrImagePull"; then
+                  echo "image-pull alert observed for pod badimage"
+                  exit 0
+                fi
+                sleep 6
+              done
+              echo "no image-pull alert for pod badimage within timeout"
+              kubectl logs -n alertkube deploy/alertkube --tail=50 || true
+              exit 1
+      finally:
+        - description: Show controller logs on failure
+          script:
+            content: kubectl logs -n alertkube deploy/alertkube --tail=80 || true
