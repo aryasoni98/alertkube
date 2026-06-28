@@ -52,3 +52,7 @@ trivy-results.sarif
 .cache/
 .claude/
 graphify-out/
+
+# Local LLM/agent guideline notes (not project docs)
+CLAUDE.md
+AGENTS.md

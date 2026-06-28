@@ -98,5 +98,5 @@ OpenAPI schema validation (CEL rules) replaces today's `config.Validate()`:
 
 Do **not** build this until there is concrete user demand for per-rule RBAC,
 status, or GitOps-per-rule. It is a large surface for a benefit most single-team
-deployments do not need. Revisit when an adopter hits the ConfigMap's limits
-(governance or [size](configmap-size-audit.md)).
+deployments do not need. Revisit when an adopter hits the ConfigMap's limits or
+needs governance beyond a single reviewed ConfigMap.
