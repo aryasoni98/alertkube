@@ -7,8 +7,8 @@ const akFM = window.FramerMotion || {};
  * Bump these two lines on a release and every reference updates.
  * Keep AK_VERSION in sync with .release-please-manifest.json and
  * helm/Chart.yaml appVersion. */
-const AK_VERSION = "v1.0.0";
-const AK_VERSION_DATE = "2026-06-24";
+const AK_VERSION = "v1.1.0";
+const AK_VERSION_DATE = "2026-06-27";
 // Helm chart version carries no leading "v" (semver per Chart.yaml).
 const AK_CHART_VERSION = AK_VERSION.replace(/^v/, "");
 const AK_REPO = "https://github.com/aryasoni98/alertkube";
