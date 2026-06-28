@@ -22,12 +22,9 @@ func (*DiscordSink) Name() string                   { return "discord" }
 func (*DiscordSink) Supports(_ alert.Severity) bool { return true }
 
 // discordColor converts the severity hex color (#RRGGBB) to the decimal
-// integer Discord expects.
+// integer Discord expects, using the resolved swatch once the alert closes.
 func discordColor(a *alert.Alert) int {
-	hex := a.Severity.Color()
-	if a.Resolved {
-		hex = alert.ResolvedColorHex
-	}
+	hex := statusColorHex(a)
 	// Guard the leading-'#' assumption: an unexpected Color() value must not
 	// panic the sink goroutine on hex[1:].
 	if len(hex) != 7 || hex[0] != '#' {

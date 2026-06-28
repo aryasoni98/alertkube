@@ -23,6 +23,17 @@ func orDash(s string) string {
 	return s
 }
 
+// statusColorHex returns the swatch a chat sink should use for an alert:
+// the resolved green once the alert closes, otherwise the severity color.
+// The discord/mattermost/slack-style sinks all want this exact rule, so it
+// lives here once instead of being re-derived in each Send.
+func statusColorHex(a *alert.Alert) string {
+	if a.Resolved {
+		return alert.ResolvedColorHex
+	}
+	return a.Severity.Color()
+}
+
 // severityTier maps a severity onto one of three caller-supplied vocab
 // strings (critical / warning / everything-else). Each sink supplies the
 // words its destination API expects, so the three-way branch lives once
