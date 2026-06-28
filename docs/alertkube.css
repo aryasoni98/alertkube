@@ -53,8 +53,19 @@
 }
 .ak-iconbtn:hover { background: var(--bg-muted); color: var(--fg); }
 .ak-ver {
+  display: inline-flex; align-items: center; gap: 6px;
   font: 600 12px var(--font-mono); padding: 5px 10px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--fg-muted); background: var(--bg-elevated);
+  text-decoration: none; white-space: nowrap;
+  transition: color var(--d-hover) var(--ease-out-quint),
+              border-color var(--d-hover) var(--ease-out-quint),
+              background var(--d-hover) var(--ease-out-quint);
+}
+.ak-ver:hover { color: var(--fg); border-color: var(--wk-blue-300, #4a9cff); background: var(--bg-muted); }
+.ak-ver:focus-visible { outline: 2px solid var(--wk-blue-300, #4a9cff); outline-offset: 2px; }
+.ak-ver__dot {
+  width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto;
+  background: #2EB67D; box-shadow: 0 0 0 3px rgba(46,182,125,0.18);
 }
 /* Dark mode: hero pill needs sufficient contrast - blue tint on #0B1220 is near-invisible */
 [data-theme="dark"] .wk-hero__pill {

@@ -67,7 +67,16 @@ function AKNav({ theme, setTheme }) {
           <a className="wk-nav__link" href={docsHref}>Docs</a>
         </div>
         <div className="wk-nav__right">
-          <span className="ak-ver">v1.0.0</span>
+          <a
+            className="ak-ver"
+            href={AK_RELEASE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`AlertKube ${AK_VERSION} - released ${AK_VERSION_DATE}. View release notes`}
+            aria-label={`Current version ${AK_VERSION}, view release notes on GitHub`}
+          >
+            <span className="ak-ver__dot" aria-hidden="true"></span>{AK_VERSION}
+          </a>
           <button
             className="ak-iconbtn"
             aria-label="Toggle theme"
@@ -215,7 +224,7 @@ function AKHero({ live }) {
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                v1.0.0 - embedded web console and runtime silences
+                {AK_VERSION} - embedded web console and runtime silences
               </span>
             </Reveal>
             <Reveal delay={0.06}>
