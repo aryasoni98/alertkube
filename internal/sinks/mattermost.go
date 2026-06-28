@@ -27,10 +27,7 @@ func (*MattermostSink) Send(ctx context.Context, a *alert.Alert) error {
 		return nil
 	}
 
-	color := a.Severity.Color()
-	if a.Resolved {
-		color = alert.ResolvedColorHex
-	}
+	color := statusColorHex(a)
 
 	fields := []map[string]any{
 		{"short": true, "title": "Cluster", "value": orDash(a.Cluster)},
