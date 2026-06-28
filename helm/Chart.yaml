@@ -1,10 +1,12 @@
 apiVersion: v2
 name: alertkube
-description: Kubernetes multi-resource alerting controller with severity tiers and multi-sink routing.
+description: >-
+  Kubernetes multi-resource alerting controller with severity tiers and
+  multi-sink routing.
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
-kubeVersion: ">=1.28.0-0"
+version: 1.1.0
+appVersion: 1.1.0
+kubeVersion: '>=1.28.0-0'
 keywords:
   - alerting
   - kubernetes
@@ -21,8 +23,8 @@ maintainers:
     url: https://github.com/aryasoni98
 annotations:
   artifacthub.io/license: Apache-2.0
-  artifacthub.io/operator: "false"
-  artifacthub.io/prerelease: "false"
+  artifacthub.io/operator: 'false'
+  artifacthub.io/prerelease: 'false'
   artifacthub.io/links: |
     - name: Documentation
       url: https://github.com/aryasoni98/alertkube/tree/master/docs
@@ -36,6 +38,8 @@ annotations:
   artifacthub.io/maintainers: |
     - name: Arya Soni
       email: aryasoni98@gmail.com
-  artifacthub.io/signKey: |
+  artifacthub.io/signKey: >
     fingerprint: keyless (Sigstore/cosign)
-    url: https://github.com/aryasoni98/alertkube/blob/master/.github/workflows/release.yml
+
+    url:
+    https://github.com/aryasoni98/alertkube/blob/master/.github/workflows/release.yml
