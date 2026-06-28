@@ -71,18 +71,18 @@ function AKConfig() {
 
 /* ----------------------------- INSTALL ----------------------------- */
 const AK_HELM = `helm upgrade --install alertkube \\
-  oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \\
+  oci://ghcr.io/aryasoni98/charts/alertkube --version ${AK_CHART_VERSION} \\
   --namespace monitoring --create-namespace \\
   --set cluster=prod-eu-west-1 \\
   --set slack.webhookUrl=$SLACK_WEBHOOK_URL \\
   --set pagerduty.routingKey=$PD_ROUTING_KEY`;
 
-const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:v1.0.0
+const AK_DOCKER = `docker pull ghcr.io/aryasoni98/alertkube:${AK_VERSION}
 docker run --rm \\
   -e SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL \\
   -e CLUSTER_NAME=local-dev \\
   -v $HOME/.kube/config:/root/.kube/config \\
-  ghcr.io/aryasoni98/alertkube:v1.0.0`;
+  ghcr.io/aryasoni98/alertkube:${AK_VERSION}`;
 
 function AKInstall() {
   return (
@@ -105,7 +105,7 @@ function AKInstall() {
 /* ----------------------------- CHANGELOG ----------------------------- */
 const AK_RELEASES = [
   {
-    v: "v1.0.0", date: "2026-06-24", tag: "Console", latest: true,
+    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Console", latest: true,
     items: ["Embedded web console for alerts, config review, runtime silences, and channel tests", "Security-gated write paths with token or Kubernetes RBAC auth"],
   },
   {
@@ -210,7 +210,7 @@ function AKFooterSec() {
               quiet until it shouldn't be.
             </p>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> v1.0.0</span>
+              <span className="ak-tag"><span className="ak-live" style={{ width: 6, height: 6 }}></span> {AK_VERSION}</span>
               <span className="ak-tag">Apache-2.0</span>
             </div>
           </div>

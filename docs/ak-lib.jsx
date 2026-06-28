@@ -1,6 +1,19 @@
 // AlertKube - shared primitives (composes Wooak DS bundle exports)
 const akFM = window.FramerMotion || {};
 
+/* --------------------------- VERSION ---------------------------- *
+ * Single source of truth for the released version shown across the
+ * landing page (nav badge, hero pill, install snippets, footer tag).
+ * Bump these two lines on a release and every reference updates.
+ * Keep AK_VERSION in sync with .release-please-manifest.json and
+ * helm/Chart.yaml appVersion. */
+const AK_VERSION = "v1.0.0";
+const AK_VERSION_DATE = "2026-06-24";
+// Helm chart version carries no leading "v" (semver per Chart.yaml).
+const AK_CHART_VERSION = AK_VERSION.replace(/^v/, "");
+const AK_REPO = "https://github.com/aryasoni98/alertkube";
+const AK_RELEASE_URL = `${AK_REPO}/releases/tag/${AK_VERSION}`;
+
 /* ----------------------------- LOGO ----------------------------- */
 function AKLogo({ size = 28, withWord = true, white = false }) {
   return (
