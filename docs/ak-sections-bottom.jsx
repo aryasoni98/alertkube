@@ -105,7 +105,11 @@ function AKInstall() {
 /* ----------------------------- CHANGELOG ----------------------------- */
 const AK_RELEASES = [
   {
-    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Console", latest: true,
+    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Hardening", latest: true,
+    items: ["Opt-in Silence CRD (client-go dynamic informer), recurring maintenance windows, per-sink circuit breaker", "Google Chat and Mattermost sinks; console live updates (SSE), sortable/expandable alerts, keyboard nav, light theme", "validate/version CLI, tunable client QPS/burst, expanded e2e, coverage gate ratcheted to 66%"],
+  },
+  {
+    v: "v1.0.0", date: "2026-06-24", tag: "Console",
     items: ["Embedded web console for alerts, config review, runtime silences, and channel tests", "Security-gated write paths with token or Kubernetes RBAC auth"],
   },
   {

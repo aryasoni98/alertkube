@@ -4,13 +4,13 @@ Deploys [alertkube](https://github.com/aryasoni98/alertkube) — a Kubernetes
 multi-resource alerting controller — with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
-![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
+![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.0](https://img.shields.io/badge/AppVersion-1.1.0-informational?style=flat-square)
 
 ## Install
 
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
-  --version 1.0.0 \
+  --version 1.1.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```

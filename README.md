@@ -18,10 +18,10 @@ alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets
 
 ## Install
 
-Latest release: [v1.0.0](https://github.com/aryasoni98/alertkube/releases/latest).
+Latest release: [v1.1.0](https://github.com/aryasoni98/alertkube/releases/latest).
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.1.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -37,7 +37,7 @@ helm upgrade --install alertkube ./helm \
 Image:
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v1.0.0
+docker pull ghcr.io/aryasoni98/alertkube:v1.1.0
 ```
 
 ## Key Capabilities
