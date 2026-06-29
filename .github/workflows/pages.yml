@@ -43,7 +43,7 @@ jobs:
         # The Pages artifact is the docs/ tree (landing page at root). Build the
         # MkDocs manual into docs/manual so it deploys at /alertkube/manual/ -
         # the URL the landing-page navbar's "Docs" link targets. --strict fails
-        # the deploy on a broken nav/link, matching the docs.yml PR gate.
+        # the deploy on a broken nav/link, so a bad mkdocs nav blocks publish.
         working-directory: docs-site
         run: |
           pip install -r requirements.txt

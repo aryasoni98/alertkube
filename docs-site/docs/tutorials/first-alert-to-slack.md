@@ -12,7 +12,7 @@ Break a pod, watch it enter `CrashLoopBackOff`, and confirm alertkube sends Slac
 If `slack.webhookUrl` was set during install, skip to the pod test.
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.1.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -20,7 +20,7 @@ helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --ver
 Use bot-token mode for real per-severity channels. The bot needs `chat:write` and must be invited to each channel.
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.0.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.1.0 \
   --set cluster=my-cluster \
   --set slack.botToken=xoxb-your-bot-token \
   --set slack.channels.critical=alerts-critical \

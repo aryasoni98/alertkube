@@ -52,7 +52,7 @@ kinds of docs for four kinds of need:
 
 ## Quick links
 
-- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) — current `v1.0.0`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
+- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) — current `v1.1.0`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
 - [Architecture](architecture.md) — how the pipeline fits together
 - [GitHub repository](https://github.com/aryasoni98/alertkube)
 - [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md)
