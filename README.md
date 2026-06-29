@@ -119,7 +119,7 @@ Slack note: modern incoming webhooks ignore per-channel routing. Use `slack.botT
 ```bash
 export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxxxx/xxxxx
 export CLUSTER_NAME=my-cluster
-go run .
+go run ./cmd/alertkube
 ```
 
 ## Documentation

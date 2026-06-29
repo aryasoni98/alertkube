@@ -18,8 +18,8 @@ ARG VERSION=dev
 # binary for the `alertkube` startup log line and build provenance.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/alertkube .
+    go build -trimpath -ldflags="-s -w -X alertkube/internal/app.version=${VERSION}" \
+    -o /out/alertkube ./cmd/alertkube
 
 # distroless/static ships CA certs, tzdata, and the 65532 nonroot user with
 # a near-zero CVE surface; the binary is static so no libc is needed.

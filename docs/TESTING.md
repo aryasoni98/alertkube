@@ -59,7 +59,7 @@ E2E tests live under `test/e2e/` and run against kind. See [`test/e2e/README.md`
 ## Intentional Gaps
 
 - `internal/collectors` is mostly thin Kubernetes API wrapping; test through watcher/e2e paths.
-- Root wiring (`main.go`, `controller.go`, `builders.go`) is mainly e2e-covered. Raising unit coverage there is a good first issue.
+- Controller wiring in `internal/app` (`app.go`, `controller.go`, `builders.go`) is mainly e2e-covered. Raising unit coverage there is a good first issue.
 
 ## Run CI Locally
 

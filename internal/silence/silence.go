@@ -35,22 +35,13 @@ func (s Silence) Active(now time.Time) bool { return now.Before(s.Until) }
 
 // Store is a concurrency-safe set of runtime silences.
 type Store struct {
-	mu       sync.RWMutex
-	items    map[string]Silence
-	gen      uint64
-	onChange func()
+	mu    sync.RWMutex
+	items map[string]Silence
+	gen   uint64
 }
 
 // NewStore returns an empty store.
 func NewStore() *Store { return &Store{items: map[string]Silence{}} }
-
-// SetOnChange registers a callback fired after any mutation (add/delete/replace
-// /prune). Persistence uses it to know a save is due.
-func (s *Store) SetOnChange(fn func()) {
-	s.mu.Lock()
-	s.onChange = fn
-	s.mu.Unlock()
-}
 
 // Add stores a silence, assigning an ID and CreatedAt when absent, and returns
 // the stored copy. A zero/!future Until is rejected by the HTTP layer; Add
@@ -65,11 +56,7 @@ func (s *Store) Add(sil Silence) Silence {
 	}
 	s.items[sil.ID] = sil
 	s.gen++
-	fn := s.onChange
 	s.mu.Unlock()
-	if fn != nil {
-		fn()
-	}
 	return sil
 }
 
@@ -81,11 +68,7 @@ func (s *Store) Delete(id string) bool {
 		delete(s.items, id)
 		s.gen++
 	}
-	fn := s.onChange
 	s.mu.Unlock()
-	if ok && fn != nil {
-		fn()
-	}
 	return ok
 }
 
@@ -129,17 +112,13 @@ func (s *Store) PruneExpired(now time.Time) int {
 	if n > 0 {
 		s.gen++
 	}
-	fn := s.onChange
 	s.mu.Unlock()
-	if n > 0 && fn != nil {
-		fn()
-	}
 	return n
 }
 
-// Replace swaps the whole set (used on restore from a snapshot). It does not
-// fire onChange: restore is not a user mutation and must not trigger a save loop
-// during startup.
+// Replace swaps the whole set (used on restore from a snapshot). Persistence is
+// generation-gated (see Generation), so a startup restore does not trigger a
+// save loop.
 func (s *Store) Replace(items []Silence) {
 	s.mu.Lock()
 	s.items = make(map[string]Silence, len(items))

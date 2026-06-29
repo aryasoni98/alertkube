@@ -76,24 +76,16 @@ func TestReplaceForRestore(t *testing.T) {
 	}
 }
 
-func TestGenerationAndOnChange(t *testing.T) {
+func TestGeneration(t *testing.T) {
 	s := NewStore()
-	var fired int
-	s.SetOnChange(func() { fired++ })
-
 	g0 := s.Generation()
 	added := s.Add(Silence{Until: time.Now().Add(time.Hour)})
 	if s.Generation() == g0 {
 		t.Fatal("Add did not bump generation")
 	}
+	g1 := s.Generation()
 	s.Delete(added.ID)
-	if fired != 2 {
-		t.Fatalf("onChange fired %d times, want 2 (add+delete)", fired)
-	}
-	// Replace must NOT fire onChange (restore is not a user mutation).
-	before := fired
-	s.Replace(nil)
-	if fired != before {
-		t.Fatal("Replace must not fire onChange")
+	if s.Generation() == g1 {
+		t.Fatal("Delete did not bump generation")
 	}
 }
