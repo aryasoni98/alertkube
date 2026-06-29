@@ -13,11 +13,11 @@ help: ## Show this help
 
 .PHONY: build
 build: ## Build the binary
-	$(GO) build -o $(BIN) .
+	$(GO) build -o $(BIN) ./cmd/alertkube
 
 .PHONY: run
 run: ## Run locally with the stdout sink (set CLUSTER_NAME)
-	CLUSTER_NAME=$${CLUSTER_NAME:-local-dev} $(GO) run .
+	CLUSTER_NAME=$${CLUSTER_NAME:-local-dev} $(GO) run ./cmd/alertkube
 
 .PHONY: test
 test: ## Run unit tests with the race detector

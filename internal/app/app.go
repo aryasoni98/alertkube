@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -25,7 +25,8 @@ const (
 	appName       = "alertkube"
 )
 
-// version is overridden at build time via -ldflags "-X main.version=...".
+// version is overridden at build time via
+// -ldflags "-X alertkube/internal/app.version=...".
 // Logged at startup so the running image version is observable in pod logs
 // without exec-ing into the container.
 var version = "dev"
@@ -43,7 +44,10 @@ type runtimeFlags struct {
 	watchSilenceCRD bool
 }
 
-func main() {
+// Run is the controller entrypoint: dispatch CLI subcommands, parse flags, load
+// config, then start the controller (optionally under leader election). Invoked
+// by cmd/alertkube. It may call os.Exit for subcommands and fatal config errors.
+func Run() {
 	// Subcommands (version, validate) run without a cluster connection and must
 	// be dispatched before flag.Parse so `alertkube validate --config x` is not
 	// mistaken for controller flags. They own their own flag sets.

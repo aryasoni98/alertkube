@@ -14,7 +14,7 @@
 git clone https://github.com/aryasoni98/alertkube.git
 cd alertkube
 go test ./...
-go run .
+go run ./cmd/alertkube
 ```
 
 ## Workflow

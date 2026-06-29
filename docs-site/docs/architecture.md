@@ -66,7 +66,7 @@ All sinks implement `Name`, `Send`, and `Supports`. They split into two families
 - **HTTP-push sinks:** Slack, Teams, Discord, Telegram, generic webhook.
 - **Stateful incident sinks:** PagerDuty and Opsgenie, keyed by fingerprint.
 
-Stateful sinks must receive every resolve and must never receive grouped summaries. `controller.go` enforces that split.
+Stateful sinks must receive every resolve and must never receive grouped summaries. `internal/app/pipeline.go` enforces that split (`statefulSinks` + `dropStateful`/`keepStateful`).
 
 ## Durability
 
