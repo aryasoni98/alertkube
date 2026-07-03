@@ -5,8 +5,8 @@ alertkube?" is "it depends what you already run." alertkube is not trying to
 replace your metrics stack or your incident manager. It occupies a specific
 niche: a **Kubernetes-native, multi-resource event watcher** with **deterministic
 suppression** and **multi-sink routing**, built as a single small Go binary. This
-page positions it honestly against four neighbors — kwatch, Botkube, Robusta, and
-Prometheus Alertmanager — including where each of them does something alertkube
+page positions it honestly against four neighbors - kwatch, Botkube, Robusta, and
+Prometheus Alertmanager - including where each of them does something alertkube
 does not.
 
 The most useful framing up front: alertkube is *complementary* to Prometheus
@@ -16,9 +16,9 @@ Alertmanager's webhooks and route them through its own pipeline.
 
 ## What alertkube is, precisely
 
-alertkube watches a broad set of Kubernetes resources directly through informers —
+alertkube watches a broad set of Kubernetes resources directly through informers -
 Pods, Nodes, Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, PVCs, and
-HPAs — detects bad conditions on them (crashloops, OOMs, image-pull failures,
+HPAs - detects bad conditions on them (crashloops, OOMs, image-pull failures,
 node pressure, unavailable workloads, missed CronJobs, maxed-out HPAs, and so on),
 and turns each into a severity-tiered alert. Those alerts pass through
 [fingerprint-based dedupe](fingerprint-and-dedup.md), the
@@ -54,13 +54,13 @@ deciding factor.
 **Prometheus Alertmanager** has the most mature suppression and routing model in
 the ecosystem, period. Its routing tree, grouping, inhibition rules, and silence
 UI have been hardened over years of production use at enormous scale. If your
-alerting is *metrics-driven* — latency SLOs, error rates, saturation — Alertmanager
+alerting is *metrics-driven* - latency SLOs, error rates, saturation - Alertmanager
 is the right tool, because alertkube does not evaluate time-series at all.
 alertkube's suppression model is deliberately simpler and is scoped to *object-state*
 alerts.
 
 **Robusta** is a platform, not just a notifier. Its playbook engine can take
-*action* — restart a workload, gather diagnostics, run a custom remediation — in
+*action* - restart a workload, gather diagnostics, run a custom remediation - in
 response to an alert, and it integrates Prometheus alerting with Kubernetes event
 context. If you want automated remediation and a richer investigation workflow,
 Robusta does substantially more than alertkube, which is intentionally a one-way
@@ -108,28 +108,28 @@ url: http://alertkube.monitoring:9090/api/v1/alerts
 The reason this matters: Alertmanager is excellent at *metrics-based* alerting but
 knows nothing about Kubernetes object state, while alertkube watches object state
 but evaluates no metrics. Run both, send Alertmanager's metric-derived alerts
-*into* alertkube, and you get a single, consistent delivery and suppression layer —
+*into* alertkube, and you get a single, consistent delivery and suppression layer -
 the same fingerprint dedupe, the same silence/inhibition rules, the same eight
-sinks — covering *both* your metric alerts and your Kubernetes object-state alerts.
+sinks - covering *both* your metric alerts and your Kubernetes object-state alerts.
 That is the intended deployment for teams who already run Prometheus: keep
 Alertmanager for what it's best at, and let alertkube unify object-state alerting
 and multi-sink routing on top.
 
 !!! tip "Decision shortcut"
     - Already have Prometheus and want metrics SLO alerting? Keep **Alertmanager**
-      — and optionally feed it into alertkube for unified routing.
+      - and optionally feed it into alertkube for unified routing.
     - Want automated remediation and investigation playbooks? Look at **Robusta**.
     - Want to operate the cluster from chat? Look at **Botkube**.
     - Just want pod crash pings with minimal setup? **kwatch** is the lightest.
     - Want broad Kubernetes object-state coverage, deterministic suppression, and
-      many sinks in one small binary? That's **alertkube** — and it plays nicely
+      many sinks in one small binary? That's **alertkube** - and it plays nicely
       with all of the above.
 
 ## Where to go next
 
-- [Why alertkube is deterministic](deterministic-design.md) — the design value
+- [Why alertkube is deterministic](deterministic-design.md) - the design value
   that most distinguishes its suppression model.
-- [The fingerprint and dedup model](fingerprint-and-dedup.md) — the identity key
+- [The fingerprint and dedup model](fingerprint-and-dedup.md) - the identity key
   that unifies internally-watched and Alertmanager-ingested alerts.
-- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) — the
+- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) - the
   suppression mechanisms applied to every alert, wherever it came from.

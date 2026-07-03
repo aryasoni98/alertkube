@@ -7,7 +7,7 @@
 ## Context and problem statement
 
 alertkube observes Kubernetes resources and emits alerts. It does **not**
-reconcile desired state into a resource — there is no CRD, no spec/status loop,
+reconcile desired state into a resource - there is no CRD, no spec/status loop,
 no finalizers. Its configuration is a ConfigMap, not a custom resource. The
 question: should alertkube be built on `sigs.k8s.io/controller-runtime` (the
 Kubebuilder/Operator-SDK foundation) or use `k8s.io/client-go` informers
@@ -27,7 +27,7 @@ directly, as it does today?
 
 Stay on **client-go informers directly (Option A)** while configuration remains
 a ConfigMap. controller-runtime's value is the reconcile loop, manager wiring,
-and CRD scaffolding — none of which alertkube needs today. Adopting it would add
+and CRD scaffolding - none of which alertkube needs today. Adopting it would add
 a large dependency surface and a reconcile mental model that does not match a
 fire-and-forget, event-to-alert pipeline.
 
@@ -44,7 +44,7 @@ fire-and-forget, event-to-alert pipeline.
 ### Negative / trade-offs
 
 - We reimplement small conveniences controller-runtime gives for free (handler
-  panic recovery — already done via `recoverHandler`; leader election — already
+  panic recovery - already done via `recoverHandler`; leader election - already
   wired via `client-go/tools/leaderelection`).
 - If alertkube later ships CRDs, controller-runtime becomes the obvious base and
   this decision must be revisited.

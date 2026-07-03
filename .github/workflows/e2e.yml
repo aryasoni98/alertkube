@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # kindest/node image tags — keep within the supported skew.
+        # kindest/node image tags - keep within the supported skew.
         k8s: ["v1.29.14", "v1.30.13", "v1.31.9"]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -163,7 +163,7 @@ jobs:
             sleep 6
           done
           if [ -z "${holder}" ]; then
-            echo "::error::no Lease with a holderIdentity found — leader election did not establish a leader"
+            echo "::error::no Lease with a holderIdentity found - leader election did not establish a leader"
             kubectl -n "${RELEASE_NS}" get lease -o yaml || true
             exit 1
           fi

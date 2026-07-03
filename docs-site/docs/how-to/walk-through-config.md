@@ -166,9 +166,9 @@ routing:
 
 ## See Also
 
-- [Configuration schema reference](../reference/config-schema.md) — all keys, types, defaults, and validation rules.
-- [Configure alert sinks](configure-sinks.md) — set up each sink (Slack, PagerDuty, etc.).
-- [Configure Alertmanager webhook receiver](configure-receivers-and-webhooks.md) — receiver and API token setup.
-- [Tune the mute window and grouping](tune-mute-and-grouping.md) — deep dive on dedup and storm folding.
-- [Suppress dependent alerts with inhibitions](configure-inhibition.md) — inhibition patterns and examples.
-- [Silence alerts for a time window](add-a-silence.md) — time-bounded suppression.
+- [Configuration schema reference](../reference/config-schema.md) - all keys, types, defaults, and validation rules.
+- [Configure alert sinks](configure-sinks.md) - set up each sink (Slack, PagerDuty, etc.).
+- [Configure Alertmanager webhook receiver](configure-receivers-and-webhooks.md) - receiver and API token setup.
+- [Tune the mute window and grouping](tune-mute-and-grouping.md) - deep dive on dedup and storm folding.
+- [Suppress dependent alerts with inhibitions](configure-inhibition.md) - inhibition patterns and examples.
+- [Silence alerts for a time window](add-a-silence.md) - time-bounded suppression.

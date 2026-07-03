@@ -1,4 +1,4 @@
-# OpenSSF Security Insights — https://github.com/ossf/security-insights-spec
+# OpenSSF Security Insights - https://github.com/ossf/security-insights-spec
 # A machine-readable summary of the project's security posture. Recognized by
 # CNCF/OpenSSF tooling and a useful artifact for foundation due diligence.
 header:

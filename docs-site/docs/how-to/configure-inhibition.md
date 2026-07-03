@@ -57,7 +57,7 @@ Use an inhibition when target alerts are symptoms of an active source alert. Use
 ## Verify
 
 1. Cordon/drain or otherwise make a test node `NotReady` and confirm a single `NodeNotReady` alert dispatches.
-2. Confirm pod alerts on that node are **not** dispatched while the node is down — the suppression is counted:
+2. Confirm pod alerts on that node are **not** dispatched while the node is down - the suppression is counted:
 
     ```bash
     curl -s localhost:9090/metrics | grep 'alertkube_alerts_suppressed_total{reason="inhibited"}'
@@ -67,6 +67,6 @@ Use an inhibition when target alerts are symptoms of an active source alert. Use
 
 ## See Also
 
-- [Silence alerts for a time window](add-a-silence.md) — unconditional, time-bounded muting.
-- [Tune the mute window and storm folding](tune-mute-and-grouping.md) — collapse same-cause storms into summaries.
+- [Silence alerts for a time window](add-a-silence.md) - unconditional, time-bounded muting.
+- [Tune the mute window and storm folding](tune-mute-and-grouping.md) - collapse same-cause storms into summaries.
 - [Silence vs. inhibition vs. mute](../explanation/silence-vs-inhibition-vs-mute.md).

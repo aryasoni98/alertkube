@@ -87,7 +87,7 @@ function AKNav({ theme, setTheme }) {
           <a className="ak-iconbtn" href="https://github.com/aryasoni98/alertkube" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><Icon name="github" size={17} /></a>
           <span className="wk-nav__divider"></span>
           <Button size="sm" variant="grad" href="#install">Install</Button>
-          {/* Hamburger — visible only below 880px via CSS */}
+          {/* Hamburger - visible only below 880px via CSS */}
           <button
             ref={hamburgerRef}
             className="ak-hamburger"

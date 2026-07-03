@@ -4,7 +4,7 @@ Every alert has a fingerprint: the stable identity key alertkube uses for dedupe
 
 ## What the fingerprint is
 
-The fingerprint is a hash of the alert's *identity tuple* — the four fields that
+The fingerprint is a hash of the alert's *identity tuple* - the four fields that
 together name a distinct failure condition:
 
 ```go
@@ -42,10 +42,10 @@ Changing fingerprint computation is a breaking change for persisted state. Old s
 
 ## See Also
 
-- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) —
+- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) -
   how the fingerprint's dedupe (the mute window) relates to the *other* three
   suppression mechanisms.
-- [Tune the mute window and grouping](../how-to/tune-mute-and-grouping.md) —
+- [Tune the mute window and grouping](../how-to/tune-mute-and-grouping.md) -
   the task-oriented guide to configuring `muteSeconds` and storm folding.
-- [Why alertkube is deterministic](deterministic-design.md) — why grounding
+- [Why alertkube is deterministic](deterministic-design.md) - why grounding
   identity in a pure function of four fields is a core design value.

@@ -25,7 +25,7 @@ flowchart TB
 | Stage | Package | Role |
 | --- | --- | --- |
 | Watch | `internal/watchers` | observe a resource, detect a failure condition, emit `*alert.Alert` |
-| Identify | `internal/alert` | `ComputeFingerprint` (sha256) — stable identity / join key |
+| Identify | `internal/alert` | `ComputeFingerprint` (sha256) - stable identity / join key |
 | Dedup | `internal/alert` (Store) | mute window, last-sent tracking, resolve TTL |
 | Route | `internal/router` | silences, inhibitions, route → sink matching |
 | Group | `internal/group` | storm folding (first passes, rest absorbed into a summary) |

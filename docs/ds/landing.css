@@ -178,7 +178,7 @@ img { display: block; }
 
 /* Gradient accent line on the left for active-feel items */
 .ak-drawer__link + .ak-drawer__link {
-  /* no visual separator needed — spacing is enough */
+  /* no visual separator needed - spacing is enough */
 }
 .ak-drawer__footer {
   padding: 20px;

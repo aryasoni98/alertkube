@@ -2,8 +2,8 @@
 
 alertkube exposes two HTTP endpoints on `metricsAddr`:
 
-- **`POST /api/v1/alerts`** — Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
-- **`GET /api/alerts`** — Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
+- **`POST /api/v1/alerts`** - Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
+- **`GET /api/alerts`** - Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
 
 Both return `503` until the controller installs their handlers.
 
@@ -103,8 +103,8 @@ Response shape:
 }
 ```
 
-- **`active`** — alerts currently firing (unresolved).
-- **`recent`** — recently resolved or muted alerts (historical window for correlation).
+- **`active`** - alerts currently firing (unresolved).
+- **`recent`** - recently resolved or muted alerts (historical window for correlation).
 
 Protect it with a bearer token or NetworkPolicy. When `api.token` is empty, the endpoint is unauthenticated.
 
@@ -172,6 +172,6 @@ curl -H "Authorization: Bearer my-api-token" \
 
 ## See Also
 
-- [Configuration schema](../reference/config-schema.md) — full `receiver` and `api` block documentation.
-- [Routing rules](../reference/config-schema.md#routing) — how to route receiver-sourced (`kind: External`) alerts to specific sinks.
-- [Architecture](../architecture.md) — how the receiver fits into the alertkube pipeline.
+- [Configuration schema](../reference/config-schema.md) - full `receiver` and `api` block documentation.
+- [Routing rules](../reference/config-schema.md#routing) - how to route receiver-sourced (`kind: External`) alerts to specific sinks.
+- [Architecture](../architecture.md) - how the receiver fits into the alertkube pipeline.

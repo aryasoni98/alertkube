@@ -20,7 +20,7 @@ chosen backend and when to move off it.
   (~900 KiB) guard refuses to write oversized snapshots.
 - **B. A CRD-backed status object.** Requires shipping CRDs (see ADR-0001).
 - **C. External store** (Redis, etcd, a SQL db). Operational dependency the
-  project currently avoids — alertkube should run with just a Kubernetes API
+  project currently avoids - alertkube should run with just a Kubernetes API
   connection.
 
 ## Decision

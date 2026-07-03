@@ -7,7 +7,7 @@ it, and read [`CONTRIBUTING.md`](../CONTRIBUTING.md) first.
 
 > Maintainers: these are seeds for GitHub issues labeled `good first issue` +
 > `help wanted`. Open each as an issue and link it here. Verify scope against the
-> current code before publishing — the codebase moves.
+> current code before publishing - the codebase moves.
 
 ## Tooling & DX
 
@@ -26,7 +26,7 @@ it, and read [`CONTRIBUTING.md`](../CONTRIBUTING.md) first.
    (`Name()/Send()/Supports()`), reuse `httpx.PostJSON`, register in
    `buildSinks` (`builders.go`), add Helm values + secret wiring, document env
    vars. Hint: `internal/sinks/discord.go` is the closest template.
-5. **Add a Mattermost sink** (Mattermost accepts Slack-compatible webhooks — this
+5. **Add a Mattermost sink** (Mattermost accepts Slack-compatible webhooks - this
    can be thin). Same checklist as above.
 
 ## Watchers (follow `internal/watchers/` + `newSimple`)

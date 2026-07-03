@@ -38,7 +38,7 @@ Watch:
 
 - **`alertkube_active_alerts`** should track the number of distinct failing pods.
 - **`alertkube_dispatch_inflight`** pinning high means the rate limiter is the
-  bottleneck — sinks cannot keep up and messages may be dropped (counted under
+  bottleneck - sinks cannot keep up and messages may be dropped (counted under
   `alertkube_alerts_suppressed_total{reason="ratelimited"}`).
 - Memory should stay bounded; the active-alert set and the recent-history ring
   (200 entries) are the main state. The persistence snapshot is guarded at
