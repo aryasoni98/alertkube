@@ -16,7 +16,7 @@
     </div>
     <div class="topbar-right">
       <span id="cluster" class="cluster"></span>
-      <span id="conn" class="conn" data-state="idle">—</span>
+      <span id="conn" class="conn" data-state="idle">-</span>
       <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">◐</button>
       <button id="refresh" type="button" class="btn">Refresh</button>
     </div>
@@ -59,7 +59,7 @@
         <button id="token-clear" type="button" class="btn">Clear</button>
       </div>
       <div class="auth-row">
-        <input id="write-token" type="password" placeholder="Write token — shared api.writeToken, or your Kubernetes token in rbac mode (for silences / channel tests)" autocomplete="off" spellcheck="false" />
+        <input id="write-token" type="password" placeholder="Write token - shared api.writeToken, or your Kubernetes token in rbac mode (for silences / channel tests)" autocomplete="off" spellcheck="false" />
       </div>
       <p id="auth-msg" class="muted"></p>
     </section>
@@ -72,12 +72,12 @@
     <!-- Overview -->
     <section id="tab-overview" class="tabpanel" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
       <div class="stat-grid">
-        <div class="stat stat-active"><div class="stat-top"><span>Live</span><i></i></div><div class="stat-num" id="ov-active">—</div><div class="stat-lbl">Active alerts</div></div>
-        <div class="stat stat-critical"><div class="stat-top"><span>High risk</span><i></i></div><div class="stat-num" id="ov-critical">—</div><div class="stat-lbl">Critical</div></div>
-        <div class="stat stat-warning"><div class="stat-top"><span>Watch</span><i></i></div><div class="stat-num" id="ov-warning">—</div><div class="stat-lbl">Warning</div></div>
-        <div class="stat stat-suppressed"><div class="stat-top"><span>Noise control</span><i></i></div><div class="stat-num" id="ov-suppressed">—</div><div class="stat-lbl">Suppressed total</div></div>
-        <div class="stat stat-rules"><div class="stat-top"><span>Logic</span><i></i></div><div class="stat-num" id="ov-rules">—</div><div class="stat-lbl">Rules</div></div>
-        <div class="stat stat-routes"><div class="stat-top"><span>Delivery</span><i></i></div><div class="stat-num" id="ov-channels">—</div><div class="stat-lbl">Routes</div></div>
+        <div class="stat stat-active"><div class="stat-top"><span>Live</span><i></i></div><div class="stat-num" id="ov-active">-</div><div class="stat-lbl">Active alerts</div></div>
+        <div class="stat stat-critical"><div class="stat-top"><span>High risk</span><i></i></div><div class="stat-num" id="ov-critical">-</div><div class="stat-lbl">Critical</div></div>
+        <div class="stat stat-warning"><div class="stat-top"><span>Watch</span><i></i></div><div class="stat-num" id="ov-warning">-</div><div class="stat-lbl">Warning</div></div>
+        <div class="stat stat-suppressed"><div class="stat-top"><span>Noise control</span><i></i></div><div class="stat-num" id="ov-suppressed">-</div><div class="stat-lbl">Suppressed total</div></div>
+        <div class="stat stat-rules"><div class="stat-top"><span>Logic</span><i></i></div><div class="stat-num" id="ov-rules">-</div><div class="stat-lbl">Rules</div></div>
+        <div class="stat stat-routes"><div class="stat-top"><span>Delivery</span><i></i></div><div class="stat-num" id="ov-channels">-</div><div class="stat-lbl">Routes</div></div>
       </div>
       <p class="muted small">Mutation is intentionally not available here. To change alert patterns, groups, or
         channels, edit the config in Git/ConfigMap. The <strong>Config → Validate</strong> tab checks a candidate before you commit.</p>
@@ -120,7 +120,7 @@
 
       <div class="card">
         <h3>Validate a candidate config</h3>
-        <p class="muted small">Paste YAML to run the same checks as startup (<code>config.Validate</code>). Nothing is applied — read-only.</p>
+        <p class="muted small">Paste YAML to run the same checks as startup (<code>config.Validate</code>). Nothing is applied - read-only.</p>
         <textarea id="validate-input" rows="8" spellcheck="false" placeholder="paste config YAML…"></textarea>
         <div class="toolbar">
           <button id="validate-run" type="button" class="btn primary">Validate</button>
@@ -134,11 +134,11 @@
       </details>
     </section>
 
-    <!-- Author (UI-as-PR: edit config, validate, diff, export — no live mutation) -->
+    <!-- Author (UI-as-PR: edit config, validate, diff, export - no live mutation) -->
     <section id="tab-author" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-author" tabindex="0">
       <div class="card">
         <h3>Author config changes <span class="muted small">(GitOps-preserving)</span></h3>
-        <p class="muted small">Edit the controller config here to change alert patterns (rules), pattern grouping, routing, and channels. This does <strong>not</strong> apply changes — Git stays the source of truth. Validate, review the diff, then export the YAML and commit it to your ConfigMap / Helm values. (Channel <em>credentials</em> are managed separately — Phase 2.)</p>
+        <p class="muted small">Edit the controller config here to change alert patterns (rules), pattern grouping, routing, and channels. This does <strong>not</strong> apply changes - Git stays the source of truth. Validate, review the diff, then export the YAML and commit it to your ConfigMap / Helm values. (Channel <em>credentials</em> are managed separately - Phase 2.)</p>
         <div class="toolbar">
           <button id="auth-load" type="button" class="btn">Load current config</button>
           <button id="auth-validate" type="button" class="btn primary">Validate</button>
@@ -186,7 +186,7 @@
     <section id="tab-channels" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-channels" tabindex="0">
       <div class="card">
         <h3>Notification channels</h3>
-        <p class="muted small">Configured sinks. <strong>Test</strong> sends one synthetic alert through the sink using its existing credentials — no secrets are read or stored by the console.</p>
+        <p class="muted small">Configured sinks. <strong>Test</strong> sends one synthetic alert through the sink using its existing credentials - no secrets are read or stored by the console.</p>
         <div class="banner" id="chan-warn">⚠ Test-fire sends a <strong>real</strong> notification. For PagerDuty / Opsgenie this may open an incident or page on-call. Requires a write token.</div>
         <div id="chan-disabled" class="banner hidden">Testing is disabled (no write token set, or the server has no <code>ALERTKUBE_API_WRITE_TOKEN</code>).</div>
         <div class="table-wrap">
@@ -225,7 +225,7 @@
     <section id="tab-silences" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-silences" tabindex="0">
       <div class="card">
         <h3>Create a runtime silence</h3>
-        <p class="muted small">Time-boxed mute applied immediately — survives leader failover but lives <strong>outside Git</strong>. Use for transient noise; durable changes belong in config. Requires a write token.</p>
+        <p class="muted small">Time-boxed mute applied immediately - survives leader failover but lives <strong>outside Git</strong>. Use for transient noise; durable changes belong in config. Requires a write token.</p>
         <div id="write-disabled" class="banner hidden">Runtime writes are disabled (no write token set, or the server has no <code>ALERTKUBE_API_WRITE_TOKEN</code>). You can view silences but not create them.</div>
         <label class="fld">Matchers <span class="muted small">(one <code>key=value</code> per line; e.g. <code>namespace=prod</code>, <code>severity=warning</code>, <code>reason=CrashLoopBackOff</code>)</span>
           <textarea id="sil-matchers" rows="3" spellcheck="false" placeholder="namespace=prod&#10;severity=warning"></textarea>
@@ -261,14 +261,14 @@
       </div>
 
       <div class="card">
-        <h3>Config silences <span class="muted small">(from Git — read-only)</span></h3>
+        <h3>Config silences <span class="muted small">(from Git - read-only)</span></h3>
         <div id="sil-config"></div>
       </div>
     </section>
 
     <!-- Suppression -->
     <section id="tab-suppression" class="tabpanel hidden" role="tabpanel" aria-labelledby="tabbtn-suppression" tabindex="0">
-      <p class="muted small">Counts from <code>/metrics</code>. Suppression keeps noise out of your channels — silences, inhibitions, mute windows, grouping, and dedupe all report here.</p>
+      <p class="muted small">Counts from <code>/metrics</code>. Suppression keeps noise out of your channels - silences, inhibitions, mute windows, grouping, and dedupe all report here.</p>
       <div class="table-wrap">
         <table id="supp-table">
           <thead><tr><th>Reason</th><th class="num">Count</th></tr></thead>

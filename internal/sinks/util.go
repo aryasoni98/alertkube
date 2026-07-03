@@ -2,9 +2,36 @@ package sinks
 
 import (
 	"fmt"
+	"strings"
 
 	"alertkube/internal/alert"
 )
+
+// markdownEscaper backslash-escapes the markdown metacharacters that let
+// alert-derived text (a Summary, or a Reason/labels on an externally ingested
+// Alertmanager alert) render as a masked link, mention, or emphasis in the
+// chat sinks (Discord, Mattermost, Teams). Legit text is unaffected on render
+// - chat clients drop the backslash before an escaped char - but an injected
+// `[click me](https://evil)` shows as literal text instead of a clickable
+// phishing link. strings.Replacer does one non-overlapping left-to-right pass,
+// so escaping `\` first cannot double-escape the sequences it introduces.
+var markdownEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	"`", "\\`",
+	"*", `\*`,
+	"_", `\_`,
+	"~", `\~`,
+	"[", `\[`,
+	"]", `\]`,
+	"(", `\(`,
+	")", `\)`,
+	">", `\>`,
+	"|", `\|`,
+)
+
+// escapeMarkdown neutralizes markdown control characters in untrusted,
+// alert-derived text before it is rendered by a markdown chat sink.
+func escapeMarkdown(s string) string { return markdownEscaper.Replace(s) }
 
 // alertTitle renders the "[severity] kind ns/name: reason" line shared by
 // the chat-style sinks, with a "[resolved]" prefix once the alert closes.

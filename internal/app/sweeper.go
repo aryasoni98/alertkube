@@ -13,14 +13,21 @@ import (
 	"alertkube/internal/metrics"
 	"alertkube/internal/persist"
 	"alertkube/internal/silence"
-	"alertkube/internal/sinks"
 )
 
-func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister *persist.ConfigMapStore, reg *sinks.Registry, cfg *config.Config) {
+func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister *persist.ConfigMapStore, disp *dispatcher, cfg *config.Config) {
 	defer wg.Done()
+	// The sweeper is the controller's liveness heartbeat source: it runs only
+	// on the leader (or the sole process), touches the store's global mutex
+	// every tick, and so a stalled sweep (e.g. a store-lock deadlock) makes
+	// /healthz fail and the kubelet restart the pod. SetLeading resets the
+	// staleness window to now; the defer clears it on shutdown/lease loss so a
+	// demoted follower is not judged by a stale leader heartbeat.
+	metrics.SetLeading(true)
+	defer metrics.SetLeading(false)
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
-	var savedGen, savedSilGen uint64
+	var savedGen, savedSilGen, savedPendGen uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -28,30 +35,34 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, sil
 		case <-ticker.C:
 			store.SweepResolved()
 			store.CleanOldHistory()
+			// Heartbeat after the store-touching work above so a stalled store
+			// lock (not just a dead ticker) is what keeps the beat fresh.
+			metrics.Heartbeat()
 			// Age out expired runtime silences so the persisted set stays
 			// bounded; a prune bumps the silence generation, which triggers
 			// the save below.
 			silStore.PruneExpired(time.Now())
-			runEscalations(store, reg, cfg)
+			runEscalations(store, disp.enqueue, cfg)
 			if persister == nil {
 				continue
 			}
 			// Capture the generations before exporting: a mutation racing
 			// the export is included in the snapshot AND re-saved next
-			// sweep, so no state change is ever silently dropped. Either the
-			// alert store or the silence store changing warrants a save.
-			gen, silGen := store.Generation(), silStore.Generation()
-			if gen == savedGen && silGen == savedSilGen {
+			// sweep, so no state change is ever silently dropped. A change in
+			// the alert store, the silence store, OR the delivery outbox
+			// warrants a save.
+			gen, silGen, pendGen := store.Generation(), silStore.Generation(), disp.PendingGeneration()
+			if gen == savedGen && silGen == savedSilGen && pendGen == savedPendGen {
 				continue
 			}
 			saveCtx, saveCancel := context.WithTimeout(ctx, 10*time.Second)
-			err := persister.Save(saveCtx, exportState(store, silStore))
+			err := persister.Save(saveCtx, exportState(store, silStore, disp))
 			saveCancel()
 			if err != nil {
 				klog.Warningf("state save: %v", err)
 				continue
 			}
-			savedGen, savedSilGen = gen, silGen
+			savedGen, savedSilGen, savedPendGen = gen, silGen, pendGen
 		}
 	}
 }
@@ -60,13 +71,12 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, sil
 // escalation rule's delay. Store.Overdue marks matches so each rule fires
 // at most once per alert lifetime; marks clear when the alert resolves.
 //
-// Each overdue alert's fan-out runs in its own goroutine: dispatch blocks up
-// to dispatchTimeout, so serializing them would stall the sweep loop (and the
-// resolve sweep behind it) when several alerts escalate at once. The
-// WaitGroup keeps them within this one sweep tick - bounded by a single
-// dispatchTimeout regardless of how many escalate.
-func runEscalations(store *alert.Store, reg *sinks.Registry, cfg *config.Config) {
-	var wg sync.WaitGroup
+// Each overdue alert is handed to the dispatch worker pool via enqueue rather
+// than sent inline: delivery blocks up to dispatchTimeout, so serializing it
+// here would stall the sweep loop (and the resolve sweep behind it) when
+// several alerts escalate at once. Enqueue returns immediately; the pool
+// performs the fan-out.
+func runEscalations(store *alert.Store, enqueue enqueueFunc, cfg *config.Config) {
 	for i, esc := range cfg.Escalations {
 		after := time.Duration(esc.AfterMinutes) * time.Minute
 		ruleKey := fmt.Sprintf("rule%d", i)
@@ -82,12 +92,7 @@ func runEscalations(store *alert.Store, reg *sinks.Registry, cfg *config.Config)
 			a.Summary = "[ESCALATED - unresolved after " + after.String() + "] " + a.Summary
 			metrics.EscalationsTotal.Inc()
 			klog.Infof("escalating %s to %v (%s)", a, esc.Sinks, ruleKey)
-			wg.Add(1)
-			go func(a *alert.Alert, route []string) {
-				defer wg.Done()
-				dispatch(reg, a, route)
-			}(a, esc.Sinks)
+			enqueue(a, esc.Sinks, nil)
 		}
 	}
-	wg.Wait()
 }

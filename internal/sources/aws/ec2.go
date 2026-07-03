@@ -14,10 +14,7 @@ import (
 
 const sourceEC2 = "aws-ec2"
 
-type ec2Region struct {
-	region string
-	client ec2API
-}
+type ec2Region = regionClient[ec2API]
 
 // ec2Source alerts on EC2 instances whose system or instance status check is
 // impaired - the brief's "EC2 Status Check Alerts". An impaired check fires
@@ -31,27 +28,20 @@ type ec2Source struct {
 func (s *ec2Source) Name() string { return sourceEC2 }
 
 func (s *ec2Source) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *ec2Source) pollRegion(ctx context.Context, rc ec2Region, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceEC2, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceEC2, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.InstanceStatuses {
 			evaluateInstance(rc.region, out.InstanceStatuses[i], emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 // evaluateInstance fires when either the system or instance status check is

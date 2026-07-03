@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/alertsmanagement/armalertsmanagement"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
@@ -35,6 +36,62 @@ import (
 
 const provider = "azure"
 
+// init self-registers the Azure provider (see sources.RegisterProvider).
+func init() {
+	sources.RegisterProvider(sources.Provider{
+		Name:        provider,
+		Enabled:     func(c *config.Config) bool { return c.Azure.Enabled },
+		PollSeconds: func(c *config.Config) int { return c.Azure.PollSeconds },
+		Build:       NewProvider,
+	})
+}
+
+// drainPager collects every page of an ARM list pager into one slice. items
+// extracts a page's Value slice; the per-service response types differ but all
+// share this drain loop, so each arm*Lister adapter reduces to one call.
+func drainPager[R, T any](ctx context.Context, pager *runtime.Pager[R], items func(R) []T) ([]T, error) {
+	var out []T
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items(page)...)
+	}
+	return out, nil
+}
+
+// subLister pairs a subscription id with the per-service lister scoped to it.
+// Every source used to declare its own identical {subscription, lister} struct;
+// they are now type aliases of this generic (see each source file), so the
+// shared per-subscription fan-out (pollBySubscription) can operate over any.
+type subLister[L any] struct {
+	subscription string
+	lister       L
+}
+
+// listerFor constrains a lister to one that returns items of type T.
+type listerFor[T any] interface {
+	List(ctx context.Context) ([]T, error)
+}
+
+// pollBySubscription lists items per subscription - recording a poll error and
+// skipping that subscription on failure - then runs eval for each item. It
+// replaces the identical list/pollErr/iterate loop every Azure source
+// duplicated, so that shape lives in exactly one place.
+func pollBySubscription[T any, L listerFor[T]](ctx context.Context, source string, subs []subLister[L], emit sources.Emit, eval func(subscription string, item T, emit sources.Emit)) {
+	for _, sub := range subs {
+		items, err := sub.lister.List(ctx)
+		if err != nil {
+			pollErr(source, sub.subscription, err)
+			continue
+		}
+		for i := range items {
+			eval(sub.subscription, items[i], emit)
+		}
+	}
+}
+
 // aksLister lists managed clusters in one subscription. The real adapter drains
 // the SDK pager; tests provide a fake returning a canned slice.
 type aksLister interface {
@@ -48,17 +105,17 @@ type armAKSLister struct {
 }
 
 func (l *armAKSLister) List(ctx context.Context) ([]armcontainerservice.ManagedCluster, error) {
-	var out []armcontainerservice.ManagedCluster
-	pager := l.client.NewListPager(nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, c := range page.Value {
-			if c != nil {
-				out = append(out, *c)
-			}
+	ptrs, err := drainPager(ctx, l.client.NewListPager(nil),
+		func(r armcontainerservice.ManagedClustersClientListResponse) []*armcontainerservice.ManagedCluster {
+			return r.Value
+		})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]armcontainerservice.ManagedCluster, 0, len(ptrs))
+	for _, c := range ptrs {
+		if c != nil {
+			out = append(out, *c)
 		}
 	}
 	return out, nil

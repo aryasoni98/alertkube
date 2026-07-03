@@ -14,10 +14,7 @@ import (
 
 const sourceVPN = "aws-vpn"
 
-type vpnRegion struct {
-	region string
-	client vpnAPI
-}
+type vpnRegion = regionClient[vpnAPI]
 
 // vpnSource alerts on Site-to-Site VPN connections with degraded tunnel
 // telemetry. A connection normally has two tunnels: all tunnels DOWN is critical
@@ -32,9 +29,7 @@ type vpnSource struct {
 func (s *vpnSource) Name() string { return sourceVPN }
 
 func (s *vpnSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *vpnSource) pollRegion(ctx context.Context, rc vpnRegion, emit sources.Emit) {

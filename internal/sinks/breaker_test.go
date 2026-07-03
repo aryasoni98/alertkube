@@ -116,6 +116,29 @@ func TestDispatchShortCircuitsOpenBreaker(t *testing.T) {
 	}
 }
 
+func TestDispatchAllBreakersOpenReportsFailure(t *testing.T) {
+	// Regression for the silent-loss bug: when every routed sink is
+	// short-circuited by an open breaker, a firing dispatch attempts no sink
+	// but MUST report failure so the caller rolls back dedupe state and
+	// retries - otherwise the alert is muted for the whole mute window while
+	// reaching no sink at all.
+	withFastBreaker(t, 1, time.Hour)
+	s := &stubSink{name: "flaky", err: errors.New("down"), supports: true}
+	r := fastRegistry(s)
+
+	// One failure trips the breaker (threshold 1).
+	r.Dispatch(context.Background(), testAlert(), []string{"flaky"})
+	sends := s.sends.Load()
+
+	// Next firing: breaker open, nothing attempted, must return false.
+	if r.Dispatch(context.Background(), testAlert(), []string{"flaky"}) {
+		t.Fatal("Dispatch must return false when the only routed sink is short-circuited by an open breaker")
+	}
+	if s.sends.Load() != sends {
+		t.Fatalf("open breaker must short-circuit the sink: sends %d -> %d", sends, s.sends.Load())
+	}
+}
+
 func TestDispatchResolvedBypassesBreaker(t *testing.T) {
 	withFastBreaker(t, 1, time.Hour)
 	s := &stubSink{name: "incident", err: errors.New("down"), supports: true}

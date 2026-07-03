@@ -22,22 +22,11 @@ type armVMLister struct {
 }
 
 func (l *armVMLister) List(ctx context.Context) ([]*armcompute.VirtualMachine, error) {
-	var out []*armcompute.VirtualMachine
-	pager := l.client.NewListAllPager(nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Value...)
-	}
-	return out, nil
+	return drainPager(ctx, l.client.NewListAllPager(nil),
+		func(r armcompute.VirtualMachinesClientListAllResponse) []*armcompute.VirtualMachine { return r.Value })
 }
 
-type azureVMSubscription struct {
-	subscription string
-	lister       vmLister
-}
+type azureVMSubscription = subLister[vmLister]
 
 // azureVMSource alerts on Azure VMs whose provisioning state is Failed
 // (critical). Power state (an intentional stop/deallocate) is deliberately not
@@ -50,16 +39,7 @@ type azureVMSource struct {
 func (s *azureVMSource) Name() string { return sourceAzureVM }
 
 func (s *azureVMSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		vms, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAzureVM, sub.subscription, err)
-			continue
-		}
-		for _, vm := range vms {
-			evaluateVM(sub.subscription, vm, emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAzureVM, s.subs, emit, evaluateVM)
 }
 
 func evaluateVM(subscription string, vm *armcompute.VirtualMachine, emit sources.Emit) {
@@ -71,10 +51,7 @@ func evaluateVM(subscription string, vm *armcompute.VirtualMachine, emit sources
 		return
 	}
 	region := strVal(vm.Location)
-	scope := subscription
-	if region != "" {
-		scope = subscription + "/" + region
-	}
+	scope := sources.Scope(subscription, region)
 	var state string
 	if vm.Properties != nil {
 		state = strVal(vm.Properties.ProvisioningState)

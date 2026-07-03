@@ -13,10 +13,7 @@ import (
 
 const sourceEBS = "aws-ebs"
 
-type ebsRegion struct {
-	region string
-	client ebsAPI
-}
+type ebsRegion = regionClient[ebsAPI]
 
 // ebsSource alerts on EBS volumes whose status check is impaired - the storage
 // analog of the EC2 status-check source. DescribeVolumeStatus reports a rolled-
@@ -32,27 +29,20 @@ type ebsSource struct {
 func (s *ebsSource) Name() string { return sourceEBS }
 
 func (s *ebsSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *ebsSource) pollRegion(ctx context.Context, rc ebsRegion, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceEBS, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.DescribeVolumeStatus(ctx, &ec2.DescribeVolumeStatusInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceEBS, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.VolumeStatuses {
 			evaluateVolume(rc.region, out.VolumeStatuses[i], emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 func evaluateVolume(region string, vs ec2types.VolumeStatusItem, emit sources.Emit) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
@@ -32,7 +33,11 @@ func evaluateDeployment(dep *appsv1.Deployment, emit Emit) {
 		emit(a)
 	}
 	for _, cond := range dep.Status.Conditions {
-		if cond.Type == appsv1.DeploymentProgressing && cond.Reason == "ProgressDeadlineExceeded" {
+		// Require Status==False, not just the reason: a recovered rollout
+		// flips Progressing to True/NewReplicaSetAvailable, but keying on the
+		// reason alone would still fire if a controller left a stale
+		// ProgressDeadlineExceeded reason on a now-True condition.
+		if cond.Type == appsv1.DeploymentProgressing && cond.Status == corev1.ConditionFalse && cond.Reason == "ProgressDeadlineExceeded" {
 			a := alert.New(alert.KindDeployment, dep.Namespace, dep.Name, "ProgressDeadlineExceeded", alert.SeverityCritical)
 			a.Summary = fmt.Sprintf("deployment %s/%s missed progress deadline", dep.Namespace, dep.Name)
 			emit(a)

@@ -6,18 +6,15 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/collectors"
 )
 
 // NodeWatcher reacts to NotReady, MemoryPressure, DiskPressure, PIDPressure transitions.
-type NodeWatcher struct {
-	clientset kubernetes.Interface
-}
+type NodeWatcher struct{}
 
-func NewNode(c kubernetes.Interface) *NodeWatcher { return &NodeWatcher{clientset: c} }
+func NewNode() *NodeWatcher { return &NodeWatcher{} }
 
 func (*NodeWatcher) Name() string { return "node" }
 

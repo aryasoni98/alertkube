@@ -13,10 +13,7 @@ import (
 
 const sourceRDS = "aws-rds"
 
-type rdsRegion struct {
-	region string
-	client rdsAPI
-}
+type rdsRegion = regionClient[rdsAPI]
 
 // rdsSource alerts on RDS DB instances whose status is not healthy. RDS reports
 // status as a free-form string, so rdsSeverity classifies the known bad states
@@ -33,27 +30,20 @@ type rdsSource struct {
 func (s *rdsSource) Name() string { return sourceRDS }
 
 func (s *rdsSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *rdsSource) pollRegion(ctx context.Context, rc rdsRegion, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceRDS, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceRDS, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.DBInstances {
 			evaluateDBInstance(rc.region, out.DBInstances[i], emit)
 		}
-		if out.Marker == nil || *out.Marker == "" {
-			return
-		}
-		marker = out.Marker
-	}
+		return out.Marker, nil
+	})
 }
 
 func evaluateDBInstance(region string, db rdstypes.DBInstance, emit sources.Emit) {
@@ -72,25 +62,21 @@ func evaluateDBInstance(region string, db rdstypes.DBInstance, emit sources.Emit
 		map[string]string{"status": status, "engine": awssdk.ToString(db.Engine)})
 }
 
+// rdsCriticalStatuses are the DB-instance states that page immediately; see
+// dbStatusSeverity for the shared stopped/healthy classification.
+var rdsCriticalStatuses = map[string]bool{
+	"failed":                              true,
+	"storage-full":                        true,
+	"incompatible-restore":                true,
+	"incompatible-network":                true,
+	"incompatible-parameters":             true,
+	"incompatible-option-group":           true,
+	"restore-error":                       true,
+	"inaccessible-encryption-credentials": true,
+}
+
 // rdsSeverity classifies an RDS status string. The bool reports whether the
 // status is firing (true) or healthy/benign-transient (false → resolve).
 func rdsSeverity(status string) (alert.Severity, bool) {
-	switch status {
-	case "failed",
-		"storage-full",
-		"incompatible-restore",
-		"incompatible-network",
-		"incompatible-parameters",
-		"incompatible-option-group",
-		"restore-error",
-		"inaccessible-encryption-credentials":
-		return alert.SeverityCritical, true
-	case "stopped":
-		return alert.SeverityWarning, true
-	default:
-		// "available" plus transient operational states (backing-up,
-		// modifying, rebooting, starting, stopping, maintenance, upgrading,
-		// creating, ...) are treated as not-firing.
-		return alert.SeverityInfo, false
-	}
+	return dbStatusSeverity(status, rdsCriticalStatuses)
 }

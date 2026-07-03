@@ -7,7 +7,7 @@ import (
 )
 
 // FuzzLoad feeds arbitrary bytes to the YAML config loader. The contract is
-// simple but important: Load must never panic on malformed or hostile input —
+// simple but important: Load must never panic on malformed or hostile input -
 // it either returns a valid *Config or a non-nil error. A panic here would crash
 // the controller at startup on a bad ConfigMap.
 func FuzzLoad(f *testing.F) {

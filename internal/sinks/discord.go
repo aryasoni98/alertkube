@@ -1,25 +1,22 @@
 package sinks
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"time"
 
 	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
 	"alertkube/internal/textutil"
 )
 
-// DiscordSink posts embeds to a Discord channel webhook.
+// NewDiscord posts embeds to a Discord channel webhook.
 // Webhook URL is read on each Send so Secret rotation is honored.
-type DiscordSink struct{}
+func init() { Register("discord", func(SinkConfig) Sink { return NewDiscord() }) }
 
-func NewDiscord() *DiscordSink { return &DiscordSink{} }
-
-func (*DiscordSink) Name() string                   { return "discord" }
-func (*DiscordSink) Supports(_ alert.Severity) bool { return true }
+func NewDiscord() Sink {
+	return &webhookSink{name: "discord", credEnv: "DISCORD_WEBHOOK_URL", payload: discordPayload}
+}
 
 // discordColor converts the severity hex color (#RRGGBB) to the decimal
 // integer Discord expects, using the resolved swatch once the alert closes.
@@ -37,20 +34,18 @@ func discordColor(a *alert.Alert) int {
 	return int(v)
 }
 
-func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := cred(ctx, "DISCORD_WEBHOOK_URL")
-	if url == "" {
-		return nil
-	}
-
+func discordPayload(a *alert.Alert) any {
+	// Field values and the description render Discord markdown; escape the
+	// alert-derived text so an injected masked link cannot phish. The embed
+	// title does not render markdown, so it is left as our plain format.
 	fields := []map[string]any{
-		{"name": "Cluster", "value": orDash(a.Cluster), "inline": true},
-		{"name": "Namespace", "value": orDash(a.Namespace), "inline": true},
-		{"name": "Reason", "value": orDash(a.Reason), "inline": true},
+		{"name": "Cluster", "value": escapeMarkdown(orDash(a.Cluster)), "inline": true},
+		{"name": "Namespace", "value": escapeMarkdown(orDash(a.Namespace)), "inline": true},
+		{"name": "Reason", "value": escapeMarkdown(orDash(a.Reason)), "inline": true},
 	}
 	embed := map[string]any{
 		"title":       textutil.Head(alertTitle(a), 256),
-		"description": textutil.Head(a.Summary, 4096),
+		"description": textutil.Head(escapeMarkdown(a.Summary), 4096),
 		"color":       discordColor(a),
 		"fields":      fields,
 		"footer":      map[string]any{"text": fmt.Sprintf("%s | fp=%s", a.Kind, a.Fingerprint)},
@@ -60,9 +55,8 @@ func (d *DiscordSink) Send(ctx context.Context, a *alert.Alert) error {
 		embed["url"] = runbook
 	}
 
-	payload := map[string]any{
+	return map[string]any{
 		"username": "alertkube",
 		"embeds":   []map[string]any{embed},
 	}
-	return httpx.PostJSON(ctx, url, payload)
 }

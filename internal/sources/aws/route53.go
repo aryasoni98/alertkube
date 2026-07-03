@@ -30,21 +30,19 @@ type route53Source struct {
 func (s *route53Source) Name() string { return sourceRoute53 }
 
 func (s *route53Source) Poll(ctx context.Context, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceRoute53, "global", func(ctx context.Context, marker *string) (*string, error) {
 		out, err := s.client.ListHealthChecks(ctx, &route53.ListHealthChecksInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceRoute53, "global", err)
-			return
+			return nil, err
 		}
 		for i := range out.HealthChecks {
 			s.evaluate(ctx, awssdk.ToString(out.HealthChecks[i].Id), emit)
 		}
-		if !out.IsTruncated || out.NextMarker == nil || *out.NextMarker == "" {
-			return
+		if !out.IsTruncated {
+			return nil, nil
 		}
-		marker = out.NextMarker
-	}
+		return out.NextMarker, nil
+	})
 }
 
 func (s *route53Source) evaluate(ctx context.Context, id string, emit sources.Emit) {

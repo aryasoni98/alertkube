@@ -4,9 +4,12 @@
 package persist
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,12 +21,20 @@ import (
 	"alertkube/internal/metrics"
 )
 
-// dataKey is the ConfigMap key holding the JSON snapshot.
+// dataKey is the legacy ConfigMap key that held the uncompressed JSON snapshot
+// (in .data). Still read on Load so an upgrade from a pre-compression build
+// migrates its state; Save no longer writes it and clears it on update.
 const dataKey = "snapshot.json"
 
-// maxSnapshotBytes guards the ConfigMap 1MiB object limit. A snapshot
-// past this size is not saved; losing one save beats wedging every
-// subsequent update with apiserver rejections.
+// gzKey is the ConfigMap BinaryData key holding the gzip-compressed JSON
+// snapshot. Compression is the current format: alert state is highly
+// repetitive JSON that typically shrinks 5-9x, so the effective state capacity
+// under the ConfigMap object limit is several times what raw JSON allowed.
+const gzKey = "snapshot.json.gz"
+
+// maxSnapshotBytes guards the ConfigMap ~1MiB object limit, applied to the
+// STORED (compressed) size. A snapshot past this is not saved; losing one save
+// beats wedging every subsequent update with apiserver rejections.
 const maxSnapshotBytes = 900 * 1024
 
 // ConfigMapStore loads and saves alert.Snapshot blobs in a ConfigMap.
@@ -48,6 +59,20 @@ func (p *ConfigMapStore) Load(ctx context.Context) (*alert.Snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get state configmap %s/%s: %w", p.namespace, p.name, err)
 	}
+	// Prefer the compressed snapshot (current format).
+	if gz, ok := cm.BinaryData[gzKey]; ok && len(gz) > 0 {
+		raw, err := gunzip(gz)
+		if err != nil {
+			return nil, fmt.Errorf("decompress state configmap %s/%s: %w", p.namespace, p.name, err)
+		}
+		snap := &alert.Snapshot{}
+		if err := json.Unmarshal(raw, snap); err != nil {
+			return nil, fmt.Errorf("parse state configmap %s/%s: %w", p.namespace, p.name, err)
+		}
+		return snap, nil
+	}
+	// Legacy uncompressed snapshot (pre-compression build): read it so state
+	// migrates on upgrade. The next Save rewrites it as compressed BinaryData.
 	raw, ok := cm.Data[dataKey]
 	if !ok || raw == "" {
 		return nil, nil
@@ -57,6 +82,29 @@ func (p *ConfigMapStore) Load(ctx context.Context) (*alert.Snapshot, error) {
 		return nil, fmt.Errorf("parse state configmap %s/%s: %w", p.namespace, p.name, err)
 	}
 	return snap, nil
+}
+
+// gzipBytes compresses b with gzip.
+func gzipBytes(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write(b); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// gunzip decompresses a gzip blob.
+func gunzip(b []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	return io.ReadAll(r)
 }
 
 // Save writes the snapshot, creating the ConfigMap on first use.
@@ -72,10 +120,16 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("marshal snapshot: %w", err)
 	}
-	metrics.StateSnapshotBytes.Set(float64(len(body)))
-	if len(body) > maxSnapshotBytes {
+	gz, err := gzipBytes(body)
+	if err != nil {
+		return fmt.Errorf("compress snapshot: %w", err)
+	}
+	// The guard and the metric track the STORED (compressed) size, since that
+	// is what counts against the ConfigMap object limit.
+	metrics.StateSnapshotBytes.Set(float64(len(gz)))
+	if len(gz) > maxSnapshotBytes {
 		metrics.StateSaveSkipped.Inc()
-		return fmt.Errorf("snapshot is %d bytes (limit %d); skipping save", len(body), maxSnapshotBytes)
+		return fmt.Errorf("compressed snapshot is %d bytes (limit %d); skipping save", len(gz), maxSnapshotBytes)
 	}
 	cms := p.client.CoreV1().ConfigMaps(p.namespace)
 	retryable := func(err error) bool {
@@ -90,7 +144,7 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 					Namespace: p.namespace,
 					Labels:    map[string]string{"app.kubernetes.io/managed-by": "alertkube"},
 				},
-				Data: map[string]string{dataKey: string(body)},
+				BinaryData: map[string][]byte{gzKey: gz},
 			}, metav1.CreateOptions{})
 			// AlreadyExists (concurrent first writer won the create race) is
 			// retryable: the next iteration Gets the now-existing object and
@@ -100,10 +154,13 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 		if err != nil {
 			return err
 		}
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
+		if cm.BinaryData == nil {
+			cm.BinaryData = map[string][]byte{}
 		}
-		cm.Data[dataKey] = string(body)
+		cm.BinaryData[gzKey] = gz
+		// Drop any legacy uncompressed blob so it does not linger (stale) or
+		// double-count against the object limit after migration.
+		delete(cm.Data, dataKey)
 		_, err = cms.Update(ctx, cm, metav1.UpdateOptions{})
 		return err
 	})

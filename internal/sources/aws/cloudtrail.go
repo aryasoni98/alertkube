@@ -7,9 +7,11 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
+	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
+	"alertkube/internal/metrics"
 	"alertkube/internal/sources"
 )
 
@@ -37,10 +39,7 @@ var defaultCloudTrailEvents = []string{
 	"CreateRole", "DeleteRole",
 }
 
-type cloudTrailRegion struct {
-	region string
-	client cloudTrailAPI
-}
+type cloudTrailRegion = regionClient[cloudTrailAPI]
 
 // cloudTrailSource emits a fire-once event alert for each CloudTrail management
 // event matching the configured event-name set within a lookback window each
@@ -108,6 +107,13 @@ func (s *cloudTrailSource) lookupEvent(ctx context.Context, rc cloudTrailRegion,
 		}
 		token = out.NextToken
 	}
+	// Fell out of the loop with a token still pending: the page cap was hit and
+	// the remaining matching events were NOT fetched this poll. They are not
+	// recovered next poll (the lookback window has moved on), so surface the
+	// truncation loudly instead of dropping events silently.
+	metrics.CloudPollTruncated.WithLabelValues(sourceCloudTrail).Inc()
+	klog.Warningf("%s: %q in %s hit the %d-page lookup cap; remaining matching events were dropped this poll - raise the cap or narrow aws.cloudtrailEvents if this persists",
+		sourceCloudTrail, eventName, rc.region, maxCloudTrailPages)
 }
 
 // eventToAlert builds an ephemeral event alert from a CloudTrail event. The

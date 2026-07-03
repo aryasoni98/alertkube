@@ -18,6 +18,8 @@ import (
 // picked up without a process restart.
 type WebhookSink struct{}
 
+func init() { Register("webhook", func(SinkConfig) Sink { return NewWebhook() }) }
+
 func NewWebhook() *WebhookSink { return &WebhookSink{} }
 
 func (*WebhookSink) Name() string                   { return "webhook" }
@@ -30,8 +32,8 @@ func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
 // retried with backoff; the timestamp + signature are recomputed per
 // attempt so retries stay within the receiver's replay window.
 func (*WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := cred(ctx, "GENERIC_WEBHOOK_URL")
-	if url == "" {
+	url, ok := requireCred(ctx, "webhook", "GENERIC_WEBHOOK_URL")
+	if !ok {
 		return nil
 	}
 	return httpx.PostJSONWithHeaders(ctx, url, a, httpx.DefaultRetry, func(req *http.Request, body []byte) {

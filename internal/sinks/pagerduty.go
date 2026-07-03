@@ -14,6 +14,8 @@ import (
 // The routing key is read on each Send so Secret rotation is honored.
 type PagerDutySink struct{}
 
+func init() { Register("pagerduty", func(SinkConfig) Sink { return NewPagerDuty() }) }
+
 func NewPagerDuty() *PagerDutySink { return &PagerDutySink{} }
 
 func (p *PagerDutySink) Name() string { return "pagerduty" }
@@ -31,8 +33,8 @@ func pdSeverity(s alert.Severity) string {
 }
 
 func (p *PagerDutySink) Send(ctx context.Context, a *alert.Alert) error {
-	routingKey := cred(ctx, "PAGERDUTY_ROUTING_KEY")
-	if routingKey == "" {
+	routingKey, ok := requireCred(ctx, "pagerduty", "PAGERDUTY_ROUTING_KEY")
+	if !ok {
 		return nil
 	}
 	action := "trigger"

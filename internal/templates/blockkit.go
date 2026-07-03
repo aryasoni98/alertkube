@@ -23,17 +23,20 @@ func Build(a *alert.Alert) []slack.Block {
 	header := slack.NewHeaderBlock(slack.NewTextBlockObject(slack.PlainTextType, title, true, false))
 
 	fields := []*slack.TextBlockObject{
-		slack.NewTextBlockObject(slack.MarkdownType, "*Cluster:*\n`"+a.Cluster+"`", false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, "*Namespace:*\n`"+a.Namespace+"`", false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, "*Name:*\n`"+a.Name+"`", false, false),
-		slack.NewTextBlockObject(slack.MarkdownType, "*Reason:*\n`"+a.Reason+"`", false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, "*Cluster:*\n`"+slackCode(a.Cluster)+"`", false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, "*Namespace:*\n`"+slackCode(a.Namespace)+"`", false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, "*Name:*\n`"+slackCode(a.Name)+"`", false, false),
+		slack.NewTextBlockObject(slack.MarkdownType, "*Reason:*\n`"+slackCode(a.Reason)+"`", false, false),
 	}
 	if a.NodeName != "" {
-		fields = append(fields, slack.NewTextBlockObject(slack.MarkdownType, "*Node:*\n`"+a.NodeName+"`", false, false))
+		fields = append(fields, slack.NewTextBlockObject(slack.MarkdownType, "*Node:*\n`"+slackCode(a.NodeName)+"`", false, false))
 	}
 	fieldSection := slack.NewSectionBlock(nil, fields, nil)
 
-	summary := slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, "*Summary:* "+a.Summary, false, false), nil, nil)
+	// The summary renders as mrkdwn (not inside a code span), so escape the
+	// Slack control characters that would otherwise let alert-derived text
+	// inject a link (<url|text>) or a channel-wide mention (<!channel>).
+	summary := slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, "*Summary:* "+slackEscape(a.Summary), false, false), nil, nil)
 
 	blocks := []slack.Block{header, fieldSection, summary}
 
@@ -110,6 +113,21 @@ func Runbook(a *alert.Alert) (string, bool) {
 	u := a.Annotations[alert.AnnotationRunbookURL]
 	return u, SafeRunbookURL(u)
 }
+
+// slackEscaper escapes the three characters Slack treats as mrkdwn control
+// characters. Per Slack's docs, escaping &, <, > is sufficient to prevent
+// alert-derived text from forming a link (<url|text>) or a broadcast mention
+// (<!channel>, <!here>). & must be replaced first so the entities it
+// introduces are not re-escaped.
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+// slackEscape neutralizes Slack mrkdwn control characters in untrusted text.
+func slackEscape(s string) string { return slackEscaper.Replace(s) }
+
+// slackCode prepares a value for an inline-code span: a stray backtick would
+// close the span and re-enable mrkdwn, so backticks are dropped, and &<> are
+// escaped for good measure (Slack still displays them literally in code).
+func slackCode(s string) string { return slackEscape(strings.ReplaceAll(s, "`", "'")) }
 
 // SafeRunbookURL guards the workload-supplied runbook-url annotation so a
 // tenant cannot inject javascript: / data: / file: targets into sink-rendered

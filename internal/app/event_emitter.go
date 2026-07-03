@@ -8,11 +8,10 @@ import (
 	"alertkube/internal/group"
 	"alertkube/internal/metrics"
 	"alertkube/internal/router"
-	"alertkube/internal/sinks"
 	"alertkube/internal/watchers"
 )
 
-func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {
+func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {
 	// controllerStart is intentionally per-leadership-acquisition, not
 	// process start: each runController builds fresh informers whose initial
 	// sync re-fires every standing condition. The grace window must cover
@@ -61,7 +60,7 @@ func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg 
 				return
 			}
 			cp := *a
-			dispatch(reg, &cp, route)
+			enqueue(&cp, route, nil)
 			return
 		}
 		// Startup grace: conditions that pre-date this process (informer
@@ -95,12 +94,16 @@ func makeEmitter(store *alert.Store, r *router.Router, reg *sinks.Registry, cfg 
 			metrics.AlertsSuppressed.WithLabelValues("grouped").Inc()
 			return
 		}
-		// Dispatch a copy: the original is retained in the store and its
+		// Enqueue a copy: the original is retained in the store and its
 		// EndsAt is mutated by Touch while sink goroutines read the alert.
+		// Delivery runs on the dispatch worker pool, off this producer
+		// goroutine; onFail rolls back dedupe (on the worker) if every sink
+		// fails so the next firing retries.
 		cp := *a
-		if !dispatch(reg, &cp, route) {
+		fp := a.Fingerprint
+		enqueue(&cp, route, func() {
 			metrics.AlertsDropped.Inc()
-			store.MarkFailed(a.Fingerprint)
-		}
+			store.MarkFailed(fp)
+		})
 	}
 }

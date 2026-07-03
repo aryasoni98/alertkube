@@ -11,10 +11,7 @@ import (
 
 const sourceAKS = "azure-aks"
 
-type aksSubscription struct {
-	subscription string
-	lister       aksLister
-}
+type aksSubscription = subLister[aksLister]
 
 // aksSource discovers AKS managed clusters per subscription and alerts on their
 // control-plane health. ProvisioningState Failed/Canceled is critical; a
@@ -28,17 +25,10 @@ type aksSource struct {
 func (s *aksSource) Name() string { return sourceAKS }
 
 func (s *aksSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		clusters, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAKS, sub.subscription, err)
-			continue
-		}
-		for i := range clusters {
-			evaluateAKSCluster(sub.subscription, clusters[i], emit)
-			evaluateAKSNodePools(sub.subscription, clusters[i], emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAKS, s.subs, emit, func(subscription string, c armcontainerservice.ManagedCluster, emit sources.Emit) {
+		evaluateAKSCluster(subscription, c, emit)
+		evaluateAKSNodePools(subscription, c, emit)
+	})
 }
 
 // evaluateAKSCluster maps one cluster's provisioning + power state onto a single
@@ -49,10 +39,7 @@ func evaluateAKSCluster(subscription string, c armcontainerservice.ManagedCluste
 		return
 	}
 	region := strVal(c.Location)
-	scope := subscription
-	if region != "" {
-		scope = subscription + "/" + region
-	}
+	scope := sources.Scope(subscription, region)
 
 	var state, power string
 	if c.Properties != nil {
@@ -93,11 +80,7 @@ func evaluateAKSNodePools(subscription string, c armcontainerservice.ManagedClus
 	if cluster == "" || c.Properties == nil {
 		return
 	}
-	region := strVal(c.Location)
-	scope := subscription
-	if region != "" {
-		scope = subscription + "/" + region
-	}
+	scope := sources.Scope(subscription, strVal(c.Location))
 	for _, p := range c.Properties.AgentPoolProfiles {
 		if p == nil {
 			continue

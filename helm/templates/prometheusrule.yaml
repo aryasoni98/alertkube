@@ -16,7 +16,7 @@ spec:
     - name: alertkube.self-health
       rules:
         # alertkube itself stopped exporting metrics (down or unscraped). If the
-        # controller is down, nothing is alerting — this is the watcher-of-watchers.
+        # controller is down, nothing is alerting - this is the watcher-of-watchers.
         - alert: AlertkubeAbsent
           expr: absent(alertkube_active_alerts)
           for: {{ .Values.prometheusRule.absentFor | default "10m" | quote }}
@@ -24,7 +24,7 @@ spec:
             severity: critical
           annotations:
             summary: "alertkube is not exporting metrics"
-            description: "No alertkube_active_alerts series for {{ .Values.prometheusRule.absentFor | default "10m" }}. The controller may be down — cluster alerts are not being delivered."
+            description: "No alertkube_active_alerts series for {{ .Values.prometheusRule.absentFor | default "10m" }}. The controller may be down - cluster alerts are not being delivered."
         # Sustained sink delivery failures: pages/messages are being dropped.
         - alert: AlertkubeSinkErrors
           expr: sum by (sink) (rate(alertkube_sink_errors_total[5m])) > 0
@@ -43,7 +43,7 @@ spec:
           annotations:
             summary: "alertkube is dropping alerts to the rate limiter"
             description: "Alerts are being suppressed with reason=ratelimited over 10m. A sink cannot keep up; consider raising sinkRates for it."
-        # Dispatch queue saturated — sends are backing up.
+        # Dispatch queue saturated - sends are backing up.
         - alert: AlertkubeDispatchSaturated
           expr: alertkube_dispatch_inflight > {{ .Values.prometheusRule.dispatchInflightThreshold | default 20 }}
           for: 10m

@@ -165,6 +165,20 @@ spec:
               value: {{ .Values.client.burst | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.dispatch }}
+            {{- if .Values.dispatch.workers }}
+            - name: ALERTKUBE_DISPATCH_WORKERS
+              value: {{ .Values.dispatch.workers | quote }}
+            {{- end }}
+            {{- if .Values.dispatch.queueSize }}
+            - name: ALERTKUBE_DISPATCH_QUEUE
+              value: {{ .Values.dispatch.queueSize | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if and .Values.pprof .Values.pprof.enabled }}
+            - name: ALERTKUBE_ENABLE_PPROF
+              value: "true"
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

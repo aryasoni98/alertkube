@@ -13,10 +13,7 @@ import (
 
 const sourceKMS = "aws-kms"
 
-type kmsRegion struct {
-	region string
-	client kmsAPI
-}
+type kmsRegion = regionClient[kmsAPI]
 
 // kmsSource alerts on customer-managed KMS keys in a risky state:
 // PendingDeletion (scheduled destruction → potential data loss) and
@@ -29,18 +26,14 @@ type kmsSource struct {
 func (s *kmsSource) Name() string { return sourceKMS }
 
 func (s *kmsSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *kmsSource) pollRegion(ctx context.Context, rc kmsRegion, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceKMS, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.ListKeys(ctx, &kms.ListKeysInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceKMS, rc.region, err)
-			return
+			return nil, err
 		}
 		for _, k := range out.Keys {
 			id := awssdk.ToString(k.KeyId)
@@ -57,11 +50,8 @@ func (s *kmsSource) pollRegion(ctx context.Context, rc kmsRegion, emit sources.E
 			}
 			evaluateKMSKey(rc.region, desc.KeyMetadata, emit)
 		}
-		if out.NextMarker == nil || *out.NextMarker == "" {
-			return
-		}
-		marker = out.NextMarker
-	}
+		return out.NextMarker, nil
+	})
 }
 
 func evaluateKMSKey(region string, md *kmstypes.KeyMetadata, emit sources.Emit) {

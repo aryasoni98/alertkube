@@ -18,7 +18,7 @@ helm version
 ## Install
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.1.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \

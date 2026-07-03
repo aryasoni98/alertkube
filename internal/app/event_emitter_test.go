@@ -55,7 +55,12 @@ func TestEmitterEventAlertLifecycle(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Cluster = "test"
 
-	emit := makeEmitter(store, r, reg, cfg, nil, nil)
+	syncEnqueue := func(a *alert.Alert, route []string, onFail func()) {
+		if !dispatch(reg, a, route) && onFail != nil {
+			onFail()
+		}
+	}
+	emit := makeEmitter(store, r, syncEnqueue, cfg, nil, nil)
 
 	ev := alert.New(alert.KindCloudTrailEvent, "us-east-1", "sg-1", "AuthorizeSecurityGroupIngress", alert.SeverityWarning)
 	ev.Fingerprint = "evt-1"

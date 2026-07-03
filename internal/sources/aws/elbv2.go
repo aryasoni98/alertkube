@@ -15,10 +15,7 @@ import (
 
 const sourceELBV2 = "aws-elbv2"
 
-type elbv2Region struct {
-	region string
-	client elbv2API
-}
+type elbv2Region = regionClient[elbv2API]
 
 // elbv2Source alerts on Application/Network Load Balancers and their target
 // groups - two failure classes the brief calls out separately: load-balancer
@@ -34,28 +31,23 @@ type elbv2Source struct {
 func (s *elbv2Source) Name() string { return sourceELBV2 }
 
 func (s *elbv2Source) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
+	pollByRegion(ctx, s.regions, emit, func(ctx context.Context, rc elbv2Region, emit sources.Emit) {
 		s.pollLoadBalancers(ctx, rc, emit)
 		s.pollTargetGroups(ctx, rc, emit)
-	}
+	})
 }
 
 func (s *elbv2Source) pollLoadBalancers(ctx context.Context, rc elbv2Region, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceELBV2, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceELBV2, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.LoadBalancers {
 			evaluateLoadBalancer(rc.region, out.LoadBalancers[i], emit)
 		}
-		if out.NextMarker == nil || *out.NextMarker == "" {
-			return
-		}
-		marker = out.NextMarker
-	}
+		return out.NextMarker, nil
+	})
 }
 
 // evaluateLoadBalancer maps one LB's provisioning state onto a single
@@ -89,12 +81,10 @@ func evaluateLoadBalancer(region string, lb elbv2types.LoadBalancer, emit source
 }
 
 func (s *elbv2Source) pollTargetGroups(ctx context.Context, rc elbv2Region, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceELBV2, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceELBV2, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.TargetGroups {
 			tg := out.TargetGroups[i]
@@ -109,11 +99,8 @@ func (s *elbv2Source) pollTargetGroups(ctx context.Context, rc elbv2Region, emit
 			}
 			evaluateTargetGroup(rc.region, name, h.TargetHealthDescriptions, emit)
 		}
-		if out.NextMarker == nil || *out.NextMarker == "" {
-			return
-		}
-		marker = out.NextMarker
-	}
+		return out.NextMarker, nil
+	})
 }
 
 // evaluateTargetGroup classifies a target group by its registered-target

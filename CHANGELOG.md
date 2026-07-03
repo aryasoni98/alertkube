@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/aryasoni98/alertkube/compare/v1.1.0...v1.2.0) (2026-07-03)
+
+Scalability, reliability, and delivery-hardening release. Delivery is now
+decoupled from the Kubernetes watch loop, survives restarts, and can be spread
+across replicas. All changes are covered by unit + race tests.
+
+### Added
+
+* **scaling:** horizontal scaling via static hash-based sharding — with `ALERTKUBE_SHARD_TOTAL` > 1 each replica owns objects where `hash(kind/ns/name) mod total == index`, so N replicas share load with exactly one owner per object (default single-replica behavior unchanged).
+* **dispatch:** bounded async delivery worker pool that decouples sink delivery from the informer thread, so a slow sink can no longer stall Kubernetes event processing; tunable via `ALERTKUBE_DISPATCH_WORKERS` / `ALERTKUBE_DISPATCH_QUEUE`.
+* **reliability:** durable delivery outbox — enqueued-but-undelivered alerts are persisted and replayed on restart / leader failover (at-least-once).
+* **reliability:** dead-letter capture for permanently-abandoned deliveries, surfaced via `alertkube_dead_letter_total` and a token-gated `GET /api/deadletter`.
+* **reliability:** bounded resolve-retry so a transiently-failed resolve no longer dangles a PagerDuty/Opsgenie incident.
+* **security:** optional separate data-plane listener (`apiAddr`) so `/api/*`, the console, and the Alertmanager receiver can be firewalled independently of `/metrics` + health probes.
+* **observability:** opt-in, read-token-gated `/debug/pprof` profiling (`ALERTKUBE_ENABLE_PPROF`); fail-closed without a token.
+* **observability:** new metrics — `alertkube_outbox_pending`, `alertkube_dead_letter_total`, `alertkube_dispatch_queue_depth`, `alertkube_dispatch_queue_full_total`, `alertkube_dispatch_resolve_retries_total`, `alertkube_sink_noop_total`, `alertkube_cloud_poll_truncated_total`.
+* **extensibility:** sinks and cloud providers now self-register, so adding one is a single self-contained file.
+
+### Fixed
+
+* **reliability:** no more silent alert loss when every routed sink's circuit breaker is open — the firing now retries instead of being muted undelivered.
+* **reliability:** meaningful liveness — a wedged leader (e.g. store-lock deadlock) now fails `/healthz` and is restarted instead of appearing healthy forever.
+* **sources:** S3 `ListBuckets` is now paginated, so a publicly-exposed bucket beyond the first page is no longer missed; CloudTrail page-cap truncation is now observable.
+* **watchers:** deployment `ProgressDeadlineExceeded` now requires `Status=False`, avoiding a stale-condition false page.
+* **security:** chat sinks escape markdown/HTML and the Slack template escapes mrkdwn, defusing masked-link/mention injection from alert-derived text.
+* **security:** webhook SSRF guard re-validates the connected IP at dial time (DNS-rebind / TOCTOU hardening).
+* **sinks:** a routed sink that no-ops for a missing credential is now observable (`alertkube_sink_noop_total`).
+
+### Performance
+
+* **store:** `sync.RWMutex` so read endpoints (`/api/alerts`, the persistence export) no longer serialize against the delivery hot path.
+* **router:** the per-alert inhibition check is now a lock-free read; expiry pruning moved off the hot path.
+
+### Changed
+
+* **sources:** de-duplicated the per-scope poll fan-out across AWS/Azure/GCP into shared generic helpers (`pollByRegion`/`pollBySubscription`/`pollByProject`).
+* **persistence:** the state snapshot is gzip-compressed into the ConfigMap `BinaryData`, raising the effective state ceiling ~5-9x (backward-compatible migration from the plaintext format).
+
 ## [1.1.0](https://github.com/aryasoni98/alertkube/compare/v1.0.0...v1.1.0) (2026-06-27)
 
 
@@ -12,9 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * engineering maturity and CNCF-readiness for v0.2.2 ([755ead1](https://github.com/aryasoni98/alertkube/commit/755ead1a36ac7e39fc95cbcb6cf0208a9dafe511))
 * severity overrides and configurable PVC threshold ([f660a33](https://github.com/aryasoni98/alertkube/commit/f660a33ab5f52408bb79db04b29ca85aaac20a33))
-* v0.2.0 beta — sinks, watchers, grouping, persistence ([c8b1c6d](https://github.com/aryasoni98/alertkube/commit/c8b1c6d4cda820c46e2a8b659923509dd0855bc7))
+* v0.2.0 beta - sinks, watchers, grouping, persistence ([c8b1c6d](https://github.com/aryasoni98/alertkube/commit/c8b1c6d4cda820c46e2a8b659923509dd0855bc7))
 * **watchers:** alert on non-OOM SIGKILL (ContainerKilled) + termination cause ([#17](https://github.com/aryasoni98/alertkube/issues/17)) ([b7da111](https://github.com/aryasoni98/alertkube/commit/b7da111274dd59df3158a0742bd33cbf3a63fa6e))
-* web console — manage AlertKube from the browser ([#28](https://github.com/aryasoni98/alertkube/issues/28)) ([d1def74](https://github.com/aryasoni98/alertkube/commit/d1def74f381ea24e166b382ff82597a2da0fb15d))
+* web console - manage AlertKube from the browser ([#28](https://github.com/aryasoni98/alertkube/issues/28)) ([d1def74](https://github.com/aryasoni98/alertkube/commit/d1def74f381ea24e166b382ff82597a2da0fb15d))
 * **website:** SEO, performance & a11y upgrade for landing + docs site ([41be82e](https://github.com/aryasoni98/alertkube/commit/41be82e0dd88444d8b098b3f733e057606417dea))
 * **website:** SEO, performance, and a11y upgrade for landing + docs site ([ab1d058](https://github.com/aryasoni98/alertkube/commit/ab1d058ae6b7c8f50d40d6d89bb36aae02b9949b))
 
@@ -72,7 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Cloud SQL. Credentials via Application Default Credentials (GKE Workload
     Identity).
 * **rules:** user-authored correlation rules engine (`internal/rules`)
-  evaluated against the live alert stream. Three shapes — `Count` (storm /
+  evaluated against the live alert stream. Three shapes - `Count` (storm /
   N-within-window), `All` (composite AND), `Absent` (heartbeat /
   dead-man's-switch). Derived alerts run through the standard pipeline and
   cannot trigger themselves.
@@ -83,7 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`errorlint`) and annotate the intentional non-fatal DNS-resolution return
   in `internal/httpx` (`nilerr`) so `golangci-lint` passes clean.
 * **helm:** regenerate `helm/README.md` from `values.yaml` so the helm-docs
-  drift check passes — the new cloud-source toggles and `extraEnv` values were
+  drift check passes - the new cloud-source toggles and `extraEnv` values were
   undocumented.
 
 > **Stability:** cloud sources and the rules engine are **experimental**. They
@@ -137,7 +175,7 @@ Project-maturity and CNCF-readiness work (no controller behavior change). See
 - **Security & supply chain**: OpenSSF Scorecard workflow, `SECURITY-INSIGHTS.yml`,
   a branch-protection setup script, and an OpenSSF best-practices tracker.
 - **Documentation site**: MkDocs Material site under `docs-site/` organized by
-  Diátaxis (15 pages — tutorials, how-to, reference, explanation) plus an
+  Diátaxis (15 pages - tutorials, how-to, reference, explanation) plus an
   architecture overview; built with `--strict` link checking in CI (`docs.yml`).
 - **Release engineering**: release-please workflow + config for automated
   versioning/changelog from Conventional Commits.
@@ -158,7 +196,7 @@ Project-maturity and CNCF-readiness work (no controller behavior change). See
 - **Lint**: expanded the golangci-lint set (`bodyclose`, `errorlint`, `noctx`,
   `nilerr`, `durationcheck`, `wastedassign`, `usestdlibvars`, `predeclared`).
 - **Tests**: `internal/metrics` HTTP server coverage (readiness, dynamic
-  handlers, all routes) — package went from 0% to 96.8%.
+  handlers, all routes) - package went from 0% to 96.8%.
 
 ### Fixed
 

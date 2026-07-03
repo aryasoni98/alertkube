@@ -45,16 +45,7 @@ type cloudSQLSource struct {
 func (s *cloudSQLSource) Name() string { return sourceCloudSQL }
 
 func (s *cloudSQLSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, project := range s.projects {
-		instances, err := s.lister.List(ctx, project)
-		if err != nil {
-			pollErr(sourceCloudSQL, project, err)
-			continue
-		}
-		for _, in := range instances {
-			evaluateCloudSQL(project, in, emit)
-		}
-	}
+	pollByProject(ctx, sourceCloudSQL, s.projects, s.lister, emit, evaluateCloudSQL)
 }
 
 // evaluateCloudSQL maps a Cloud SQL instance's state onto a firing/resolve.
@@ -64,10 +55,7 @@ func evaluateCloudSQL(project string, in *sqladmin.DatabaseInstance, emit source
 	if in == nil || in.Name == "" {
 		return
 	}
-	scope := project
-	if in.Region != "" {
-		scope = project + "/" + in.Region
-	}
+	scope := sources.Scope(project, in.Region)
 	details := map[string]string{"state": in.State, "databaseVersion": in.DatabaseVersion, "region": in.Region}
 	switch in.State {
 	case "RUNNABLE":

@@ -33,6 +33,67 @@ func (s *recSink) Name() string                             { return s.name }
 func (s *recSink) Send(context.Context, *alert.Alert) error { s.got++; return s.err }
 func (s *recSink) Supports(alert.Severity) bool             { return true }
 
+func TestDeadLetterHandler(t *testing.T) {
+	d, _, _ := testDeps("tok", "", nil)
+	dl := newDeadLetterLog()
+	dl.Record(alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical))
+	d.deadLetter = dl
+	h := newDeadLetterHandler(d)
+
+	// No token -> 401.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/deadletter", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token: got %d, want 401", rec.Code)
+	}
+	// With token -> 200 and the recorded entry.
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/deadletter", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with token: got %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "OOMKilled") {
+		t.Fatalf("dead-letter entry missing from response: %s", rec.Body.String())
+	}
+}
+
+func TestPprofGating(t *testing.T) {
+	// Disabled by default (env unset): no handler.
+	d, _, _ := testDeps("secret-token", "", nil)
+	if h := newPprofHandler(d); h != nil {
+		t.Fatal("pprof must be disabled by default (ALERTKUBE_ENABLE_PPROF unset)")
+	}
+
+	// Enabled but no read token: fail closed (no handler, would be unauthenticated).
+	t.Setenv("ALERTKUBE_ENABLE_PPROF", "true")
+	dNoTok, _, _ := testDeps("", "", nil)
+	if h := newPprofHandler(dNoTok); h != nil {
+		t.Fatal("pprof must refuse to mount without a read token (fail closed)")
+	}
+
+	// Enabled with a read token: handler present and token-gated.
+	h := newPprofHandler(d)
+	if h == nil {
+		t.Fatal("pprof should be enabled with env set + token")
+	}
+	// No token -> 401.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("pprof without token: got %d, want 401", rec.Code)
+	}
+	// Correct token -> served (200).
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pprof with token: got %d, want 200", rec.Code)
+	}
+}
+
 func testDeps(apiToken, writeToken string, rbac *authz.RBACAuthorizer) (consoleDeps, *silence.Store, *recSink) {
 	st := alert.NewStore(time.Minute, time.Minute, func(*alert.Alert) {})
 	sil := silence.NewStore()

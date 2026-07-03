@@ -121,22 +121,20 @@ func applyClientThrottle(cfg *rest.Config) {
 	}
 }
 
+// buildSinks constructs the sink registry from the self-registered sink
+// factories (each sink registers itself in its own init; see sinks.Register),
+// then applies per-sink rate overrides. Adding a sink is therefore a single
+// self-contained file - no edit here - with config.KnownSinks pinned to the
+// registry by a guard test so routing validation cannot drift.
 func buildSinks(cfg *config.Config) *sinks.Registry {
-	reg := sinks.NewRegistry()
-	reg.Add(sinks.NewSlack(cfg.Cluster, appName, map[alert.Severity]string{
-		alert.SeverityCritical: cfg.Channels.Critical,
-		alert.SeverityWarning:  cfg.Channels.Warning,
-		alert.SeverityInfo:     cfg.Channels.Info,
-	}))
-	reg.Add(sinks.NewPagerDuty())
-	reg.Add(sinks.NewTeams())
-	reg.Add(sinks.NewWebhook())
-	reg.Add(sinks.NewStdout())
-	reg.Add(sinks.NewDiscord())
-	reg.Add(sinks.NewTelegram())
-	reg.Add(sinks.NewOpsgenie())
-	reg.Add(sinks.NewGoogleChat())
-	reg.Add(sinks.NewMattermost())
+	reg := sinks.BuildDefault(sinks.SinkConfig{
+		Cluster: cfg.Cluster,
+		Channels: map[alert.Severity]string{
+			alert.SeverityCritical: cfg.Channels.Critical,
+			alert.SeverityWarning:  cfg.Channels.Warning,
+			alert.SeverityInfo:     cfg.Channels.Info,
+		},
+	})
 	for name, sr := range cfg.SinkRates {
 		reg.SetRate(name, rate.Limit(sr.PerSecond), sr.Burst)
 	}
@@ -157,7 +155,7 @@ func buildWatchers(c kubernetes.Interface, cfg *config.Config, watchNamespace st
 	// Nodes are cluster-scoped: a namespace-scoped factory cannot sync a
 	// node informer and a namespace Role cannot grant it.
 	if watchNamespace == "" {
-		ws = append(ws, watchers.NewNode(c))
+		ws = append(ws, watchers.NewNode())
 	}
 	return ws
 }

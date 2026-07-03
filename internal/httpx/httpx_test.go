@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,32 @@ import (
 	"testing"
 	"time"
 )
+
+func TestIPBlockedPolicy(t *testing.T) {
+	tests := []struct {
+		name      string
+		ip        string
+		strict    bool
+		wantBlock bool
+	}{
+		{"link-local metadata always blocked", "169.254.169.254", false, true},
+		{"ipv6 link-local always blocked", "fe80::1", false, true},
+		{"public allowed (non-strict)", "8.8.8.8", false, false},
+		{"loopback allowed non-strict", "127.0.0.1", false, false},
+		{"private allowed non-strict", "10.0.0.5", false, false},
+		{"loopback blocked under strict", "127.0.0.1", true, true},
+		{"private blocked under strict", "10.0.0.5", true, true},
+		{"public allowed under strict", "8.8.8.8", true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ipBlocked(net.ParseIP(tc.ip), tc.strict)
+			if (err != nil) != tc.wantBlock {
+				t.Fatalf("ipBlocked(%s, strict=%v) err=%v, wantBlock=%v", tc.ip, tc.strict, err, tc.wantBlock)
+			}
+		})
+	}
+}
 
 func TestPostJSONEmptyURLNoop(t *testing.T) {
 	if err := PostJSON(context.Background(), "", map[string]string{"x": "y"}); err != nil {

@@ -16,7 +16,12 @@ const recentCap = 200
 // Store tracks active alerts so we can detect dedupes
 // and emit synthetic resolved events when a fingerprint stops firing.
 type Store struct {
-	mu         sync.Mutex
+	// mu is an RWMutex so read-only endpoints (ActiveList/Recent for
+	// /api/alerts, Export for the persistence sweep, Generation) take a shared
+	// read lock and run concurrently with each other instead of serializing
+	// against the write-heavy emit path. Mutating methods still take the
+	// exclusive write lock.
+	mu         sync.RWMutex
 	active     map[string]*Alert
 	lastSent   map[string]time.Time
 	muteWindow time.Duration
@@ -227,8 +232,8 @@ func (s *Store) CleanOldHistory() {
 
 // ActiveCount returns the number of currently active alerts.
 func (s *Store) ActiveCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.active)
 }
 
@@ -247,8 +252,8 @@ func (s *Store) recordRecentLocked(a *Alert) {
 
 // ActiveList returns copies of the active alerts for the API endpoint.
 func (s *Store) ActiveList() []*Alert {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]*Alert, 0, len(s.active))
 	for _, a := range s.active {
 		out = append(out, a.Clone())
@@ -258,8 +263,8 @@ func (s *Store) ActiveList() []*Alert {
 
 // Recent returns copies of the recent fired/resolved ring, oldest first.
 func (s *Store) Recent() []*Alert {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]*Alert, 0, len(s.recent))
 	for _, a := range s.recent {
 		out = append(out, a.Clone())

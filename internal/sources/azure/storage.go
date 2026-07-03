@@ -22,22 +22,11 @@ type armStorageLister struct {
 }
 
 func (l *armStorageLister) List(ctx context.Context) ([]*armstorage.Account, error) {
-	var out []*armstorage.Account
-	pager := l.client.NewListPager(nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Value...)
-	}
-	return out, nil
+	return drainPager(ctx, l.client.NewListPager(nil),
+		func(r armstorage.AccountsClientListResponse) []*armstorage.Account { return r.Value })
 }
 
-type azureStorageSubscription struct {
-	subscription string
-	lister       storageLister
-}
+type azureStorageSubscription = subLister[storageLister]
 
 // azureStorageSource alerts on Storage accounts whose primary endpoint is
 // unavailable (critical); available resolves. This is Azure's analog of the
@@ -49,16 +38,7 @@ type azureStorageSource struct {
 func (s *azureStorageSource) Name() string { return sourceAzureStorage }
 
 func (s *azureStorageSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		accounts, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAzureStorage, sub.subscription, err)
-			continue
-		}
-		for _, acct := range accounts {
-			evaluateStorageAccount(sub.subscription, acct, emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAzureStorage, s.subs, emit, evaluateStorageAccount)
 }
 
 func evaluateStorageAccount(subscription string, acct *armstorage.Account, emit sources.Emit) {
@@ -70,10 +50,7 @@ func evaluateStorageAccount(subscription string, acct *armstorage.Account, emit 
 		return
 	}
 	region := strVal(acct.Location)
-	scope := subscription
-	if region != "" {
-		scope = subscription + "/" + region
-	}
+	scope := sources.Scope(subscription, region)
 	var status string
 	if acct.Properties != nil && acct.Properties.StatusOfPrimary != nil {
 		status = string(*acct.Properties.StatusOfPrimary)

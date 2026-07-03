@@ -14,10 +14,7 @@ import (
 
 const sourceASG = "aws-asg"
 
-type asgRegion struct {
-	region string
-	client autoscalingAPI
-}
+type asgRegion = regionClient[autoscalingAPI]
 
 // asgSource alerts on Auto Scaling Groups whose healthy in-service capacity is
 // below the desired count: zero healthy is critical (no serving capacity), a
@@ -29,27 +26,20 @@ type asgSource struct {
 func (s *asgSource) Name() string { return sourceASG }
 
 func (s *asgSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *asgSource) pollRegion(ctx context.Context, rc asgRegion, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceASG, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceASG, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.AutoScalingGroups {
 			evaluateASG(rc.region, out.AutoScalingGroups[i], emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 func evaluateASG(region string, g astypes.AutoScalingGroup, emit sources.Emit) {

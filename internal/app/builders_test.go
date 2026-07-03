@@ -36,6 +36,30 @@ func TestBuildSinks(t *testing.T) {
 	}
 }
 
+// TestKnownSinksMatchesRegistry pins config.KnownSinks (used by routing/
+// escalation validation) to the sinks actually registered by buildSinks. The
+// two are declared in separate files, so without this guard adding a sink to
+// one but not the other silently breaks routing: a registered-but-not-known
+// sink fails config validation, and a known-but-unregistered sink is skipped
+// by dispatch with no delivery. They must be exactly equal.
+func TestKnownSinksMatchesRegistry(t *testing.T) {
+	reg := buildSinks(testConfig())
+	registered := map[string]bool{}
+	for _, n := range reg.Names() {
+		registered[n] = true
+	}
+	for name := range config.KnownSinks {
+		if !registered[name] {
+			t.Errorf("config.KnownSinks has %q but buildSinks does not register it (dispatch would silently skip it)", name)
+		}
+	}
+	for name := range registered {
+		if !config.KnownSinks[name] {
+			t.Errorf("buildSinks registers %q but config.KnownSinks omits it (routing to it would fail validation)", name)
+		}
+	}
+}
+
 func TestBuildWatchers_ClusterScopeIncludesNode(t *testing.T) {
 	c := fake.NewSimpleClientset()
 	cfg := testConfig()

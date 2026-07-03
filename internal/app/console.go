@@ -3,12 +3,17 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/pprof"
+	"os"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"alertkube/internal/alert"
@@ -34,6 +39,9 @@ type consoleDeps struct {
 	store     *alert.Store
 	silStore  *silence.Store
 	reg       *sinks.Registry
+	// deadLetter is the ring of permanently-abandoned deliveries served by
+	// GET /api/deadletter. nil disables the endpoint (serves an empty list).
+	deadLetter *deadLetterLog
 	// secretRead enables the opt-in Secret-reference channel test (Phase 2b).
 	// Off by default: the test-ref endpoint returns 403 unless this is set, so
 	// the default install keeps its zero-secrets-read posture.
@@ -57,6 +65,71 @@ var channelCredEnv = map[string]string{
 	"opsgenie":   "OPSGENIE_API_KEY",
 	"googlechat": "GOOGLECHAT_WEBHOOK_URL",
 	"mattermost": "MATTERMOST_WEBHOOK_URL",
+}
+
+// buildConsoleDeps resolves the console's auth posture from the environment
+// and bundles it with the stores the handlers serve. The read token guards
+// reads; the write path is fail-closed (see newWriteGate). ALERTKUBE_AUTH_MODE
+// selects token mode (shared ALERTKUBE_API_WRITE_TOKEN, default) or rbac mode
+// (per-request Kubernetes TokenReview + SubjectAccessReview). Each choice is
+// logged loudly because it decides who can read and mutate the controller at
+// runtime.
+func buildConsoleDeps(clientset kubernetes.Interface, cfg *config.Config, store *alert.Store, silStore *silence.Store, reg *sinks.Registry, deadLetter *deadLetterLog) consoleDeps {
+	apiToken := os.Getenv("ALERTKUBE_API_TOKEN")
+	if apiToken == "" {
+		klog.Warningf("/api/alerts on %s is UNAUTHENTICATED and exposes active alert contents; set ALERTKUBE_API_TOKEN (helm: api.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
+	}
+	writeToken := os.Getenv("ALERTKUBE_API_WRITE_TOKEN")
+	var rbacAuth *authz.RBACAuthorizer
+	switch {
+	case strings.ToLower(os.Getenv("ALERTKUBE_AUTH_MODE")) == "rbac":
+		rbacAuth = authz.NewRBACAuthorizer(clientset)
+		klog.Infof("console write auth: rbac mode (TokenReview + SubjectAccessReview); writes require a Kubernetes token authorized for the alertkube.io resources - ALERTKUBE_API_WRITE_TOKEN is ignored")
+	case writeToken == "":
+		klog.Infof("console write auth: token mode, but no ALERTKUBE_API_WRITE_TOKEN set - runtime writes are DISABLED (403). Set api.writeToken, or api.authMode=rbac.")
+	default:
+		klog.Infof("console write auth: token mode (shared ALERTKUBE_API_WRITE_TOKEN)")
+	}
+	secretReader := buildSecretReader(clientset)
+	return consoleDeps{
+		apiToken:     apiToken,
+		writeGate:    newWriteGate(writeToken, rbacAuth),
+		cfg:          cfg,
+		store:        store,
+		silStore:     silStore,
+		reg:          reg,
+		deadLetter:   deadLetter,
+		secretRead:   secretReader != nil,
+		secretReader: secretReader,
+	}
+}
+
+// buildSecretReader wires the opt-in (Phase 2b) Secret-reference channel
+// tester: off unless ALERTKUBE_ALLOW_SECRET_READ=true, which (via the chart)
+// also grants the controller secrets:get in its own namespace. The returned
+// reader is namespace- and key-scoped and never returns the value to a client;
+// nil means the feature stays disabled.
+func buildSecretReader(clientset kubernetes.Interface) func(ctx context.Context, name, key string) (string, error) {
+	if !strings.EqualFold(os.Getenv("ALERTKUBE_ALLOW_SECRET_READ"), "true") {
+		return nil
+	}
+	ns := os.Getenv("POD_NAMESPACE")
+	if ns == "" {
+		klog.Warningf("ALERTKUBE_ALLOW_SECRET_READ is set but POD_NAMESPACE is empty; Secret-reference channel testing stays disabled")
+		return nil
+	}
+	klog.Infof("Secret-reference channel testing ENABLED (api.allowSecretRead): the controller may read Secrets in namespace %q to test channel credentials", ns)
+	return func(ctx context.Context, name, key string) (string, error) {
+		s, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		b, ok := s.Data[key]
+		if !ok {
+			return "", fmt.Errorf("key %q not in secret %q", key, name)
+		}
+		return string(b), nil
+	}
 }
 
 // readAuthorized enforces the read token and writes 401 on mismatch.
@@ -112,10 +185,67 @@ func installConsoleHandlers(d consoleDeps) {
 	metrics.SetRenderHandler(newRenderHandler(d))
 	metrics.SetSilencesHandler(newSilencesHandler(d))
 	metrics.SetChannelsHandler(newChannelsHandler(d))
+	metrics.SetDeadLetterHandler(newDeadLetterHandler(d))
 	// The SSE stream reuses the read token; install the same check the read
 	// endpoints use so a follower/pre-controller process serves 503.
 	metrics.SetEventsAuth(func(req *http.Request) bool {
 		return d.apiToken == "" || authz.BearerEqual(req.Header.Get("Authorization"), d.apiToken)
+	})
+	installPprof(d)
+}
+
+// installPprof mounts /debug/pprof for production profiling when
+// ALERTKUBE_ENABLE_PPROF is set. It is opt-in and fail-closed: profiling
+// endpoints can dump heap/goroutine state and drive CPU load, so it refuses to
+// expose them without a read token (set ALERTKUBE_API_TOKEN, and ideally put
+// the data port behind a NetworkPolicy / apiAddr). Disabled by default, the
+// route stays 503, so a default install has no profiling surface.
+func installPprof(d consoleDeps) {
+	if h := newPprofHandler(d); h != nil {
+		metrics.SetPprofHandler(h)
+		klog.Infof("pprof profiling enabled on /debug/pprof (read-token gated)")
+	}
+}
+
+// newPprofHandler builds the read-token-gated pprof handler, or nil when
+// profiling is disabled (default) or would be exposed unauthenticated. Split
+// from installPprof so the opt-in + fail-closed gating is unit-testable.
+func newPprofHandler(d consoleDeps) http.Handler {
+	if !strings.EqualFold(os.Getenv("ALERTKUBE_ENABLE_PPROF"), "true") {
+		return nil
+	}
+	if d.apiToken == "" {
+		klog.Warning("ALERTKUBE_ENABLE_PPROF is set but ALERTKUBE_API_TOKEN is empty; refusing to expose /debug/pprof unauthenticated (set api.token)")
+		return nil
+	}
+	pm := http.NewServeMux()
+	pm.HandleFunc("/debug/pprof/", pprof.Index)
+	pm.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	pm.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	pm.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	pm.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if !d.readAuthorized(req, w) {
+			return
+		}
+		pm.ServeHTTP(w, req)
+	})
+}
+
+// newDeadLetterHandler serves the read-only list of permanently-abandoned
+// deliveries (token-gated). A nil ring (not wired) serves an empty list so the
+// endpoint is always well-formed.
+func newDeadLetterHandler(d consoleDeps) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if !d.readAuthorized(req, w) {
+			return
+		}
+		var entries []deadLetterEntry
+		if d.deadLetter != nil {
+			entries = d.deadLetter.List()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"deadLetter": entries})
 	})
 }
 

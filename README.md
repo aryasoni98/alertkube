@@ -18,10 +18,10 @@ alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets
 
 ## Install
 
-Latest release: [v1.1.0](https://github.com/aryasoni98/alertkube/releases/latest).
+Latest release: [v1.2.0](https://github.com/aryasoni98/alertkube/releases/latest).
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.1.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -37,7 +37,7 @@ helm upgrade --install alertkube ./helm \
 Image:
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v1.1.0
+docker pull ghcr.io/aryasoni98/alertkube:v1.2.0
 ```
 
 ## Key Capabilities
@@ -48,14 +48,14 @@ docker pull ghcr.io/aryasoni98/alertkube:v1.1.0
 - **State:** ConfigMap persistence preserves active alerts and mute history across restarts.
 - **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and Alertmanager webhook receiver.
 - **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, Grafana dashboard.
-- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer, no controller-runtime — [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
-- **Web console (read-only):** embedded single-binary UI on the metrics port — view active alerts, the loaded config, and suppression counts. Guarded by `api.token`; config stays source-of-truth in Git.
+- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer, no controller-runtime - [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
+- **Web console (read-only):** embedded single-binary UI on the metrics port - view active alerts, the loaded config, and suppression counts. Guarded by `api.token`; config stays source-of-truth in Git.
 
 ## Web Console
 
 A read-only console is embedded in the binary (no extra service, no npm) at `/` on the metrics port: active alerts + history, the effective config, and suppression counts from `/metrics`. `POST /api/config/validate` checks a candidate config before you commit it.
 
-Durable config is **never applied live** — you author it, review the diff, and commit to Git/ConfigMap (Git stays source of truth). The one runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
+Durable config is **never applied live** - you author it, review the diff, and commit to Git/ConfigMap (Git stays source of truth). The one runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
 
 ```bash
 kubectl -n <ns> port-forward deploy/alertkube 9090:9090
@@ -64,9 +64,9 @@ open http://localhost:9090/   # paste ALERTKUBE_API_TOKEN (helm: api.token) when
 
 Auth model (writes **fail closed**, every mutation audit-logged and counted via `alertkube_runtime_mutations_total`):
 
-- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`) — `Authorization: Bearer <api.token>`.
-- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) — gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a real Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources (`silences`, `channels`), managed with ordinary RBAC.
-- **Channel test-fire** reuses the sink's loaded credentials (no Secret read/stored) and sends a *real* notification. Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time without storing it — the one place the zero-secrets-read posture bends.
+- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`) - `Authorization: Bearer <api.token>`.
+- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) - gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a real Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources (`silences`, `channels`), managed with ordinary RBAC.
+- **Channel test-fire** reuses the sink's loaded credentials (no Secret read/stored) and sends a *real* notification. Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time without storing it - the one place the zero-secrets-read posture bends.
 - Data endpoints serve only from the elected leader; lock the port down with `networkPolicy.enabled=true`.
 
 ## Minimal Config

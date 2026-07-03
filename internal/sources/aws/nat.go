@@ -13,10 +13,7 @@ import (
 
 const sourceNAT = "aws-nat"
 
-type natRegion struct {
-	region string
-	client natAPI
-}
+type natRegion = regionClient[natAPI]
 
 // natSource alerts on NAT gateways in the Failed state - a failed NAT gateway
 // silently breaks outbound connectivity for its subnet. Pending / deleting /
@@ -29,27 +26,20 @@ type natSource struct {
 func (s *natSource) Name() string { return sourceNAT }
 
 func (s *natSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *natSource) pollRegion(ctx context.Context, rc natRegion, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceNAT, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.DescribeNatGateways(ctx, &ec2.DescribeNatGatewaysInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceNAT, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.NatGateways {
 			evaluateNatGateway(rc.region, out.NatGateways[i], emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 func evaluateNatGateway(region string, ng ec2types.NatGateway, emit sources.Emit) {

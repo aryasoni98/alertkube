@@ -1,36 +1,33 @@
 package sinks
 
 import (
-	"context"
 	"fmt"
+	"html"
 
 	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
 	"alertkube/internal/textutil"
 )
 
-// GoogleChatSink posts a card to a Google Chat space via an incoming webhook.
+// NewGoogleChat posts a card to a Google Chat space via an incoming webhook.
 // The webhook URL is read on each Send so a Secret rotation is honored without
 // a process restart (mirrors the other webhook sinks).
-type GoogleChatSink struct{}
+func init() { Register("googlechat", func(SinkConfig) Sink { return NewGoogleChat() }) }
 
-func NewGoogleChat() *GoogleChatSink { return &GoogleChatSink{} }
+func NewGoogleChat() Sink {
+	return &webhookSink{name: "googlechat", credEnv: "GOOGLECHAT_WEBHOOK_URL", payload: googleChatPayload}
+}
 
-func (*GoogleChatSink) Name() string                   { return "googlechat" }
-func (*GoogleChatSink) Supports(_ alert.Severity) bool { return true }
-
-func (*GoogleChatSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := cred(ctx, "GOOGLECHAT_WEBHOOK_URL")
-	if url == "" {
-		return nil
-	}
-
+func googleChatPayload(a *alert.Alert) any {
+	// decoratedText and textParagraph render a subset of HTML (<b>, <a href>,
+	// ...), so escape the alert-derived values to stop an injected tag from
+	// rendering a link/markup. The plain-text `text` fallback and the card
+	// header are not HTML-rendered and are left as-is.
 	widgets := []map[string]any{
-		{"decoratedText": map[string]any{"topLabel": "Cluster", "text": orDash(a.Cluster)}},
-		{"decoratedText": map[string]any{"topLabel": "Namespace", "text": orDash(a.Namespace)}},
-		{"decoratedText": map[string]any{"topLabel": "Reason", "text": orDash(a.Reason)}},
-		{"textParagraph": map[string]any{"text": textutil.Head(a.Summary, 4096)}},
+		{"decoratedText": map[string]any{"topLabel": "Cluster", "text": html.EscapeString(orDash(a.Cluster))}},
+		{"decoratedText": map[string]any{"topLabel": "Namespace", "text": html.EscapeString(orDash(a.Namespace))}},
+		{"decoratedText": map[string]any{"topLabel": "Reason", "text": html.EscapeString(orDash(a.Reason))}},
+		{"textParagraph": map[string]any{"text": html.EscapeString(textutil.Head(a.Summary, 4096))}},
 	}
 	if runbook, ok := templates.Runbook(a); ok {
 		widgets = append(widgets, map[string]any{
@@ -52,9 +49,8 @@ func (*GoogleChatSink) Send(ctx context.Context, a *alert.Alert) error {
 	}
 	// `text` gives a plain fallback in notifications/clients that do not render
 	// cards; `cardsV2` is the modern card format.
-	payload := map[string]any{
+	return map[string]any{
 		"text":    alertTitle(a),
 		"cardsV2": []map[string]any{card},
 	}
-	return httpx.PostJSON(ctx, url, payload)
 }

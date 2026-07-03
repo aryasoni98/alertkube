@@ -31,6 +31,39 @@ import (
 
 const provider = "gcp"
 
+// init self-registers the GCP provider (see sources.RegisterProvider).
+func init() {
+	sources.RegisterProvider(sources.Provider{
+		Name:        provider,
+		Enabled:     func(c *config.Config) bool { return c.GCP.Enabled },
+		PollSeconds: func(c *config.Config) int { return c.GCP.PollSeconds },
+		Build:       NewProvider,
+	})
+}
+
+// projectLister lists items of type T for one project. Every GCP source's
+// lister satisfies this shape, so pollByProject can drive any of them.
+type projectLister[T any] interface {
+	List(ctx context.Context, project string) ([]T, error)
+}
+
+// pollByProject lists items per project - recording a poll error and skipping
+// that project on failure - then runs eval for each item. It replaces the
+// identical projects/list/pollErr/iterate loop every GCP source duplicated, so
+// that shape lives in exactly one place.
+func pollByProject[T any, L projectLister[T]](ctx context.Context, source string, projects []string, lister L, emit sources.Emit, eval func(project string, item T, emit sources.Emit)) {
+	for _, project := range projects {
+		items, err := lister.List(ctx, project)
+		if err != nil {
+			pollErr(source, project, err)
+			continue
+		}
+		for i := range items {
+			eval(project, items[i], emit)
+		}
+	}
+}
+
 // gkeLister lists clusters in one project across all locations. The real
 // adapter calls the Cluster Manager API; tests provide a fake.
 type gkeLister interface {

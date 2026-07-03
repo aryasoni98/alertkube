@@ -11,6 +11,8 @@ import (
 // StdoutSink prints alerts to klog - useful for local development.
 type StdoutSink struct{}
 
+func init() { Register("stdout", func(SinkConfig) Sink { return NewStdout() }) }
+
 func NewStdout() *StdoutSink { return &StdoutSink{} }
 
 func (*StdoutSink) Name() string                   { return "stdout" }
