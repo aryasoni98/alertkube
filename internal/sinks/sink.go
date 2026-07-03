@@ -131,14 +131,28 @@ func (r *Registry) SetRate(name string, limit rate.Limit, burst int) {
 // per-sink timeout, rate limiter, and panic safety. Resolved alerts skip
 // the Supports severity gate so a resolve always follows its trigger
 // (PagerDuty drops resolves for unknown dedup keys, so extras are harmless).
-// Returns false only when at least one sink was attempted and every
-// attempt failed - callers use that to roll back dedupe state so the next
-// firing retries delivery.
+//
+// Return contract (callers roll back dedupe state on false so the next
+// firing retries delivery):
+//   - at least one sink attempted: true iff at least one attempt succeeded.
+//   - nothing attempted because every routed sink was short-circuited by an
+//     OPEN circuit breaker (firing alert): false. Reporting success here
+//     would mute the alert for the whole mute window while it reached no
+//     sink at all - a silent loss, the worst failure mode for an alerting
+//     system. False makes the caller retry once the breaker recovers.
+//   - nothing attempted because the route was genuinely empty (no matching
+//     sinks, or none supported the severity): true. There is nothing to
+//     deliver, and retrying forever would churn.
 func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string) bool {
 	var (
 		wg        sync.WaitGroup
 		succeeded atomic.Int32
 		attempted int
+		// breakerSkipped counts sinks skipped solely because their breaker
+		// was open. Incremented on the caller goroutine (before fan-out), so
+		// a plain int is safe. It disambiguates "nothing to deliver" from
+		// "everything short-circuited" in the return value below.
+		breakerSkipped int
 	)
 	for _, name := range names {
 		r.mu.RLock()
@@ -155,6 +169,7 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 		// breaker: a resolve must always be attempted so a recovering incident
 		// sink can close its incident even while the breaker is open.
 		if brk != nil && !a.Resolved && !brk.Allow() {
+			breakerSkipped++
 			metrics.AlertsSuppressed.WithLabelValues("circuit_open").Inc()
 			metrics.SinkBreakerOpen.WithLabelValues(name).Set(1)
 			klog.Warningf("sink %q circuit open: skipping %s (endpoint failing)", name, a)
@@ -216,7 +231,14 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 		}(name, s, limiter, brk)
 	}
 	wg.Wait()
-	return attempted == 0 || succeeded.Load() > 0
+	if attempted > 0 {
+		return succeeded.Load() > 0
+	}
+	// Nothing was attempted. If sinks were skipped only because their
+	// breakers are open, report failure so the caller retries the firing
+	// once the endpoint recovers instead of muting an undelivered alert. A
+	// genuinely empty route (breakerSkipped == 0) returns true.
+	return breakerSkipped == 0
 }
 
 // setBreakerGauge mirrors a breaker's open/closed state onto the metric.

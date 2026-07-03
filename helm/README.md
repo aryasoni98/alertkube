@@ -1,7 +1,7 @@
 # alertkube Helm chart
 
-Deploys [alertkube](https://github.com/aryasoni98/alertkube) — a Kubernetes
-multi-resource alerting controller — with RBAC, metrics, optional HA, and
+Deploys [alertkube](https://github.com/aryasoni98/alertkube) - a Kubernetes
+multi-resource alerting controller - with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
 ![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.0](https://img.shields.io/badge/AppVersion-1.1.0-informational?style=flat-square)

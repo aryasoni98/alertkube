@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -22,17 +20,21 @@ import (
 	"alertkube/internal/authz"
 	"alertkube/internal/config"
 	"alertkube/internal/crd"
+	"alertkube/internal/env"
 	"alertkube/internal/group"
 	"alertkube/internal/metrics"
 	"alertkube/internal/persist"
 	"alertkube/internal/receiver"
 	"alertkube/internal/router"
 	"alertkube/internal/rules"
+	"alertkube/internal/shard"
 	"alertkube/internal/silence"
 	"alertkube/internal/sources"
-	awssource "alertkube/internal/sources/aws"
-	azuresource "alertkube/internal/sources/azure"
-	gcpsource "alertkube/internal/sources/gcp"
+	// Cloud providers self-register into the sources registry via init; blank
+	// imports pull them in so startCloudSources can iterate them.
+	_ "alertkube/internal/sources/aws"
+	_ "alertkube/internal/sources/azure"
+	_ "alertkube/internal/sources/gcp"
 	"alertkube/internal/watchers"
 )
 
@@ -66,17 +68,19 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	r.SetDisableAnnotationSilences(cfg.Behavior.DisableAnnotationSilences)
 	r.SetMaintenance(cfg.Maintenance)
 
-	// Optional Silence CRD watch: a dynamic informer keeps an in-memory store of
-	// Silence CRs the router consults like file silences. The CRD's etcd is its
-	// source of truth (no ConfigMap persistence). Started below on the wg so the
-	// shutdown sequence drains it; a sync failure (missing CRD/RBAC) is logged
-	// and the controller continues without it. nil dynClient = feature off.
-	var crdSyncer *crd.Syncer
-	if dynClient != nil {
-		crdStore := crd.NewSilenceStore()
-		crdSyncer = crd.NewSyncer(dynClient, crdStore, watchNamespace)
-		r.SetCRDSilences(crdStore.List)
-	}
+	// Delivery runs on a bounded worker pool, decoupled from the informer,
+	// receiver, source, and sweeper goroutines that produce alerts: they
+	// enqueue near-instantly while workers perform the blocking sink fan-out,
+	// so a slow sink can never stall Kubernetes event processing.
+	disp := newDispatcher(reg, dispatchWorkers(), dispatchQueueSize())
+	// Capture permanently-abandoned deliveries (exhausted resolves, failed
+	// fire-once alerts) so they surface on /api/deadletter + the metric instead
+	// of vanishing into a log line.
+	deadLetter := newDeadLetterLog()
+	disp.SetDeadLetter(deadLetter.Record)
+	disp.Start()
+
+	crdSyncer := setupCRDSilences(dynClient, watchNamespace, r)
 
 	// Runtime silences: time-boxed mutes created from the console without a
 	// redeploy. Persisted into the state ConfigMap (below) so they survive a
@@ -84,20 +88,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	silStore := silence.NewStore()
 	r.SetRuntimeSilences(silStore)
 
-	var grouper *group.Grouper
-	if cfg.Grouping.Enabled {
-		window := time.Duration(cfg.Grouping.WindowSeconds) * time.Second
-		grouper = group.New(window, cfg.Grouping.By, func(s *alert.Alert) {
-			// Summaries never go to stateful incident sinks: those dedupe
-			// storms by fingerprint themselves, and a summary incident has
-			// no resolve to close it.
-			route := dropStateful(r.Route(s))
-			if len(route) == 0 {
-				return
-			}
-			dispatch(reg, s, route)
-		})
-	}
+	grouper := buildGrouper(cfg, r, disp.enqueue)
 
 	// dispatchResolved handles both the store's TTL-based synthetic
 	// resolves and resolves ingested by the webhook receiver.
@@ -115,7 +106,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 				return
 			}
 		}
-		dispatch(reg, a, route)
+		disp.enqueue(a, route, nil)
 	}
 
 	store := alert.NewStore(
@@ -130,102 +121,37 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 		metrics.PublishChange()
 	})
 
-	// Restore persisted state before the informers start so the initial
-	// sync sees the prior mute history and pending resolves survive the
-	// restart instead of leaving PagerDuty incidents dangling.
-	var persister *persist.ConfigMapStore
-	if cfg.Persistence.Enabled {
-		persister = persist.NewConfigMapStore(clientset, cfg.Persistence.Namespace, cfg.Persistence.ConfigMapName)
-		loadCtx, loadCancel := context.WithTimeout(ctx, 10*time.Second)
-		snap, err := persister.Load(loadCtx)
-		loadCancel()
-		switch {
-		case err != nil:
-			klog.Warningf("state restore failed (starting cold): %v", err)
-		case snap != nil:
-			store.Restore(snap)
-			silStore.Replace(snap.RuntimeSilences)
-			klog.Infof("restored state: %d active alerts, %d mute records, %d runtime silences (saved %s)",
-				len(snap.Active), len(snap.LastSent), len(snap.RuntimeSilences), snap.SavedAt.Format(time.RFC3339))
-		}
-	}
+	persister := restoreState(ctx, clientset, cfg, store, silStore, disp)
 
 	// The rule engine observes the firing stream and emits derived alerts back
 	// through emit. ruleEngine is captured by emit's observe callback (assigned
 	// just below), and derived alerts are tagged KindDerived so Observe ignores
 	// them - no feedback loop.
 	var ruleEngine *rules.Engine
-	emit := makeEmitter(store, r, reg, cfg, grouper, func(a *alert.Alert) {
+	emit := makeEmitter(store, r, disp.enqueue, cfg, grouper, func(a *alert.Alert) {
 		if ruleEngine != nil {
 			ruleEngine.Observe(a)
 		}
 	})
 	ruleEngine = rules.New(cfg.Rules, emit)
 
-	// Console + control-plane HTTP handlers. The read token guards reads; the
-	// write path is fail-closed (see newWriteGate). ALERTKUBE_AUTH_MODE selects
-	// token mode (shared ALERTKUBE_API_WRITE_TOKEN, default) or rbac mode
-	// (per-request Kubernetes TokenReview + SubjectAccessReview). Handlers live
-	// in console.go so they are unit-testable.
-	apiToken := os.Getenv("ALERTKUBE_API_TOKEN")
-	if apiToken == "" {
-		klog.Warningf("/api/alerts on %s is UNAUTHENTICATED and exposes active alert contents; set ALERTKUBE_API_TOKEN (helm: api.token) or restrict the port with a NetworkPolicy", cfg.MetricsAddr)
-	}
-	writeToken := os.Getenv("ALERTKUBE_API_WRITE_TOKEN")
-	var rbacAuth *authz.RBACAuthorizer
-	if strings.ToLower(os.Getenv("ALERTKUBE_AUTH_MODE")) == "rbac" {
-		rbacAuth = authz.NewRBACAuthorizer(clientset)
-		klog.Infof("console write auth: rbac mode (TokenReview + SubjectAccessReview); writes require a Kubernetes token authorized for the alertkube.io resources - ALERTKUBE_API_WRITE_TOKEN is ignored")
-	} else if writeToken == "" {
-		klog.Infof("console write auth: token mode, but no ALERTKUBE_API_WRITE_TOKEN set - runtime writes are DISABLED (403). Set api.writeToken, or api.authMode=rbac.")
-	} else {
-		klog.Infof("console write auth: token mode (shared ALERTKUBE_API_WRITE_TOKEN)")
-	}
-	// Phase 2b (opt-in): Secret-reference channel testing. Off unless
-	// ALERTKUBE_ALLOW_SECRET_READ=true, which (via the chart) also grants the
-	// controller secrets:get in its own namespace. The reader is namespace- and
-	// key-scoped and never returns the value to a client.
-	secretRead := strings.EqualFold(os.Getenv("ALERTKUBE_ALLOW_SECRET_READ"), "true")
-	var secretReader func(context.Context, string, string) (string, error)
-	if secretRead {
-		ns := os.Getenv("POD_NAMESPACE")
-		if ns == "" {
-			klog.Warningf("ALERTKUBE_ALLOW_SECRET_READ is set but POD_NAMESPACE is empty; Secret-reference channel testing stays disabled")
-			secretRead = false
-		} else {
-			secretReader = func(ctx context.Context, name, key string) (string, error) {
-				s, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
-				if err != nil {
-					return "", err
-				}
-				b, ok := s.Data[key]
-				if !ok {
-					return "", fmt.Errorf("key %q not in secret %q", key, name)
-				}
-				return string(b), nil
-			}
-			klog.Infof("Secret-reference channel testing ENABLED (api.allowSecretRead): the controller may read Secrets in namespace %q to test channel credentials", ns)
-		}
-	}
-
-	installConsoleHandlers(consoleDeps{
-		apiToken:     apiToken,
-		writeGate:    newWriteGate(writeToken, rbacAuth),
-		cfg:          cfg,
-		store:        store,
-		silStore:     silStore,
-		reg:          reg,
-		secretRead:   secretRead,
-		secretReader: secretReader,
-	})
+	installConsoleHandlers(buildConsoleDeps(clientset, cfg, store, silStore, reg, deadLetter))
 
 	setupReceiver(cfg, store, emit, dispatchResolved)
 
-	ws := startInformers(ctx, clientset, cfg, watchNamespace, emit)
+	// Static hash-based sharding (A2): with ALERTKUBE_SHARD_TOTAL > 1, this
+	// replica only acts on objects it owns. The gate wraps the high-volume
+	// producer paths (watchers + cloud sources); the receiver and rule engine
+	// keep the ungated emit (received alerts are handled by whichever replica
+	// gets them, and derived alerts are low volume). Default (total=1) = no-op.
+	sharder := buildSharder()
+	shardedEmit := shardGate(emit, sharder)
+
+	ws := startInformers(ctx, clientset, cfg, watchNamespace, shardedEmit)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go runSweeper(ctx, &wg, store, silStore, persister, reg, cfg)
+	go runSweeper(ctx, &wg, store, silStore, persister, disp, cfg)
 
 	// The grouper runs on its own cancel (not the controller ctx) so the
 	// shutdown sequence can finish in-flight enrichment - which may still
@@ -241,35 +167,8 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 		}()
 	}
 
-	// Optional cloud sources (AWS/Azure/GCP) run beside the informers on the
-	// same emit pipeline. Each provider's construction can fail (credentials/
-	// config), but that must never take down the Kubernetes watchers: log and
-	// continue without that provider.
-	startCloud := func(name string, pollSeconds int, build func(context.Context) ([]sources.Source, error)) {
-		srcs, err := build(ctx)
-		if err != nil {
-			klog.Errorf("%s sources disabled (continuing without them): %v", name, err)
-			return
-		}
-		if len(srcs) == 0 {
-			return
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sources.Run(ctx, time.Duration(pollSeconds)*time.Second, emit, srcs...)
-		}()
-		klog.Infof("%s sources enabled: %d source(s), polling every %ds", name, len(srcs), pollSeconds)
-	}
-	if cfg.AWS.Enabled {
-		startCloud("aws", cfg.AWS.PollSeconds, func(c context.Context) ([]sources.Source, error) { return awssource.NewProvider(c, cfg) })
-	}
-	if cfg.Azure.Enabled {
-		startCloud("azure", cfg.Azure.PollSeconds, func(c context.Context) ([]sources.Source, error) { return azuresource.NewProvider(c, cfg) })
-	}
-	if cfg.GCP.Enabled {
-		startCloud("gcp", cfg.GCP.PollSeconds, func(c context.Context) ([]sources.Source, error) { return gcpsource.NewProvider(c, cfg) })
-	}
+	startCloudSources(ctx, &wg, cfg, shardedEmit)
+
 	if ruleEngine.Enabled() {
 		wg.Add(1)
 		go func() {
@@ -293,7 +192,138 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 
 	<-ctx.Done()
 	klog.Infof("%s shutting down", appName)
-	shutdown(ws, grouperStop, &wg, persister, store, silStore)
+	shutdown(ws, grouperStop, &wg, disp, persister, store, silStore)
+}
+
+// buildSharder configures static hash-based sharding from the environment.
+// ALERTKUBE_SHARD_TOTAL <= 1 (default) disables it (this replica owns
+// everything, unchanged single-replica behavior). When enabled,
+// ALERTKUBE_SHARD_INDEX must be in [0, total); an invalid pair is fatal so a
+// misconfigured shard set fails fast rather than silently owning nothing/all.
+func buildSharder() *shard.Sharder {
+	total := env.IntOr("ALERTKUBE_SHARD_TOTAL", 1)
+	index := env.IntOr("ALERTKUBE_SHARD_INDEX", 0)
+	s, ok := shard.New(index, total)
+	if !ok {
+		klog.Fatalf("invalid sharding config: ALERTKUBE_SHARD_INDEX=%d must be in [0,%d)", index, total)
+	}
+	if s.Enabled() {
+		klog.Infof("sharding enabled: shard %d of %d (this replica owns objects where hash(kind/ns/name) mod %d == %d); scaling requires a rollout of ALERTKUBE_SHARD_TOTAL", s.Index(), s.Total(), s.Total(), s.Index())
+	}
+	return s
+}
+
+// shardGate wraps emit so only alerts for objects this replica owns proceed;
+// foreign-shard alerts are dropped (another replica owns them). Applied to the
+// watcher and cloud-source paths only. Returns emit unchanged when sharding is
+// disabled, so a single replica has zero overhead.
+func shardGate(emit watchers.Emit, s *shard.Sharder) watchers.Emit {
+	if !s.Enabled() {
+		return emit
+	}
+	return func(a *alert.Alert) {
+		if s.Owns(shardKey(a)) {
+			emit(a)
+			return
+		}
+		metrics.AlertsSuppressed.WithLabelValues("foreign_shard").Inc()
+	}
+}
+
+// shardKey is the per-object ownership key: identity only (kind/namespace/name),
+// NOT the fingerprint - so every reason on an object, and its delete-resolve,
+// are owned by the same replica (a fingerprint includes the reason and would
+// split one object's alerts across shards).
+func shardKey(a *alert.Alert) string {
+	return string(a.Kind) + "/" + a.Namespace + "/" + a.Name
+}
+
+// setupCRDSilences wires the optional Silence CRD watch: a dynamic informer
+// keeps an in-memory store of Silence CRs the router consults like file
+// silences. The CRD's etcd is its source of truth (no ConfigMap persistence).
+// Returns nil when the feature is off (nil dynClient); the caller starts the
+// syncer on the shutdown WaitGroup so the drain sequence covers it.
+func setupCRDSilences(dynClient dynamic.Interface, watchNamespace string, r *router.Router) *crd.Syncer {
+	if dynClient == nil {
+		return nil
+	}
+	crdStore := crd.NewSilenceStore()
+	r.SetCRDSilences(crdStore.List)
+	return crd.NewSyncer(dynClient, crdStore, watchNamespace)
+}
+
+// buildGrouper constructs the optional alert grouper, or nil when grouping is
+// disabled. Flushed summaries route like alerts but never go to stateful
+// incident sinks: those dedupe storms by fingerprint themselves, and a summary
+// incident has no resolve to close it.
+func buildGrouper(cfg *config.Config, r *router.Router, enqueue enqueueFunc) *group.Grouper {
+	if !cfg.Grouping.Enabled {
+		return nil
+	}
+	window := time.Duration(cfg.Grouping.WindowSeconds) * time.Second
+	return group.New(window, cfg.Grouping.By, func(s *alert.Alert) {
+		route := dropStateful(r.Route(s))
+		if len(route) == 0 {
+			return
+		}
+		enqueue(s, route, nil)
+	})
+}
+
+// restoreState loads the persisted snapshot into the alert store and
+// runtime-silence store before the informers start, so the initial sync sees
+// the prior mute history and pending resolves survive the restart instead of
+// leaving PagerDuty incidents dangling. Returns the persister for the sweeper
+// and the final shutdown save, or nil when persistence is disabled. A load
+// failure starts cold rather than blocking startup.
+func restoreState(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, store *alert.Store, silStore *silence.Store, disp *dispatcher) *persist.ConfigMapStore {
+	if !cfg.Persistence.Enabled {
+		return nil
+	}
+	persister := persist.NewConfigMapStore(clientset, cfg.Persistence.Namespace, cfg.Persistence.ConfigMapName)
+	loadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	snap, err := persister.Load(loadCtx)
+	switch {
+	case err != nil:
+		klog.Warningf("state restore failed (starting cold): %v", err)
+	case snap != nil:
+		store.Restore(snap)
+		silStore.Replace(snap.RuntimeSilences)
+		// Replay the durable outbox so deliveries that were enqueued but not
+		// acknowledged before the restart resume instead of being lost.
+		replayed := disp.ReplayPending(snap.Pending)
+		klog.Infof("restored state: %d active alerts, %d mute records, %d runtime silences, %d pending deliveries replayed (saved %s)",
+			len(snap.Active), len(snap.LastSent), len(snap.RuntimeSilences), replayed, snap.SavedAt.Format(time.RFC3339))
+	}
+	return persister
+}
+
+// startCloudSources builds each enabled cloud provider (AWS/Azure/GCP) and
+// starts its polling loop beside the informers on the same emit pipeline. A
+// provider whose construction fails (credentials/config) is logged and
+// skipped - a cloud-auth problem must never take down the Kubernetes watchers.
+func startCloudSources(ctx context.Context, wg *sync.WaitGroup, cfg *config.Config, emit watchers.Emit) {
+	for _, p := range sources.Providers() {
+		if !p.Enabled(cfg) {
+			continue
+		}
+		srcs, err := p.Build(ctx, cfg)
+		if err != nil {
+			klog.Errorf("%s sources disabled (continuing without them): %v", p.Name, err)
+			continue
+		}
+		if len(srcs) == 0 {
+			continue
+		}
+		poll := p.PollSeconds(cfg)
+		wg.Add(1)
+		go func(name string, srcs []sources.Source, poll int) {
+			defer wg.Done()
+			sources.Run(ctx, time.Duration(poll)*time.Second, emit, srcs...)
+		}(p.Name, srcs, poll)
+		klog.Infof("%s sources enabled: %d source(s), polling every %ds", p.Name, len(srcs), poll)
+	}
 }
 
 // writeAuthorized gates a control-plane mutation. It fails closed: an empty
@@ -339,12 +369,14 @@ func sanitizeField(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// exportState builds the durable snapshot: alert-store state plus the runtime
-// silences, which live outside the store but share the same state ConfigMap so
-// a UI-created mute survives a leader failover.
-func exportState(store *alert.Store, sil *silence.Store) *alert.Snapshot {
+// exportState builds the durable snapshot: alert-store state, the runtime
+// silences (which live outside the store but share the state ConfigMap so a
+// UI-created mute survives a leader failover), and the dispatcher's outbox
+// (undelivered deliveries, replayed on restart).
+func exportState(store *alert.Store, sil *silence.Store, disp *dispatcher) *alert.Snapshot {
 	snap := store.Export()
 	snap.RuntimeSilences = sil.List()
+	snap.Pending = disp.PendingSnapshot()
 	return snap
 }
 
@@ -449,9 +481,15 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 // shutdown runs the controller's drain sequence in the one order that does
 // not drop alerts: finish in-flight pod enrichment first (those alerts must
 // reach the store and grouper), then stop the grouper so it flushes open
-// windows, wait for the sweeper + grouper goroutines, save final state on a
-// fresh deadline (ctx is already cancelled), and finally mark not-ready.
-func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, persister *persist.ConfigMapStore, store *alert.Store, silStore *silence.Store) {
+// windows, wait for the sweeper + grouper goroutines, drain the dispatch queue
+// so every enqueued alert is actually delivered, save final state on a fresh
+// deadline (ctx is already cancelled), and finally mark not-ready.
+//
+// The dispatcher is drained after wg.Wait so every producer (enrichment,
+// grouper flush, sweeper escalations, cloud sources, rules) has stopped
+// enqueuing before the queue is closed, and before the final save so a
+// delivery failure's dedupe rollback is reflected in the saved snapshot.
+func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, disp *dispatcher, persister *persist.ConfigMapStore, store *alert.Store, silStore *silence.Store) {
 	// Stop serving the leader-scoped routes first. The HTTP server outlives
 	// leader election, so a demoted leader would otherwise keep accepting
 	// receiver POSTs (202) into the store we are about to abandon - silently
@@ -464,13 +502,18 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, per
 	metrics.ClearRenderHandler()
 	metrics.ClearSilencesHandler()
 	metrics.ClearChannelsHandler()
+	metrics.ClearDeadLetterHandler()
+	metrics.ClearPprofHandler()
 	metrics.ClearEventsAuth()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()
+	// All producers have stopped; drain the queued deliveries before the final
+	// save so nothing enqueued during the drain is abandoned.
+	disp.Shutdown()
 	if persister != nil {
 		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := persister.Save(saveCtx, exportState(store, silStore)); err != nil {
+		if err := persister.Save(saveCtx, exportState(store, silStore, disp)); err != nil {
 			klog.Warningf("final state save: %v", err)
 		}
 		saveCancel()

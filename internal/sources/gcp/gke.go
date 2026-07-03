@@ -23,17 +23,10 @@ type gkeSource struct {
 func (s *gkeSource) Name() string { return sourceGKE }
 
 func (s *gkeSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, project := range s.projects {
-		clusters, err := s.lister.List(ctx, project)
-		if err != nil {
-			pollErr(sourceGKE, project, err)
-			continue
-		}
-		for _, c := range clusters {
-			evaluateGKECluster(project, c, emit)
-			evaluateGKENodePools(project, c, emit)
-		}
-	}
+	pollByProject(ctx, sourceGKE, s.projects, s.lister, emit, func(project string, c *containerpb.Cluster, emit sources.Emit) {
+		evaluateGKECluster(project, c, emit)
+		evaluateGKENodePools(project, c, emit)
+	})
 }
 
 func evaluateGKECluster(project string, c *containerpb.Cluster, emit sources.Emit) {
@@ -42,10 +35,7 @@ func evaluateGKECluster(project string, c *containerpb.Cluster, emit sources.Emi
 	}
 	name := c.GetName()
 	location := c.GetLocation()
-	scope := project
-	if location != "" {
-		scope = project + "/" + location
-	}
+	scope := sources.Scope(project, location)
 	status := c.GetStatus()
 	details := map[string]string{"status": status.String(), "location": location}
 
@@ -71,10 +61,7 @@ func evaluateGKENodePools(project string, c *containerpb.Cluster, emit sources.E
 		return
 	}
 	cluster := c.GetName()
-	scope := project
-	if loc := c.GetLocation(); loc != "" {
-		scope = project + "/" + loc
-	}
+	scope := sources.Scope(project, c.GetLocation())
 	for _, np := range c.GetNodePools() {
 		if np == nil || np.GetName() == "" {
 			continue

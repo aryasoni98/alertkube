@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -19,17 +20,31 @@ type fakeS3 struct {
 	pab       map[string]*s3.GetPublicAccessBlockOutput
 	pabErr    map[string]error
 	listErr   error
+	// pageSize > 0 makes ListBuckets paginate the bucket list, using the
+	// continuation token as a start index, so tests can exercise multi-page
+	// accounts. 0 returns everything in one page (the common case).
+	pageSize int
 }
 
-func (f *fakeS3) ListBuckets(_ context.Context, _ *s3.ListBucketsInput, _ ...func(*s3.Options)) (*s3.ListBucketsOutput, error) {
+func (f *fakeS3) ListBuckets(_ context.Context, in *s3.ListBucketsInput, _ ...func(*s3.Options)) (*s3.ListBucketsOutput, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
+	start := 0
+	if in.ContinuationToken != nil {
+		start, _ = strconv.Atoi(*in.ContinuationToken)
+	}
+	end := len(f.buckets)
+	var next *string
+	if f.pageSize > 0 && start+f.pageSize < len(f.buckets) {
+		end = start + f.pageSize
+		next = awssdk.String(strconv.Itoa(end))
+	}
 	var bs []s3types.Bucket
-	for _, n := range f.buckets {
+	for _, n := range f.buckets[start:end] {
 		bs = append(bs, s3types.Bucket{Name: awssdk.String(n)})
 	}
-	return &s3.ListBucketsOutput{Buckets: bs}, nil
+	return &s3.ListBucketsOutput{Buckets: bs, ContinuationToken: next}, nil
 }
 
 func (f *fakeS3) GetBucketPolicyStatus(_ context.Context, in *s3.GetBucketPolicyStatusInput, _ ...func(*s3.Options)) (*s3.GetBucketPolicyStatusOutput, error) {
@@ -123,5 +138,34 @@ func TestS3SourcePoll(t *testing.T) {
 	}
 	if len(*got) != 3 {
 		t.Fatalf("expected 3 alerts (denied skipped), got %d", len(*got))
+	}
+}
+
+func TestS3SourcePollPaginates(t *testing.T) {
+	// A publicly-exposed bucket on a later page must still be detected; before
+	// pagination, only the first page was listed and it would be missed.
+	fake := &fakeS3{
+		buckets:  []string{"b1", "b2", "pub-last"},
+		pageSize: 1, // force three separate pages
+		policy: map[string]*s3.GetBucketPolicyStatusOutput{
+			"b1": policyStatus(false), "b2": policyStatus(false), "pub-last": policyStatus(true),
+		},
+		pab: map[string]*s3.GetPublicAccessBlockOutput{
+			"b1": pabAll(true), "b2": pabAll(true),
+		},
+		pabErr: map[string]error{"pub-last": apiErr("NoSuchPublicAccessBlockConfiguration")},
+	}
+	src := &s3Source{client: fake}
+	emit, got := collect()
+	src.Poll(context.Background(), emit)
+
+	var found *alert.Alert
+	for _, a := range *got {
+		if a.Name == "pub-last" {
+			found = a
+		}
+	}
+	if found == nil || found.Resolved || found.Reason != "S3BucketPublic" {
+		t.Fatalf("public bucket on a later page must be detected across pagination: %+v", found)
 	}
 }

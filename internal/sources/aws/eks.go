@@ -14,10 +14,7 @@ import (
 
 const sourceEKS = "aws-eks"
 
-type eksRegion struct {
-	region string
-	client eksAPI
-}
+type eksRegion = regionClient[eksAPI]
 
 // eksSource discovers EKS clusters per region and alerts on their control-plane
 // health. A cluster that is not ACTIVE (FAILED/DELETING/CREATING/UPDATING/
@@ -31,9 +28,7 @@ type eksSource struct {
 func (s *eksSource) Name() string { return sourceEKS }
 
 func (s *eksSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *eksSource) pollRegion(ctx context.Context, rc eksRegion, emit sources.Emit) {
@@ -60,12 +55,10 @@ func (s *eksSource) pollRegion(ctx context.Context, rc eksRegion, emit sources.E
 // not embed node groups in DescribeCluster (unlike AKS/GKE), so this issues
 // ListNodegroups + DescribeNodegroup per cluster.
 func (s *eksSource) pollNodegroups(ctx context.Context, rc eksRegion, cluster string, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceEKS, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		list, err := rc.client.ListNodegroups(ctx, &eks.ListNodegroupsInput{ClusterName: awssdk.String(cluster), NextToken: token})
 		if err != nil {
-			pollErr(sourceEKS, rc.region, err)
-			return
+			return nil, err
 		}
 		for _, ng := range list.Nodegroups {
 			out, err := rc.client.DescribeNodegroup(ctx, &eks.DescribeNodegroupInput{
@@ -81,11 +74,8 @@ func (s *eksSource) pollNodegroups(ctx context.Context, rc eksRegion, cluster st
 			}
 			evaluateNodegroup(rc.region, cluster, out.Nodegroup, emit)
 		}
-		if list.NextToken == nil || *list.NextToken == "" {
-			return
-		}
-		token = list.NextToken
-	}
+		return list.NextToken, nil
+	})
 }
 
 // evaluateNodegroup maps a node group's status + control-plane health onto a
@@ -120,10 +110,19 @@ func evaluateNodegroup(region, cluster string, ng *ekstypes.Nodegroup, emit sour
 }
 
 func nodegroupIssueSummary(issues []ekstypes.Issue) string {
+	return issueSummary(issues, func(is ekstypes.Issue) (string, string) {
+		return string(is.Code), awssdk.ToString(is.Message)
+	})
+}
+
+// issueSummary renders EKS health issues as a compact "CODE: message; CODE:
+// message" string for the alert body. Cluster and node-group issues are
+// distinct SDK types with the same shape, so the rendering is generic over an
+// extractor.
+func issueSummary[T any](issues []T, extract func(T) (code, msg string)) string {
 	parts := make([]string, 0, len(issues))
 	for _, is := range issues {
-		code := string(is.Code)
-		msg := awssdk.ToString(is.Message)
+		code, msg := extract(is)
 		switch {
 		case code != "" && msg != "":
 			parts = append(parts, code+": "+msg)
@@ -192,21 +191,8 @@ func evaluateEKSCluster(region string, c *ekstypes.Cluster, emit sources.Emit) {
 	emitResolve(emit, alert.KindEKSCluster, region, name)
 }
 
-// eksIssueSummary renders the cluster health issues as a compact
-// "CODE: message; CODE: message" string for the alert body.
 func eksIssueSummary(issues []ekstypes.ClusterIssue) string {
-	parts := make([]string, 0, len(issues))
-	for _, is := range issues {
-		code := string(is.Code)
-		msg := awssdk.ToString(is.Message)
-		switch {
-		case code != "" && msg != "":
-			parts = append(parts, code+": "+msg)
-		case code != "":
-			parts = append(parts, code)
-		case msg != "":
-			parts = append(parts, msg)
-		}
-	}
-	return strings.Join(parts, "; ")
+	return issueSummary(issues, func(is ekstypes.ClusterIssue) (string, string) {
+		return string(is.Code), awssdk.ToString(is.Message)
+	})
 }

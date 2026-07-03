@@ -8,10 +8,41 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/config"
+	"alertkube/internal/metrics"
 )
+
+// alwaysPagingCloudTrail always returns a next token, so the lookup never
+// terminates on its own - used to exercise the page-cap truncation guard.
+type alwaysPagingCloudTrail struct{ calls int }
+
+func (f *alwaysPagingCloudTrail) LookupEvents(_ context.Context, _ *cloudtrail.LookupEventsInput, _ ...func(*cloudtrail.Options)) (*cloudtrail.LookupEventsOutput, error) {
+	f.calls++
+	return &cloudtrail.LookupEventsOutput{NextToken: awssdk.String("more")}, nil
+}
+
+func TestCloudTrailTruncationIsObservable(t *testing.T) {
+	before := testutil.ToFloat64(metrics.CloudPollTruncated.WithLabelValues(sourceCloudTrail))
+	fake := &alwaysPagingCloudTrail{}
+	src := &cloudTrailSource{
+		regions:  []cloudTrailRegion{{region: "us-east-1", client: fake}},
+		events:   []string{"CreateUser"},
+		lookback: time.Minute,
+	}
+	emit, _ := collect()
+	src.Poll(context.Background(), emit)
+
+	if fake.calls != maxCloudTrailPages {
+		t.Fatalf("lookup should stop at the %d-page cap, made %d calls", maxCloudTrailPages, fake.calls)
+	}
+	after := testutil.ToFloat64(metrics.CloudPollTruncated.WithLabelValues(sourceCloudTrail))
+	if after != before+1 {
+		t.Fatalf("truncation must increment CloudPollTruncated: before=%v after=%v", before, after)
+	}
+}
 
 type fakeCloudTrail struct {
 	byEvent map[string][]cloudtrailtypes.Event

@@ -28,19 +28,26 @@ func (s *s3Source) Name() string { return sourceS3 }
 // Poll lists every bucket and alerts on those that are publicly exposed
 // (public bucket policy → critical) or not fully protected by a public-access
 // block (→ warning). It is the brief's "S3 Public Access Alerts".
+//
+// ListBuckets is paginated: an account with more than one page of buckets
+// (ListBuckets caps a page, historically at 1000) would otherwise leave later
+// buckets unchecked - so a publicly-exposed bucket beyond the first page would
+// be silently missed. forEachPage walks every page via the continuation token.
 func (s *s3Source) Poll(ctx context.Context, emit sources.Emit) {
-	out, err := s.client.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		pollErr(sourceS3, s3Scope, err)
-		return
-	}
-	for _, b := range out.Buckets {
-		name := awssdk.ToString(b.Name)
-		if name == "" {
-			continue
+	forEachPage(ctx, sourceS3, s3Scope, func(ctx context.Context, token *string) (*string, error) {
+		out, err := s.client.ListBuckets(ctx, &s3.ListBucketsInput{ContinuationToken: token})
+		if err != nil {
+			return nil, err
 		}
-		s.evaluateBucket(ctx, name, emit)
-	}
+		for _, b := range out.Buckets {
+			name := awssdk.ToString(b.Name)
+			if name == "" {
+				continue
+			}
+			s.evaluateBucket(ctx, name, emit)
+		}
+		return out.ContinuationToken, nil
+	})
 }
 
 func (s *s3Source) evaluateBucket(ctx context.Context, name string, emit sources.Emit) {

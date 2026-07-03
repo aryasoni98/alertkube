@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestReadinessToggle(t *testing.T) {
@@ -46,22 +47,75 @@ func TestDynamicHandler(t *testing.T) {
 }
 
 func TestServeNilOnEmptyAddr(t *testing.T) {
-	if srv := Serve(""); srv != nil {
-		t.Fatalf("Serve(\"\") = %v, want nil", srv)
+	if srvs := Serve("", ""); srvs != nil {
+		t.Fatalf("Serve(\"\",\"\") = %v, want nil", srvs)
 	}
 }
 
 func TestServeReturnsServerForAddr(t *testing.T) {
-	srv := Serve("127.0.0.1:0")
-	if srv == nil {
-		t.Fatal("Serve(addr) returned nil")
+	srvs := Serve("127.0.0.1:0", "")
+	if len(srvs) != 1 {
+		t.Fatalf("Serve(addr, \"\") returned %d servers, want 1 (co-located)", len(srvs))
 	}
-	t.Cleanup(func() { _ = srv.Close() })
-	if srv.Addr != "127.0.0.1:0" {
-		t.Fatalf("srv.Addr = %q, want 127.0.0.1:0", srv.Addr)
+	t.Cleanup(func() { _ = srvs[0].Close() })
+	if srvs[0].Addr != "127.0.0.1:0" {
+		t.Fatalf("srv.Addr = %q, want 127.0.0.1:0", srvs[0].Addr)
 	}
-	if srv.ReadHeaderTimeout == 0 {
+	if srvs[0].ReadHeaderTimeout == 0 {
 		t.Fatal("ReadHeaderTimeout must be set to avoid Slowloris")
+	}
+}
+
+func TestServeSplitReturnsTwoServers(t *testing.T) {
+	// Distinct addresses (different strings) trigger the split layout; both
+	// bind an ephemeral port so the test does not collide with anything.
+	srvs := Serve("127.0.0.1:0", "localhost:0")
+	if len(srvs) != 2 {
+		t.Fatalf("split Serve returned %d servers, want 2", len(srvs))
+	}
+	t.Cleanup(func() {
+		for _, s := range srvs {
+			_ = s.Close()
+		}
+	})
+}
+
+func TestMetricsMuxExcludesDataPlane(t *testing.T) {
+	// The metrics/probe mux must NOT expose the sensitive data endpoints, so
+	// that port is safe to leave open when APIAddr firewalls the data plane.
+	m := http.NewServeMux()
+	registerMetricsRoutes(m)
+
+	// /metrics and probes are present.
+	for _, p := range []string{"/metrics", "/healthz", "/readyz"} {
+		rec := httptest.NewRecorder()
+		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code == http.StatusNotFound {
+			t.Fatalf("%s should be served on the metrics mux, got 404", p)
+		}
+	}
+	// Data endpoints are absent (404), not merely 503.
+	for _, p := range []string{"/api/alerts", "/api/v1/alerts", "/api/silences"} {
+		rec := httptest.NewRecorder()
+		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s must NOT be served on the metrics mux, got %d", p, rec.Code)
+		}
+	}
+}
+
+func TestAPIMuxServesDataPlane(t *testing.T) {
+	// The API mux serves the data endpoints (503 until their handlers are
+	// installed, i.e. the route exists) but not /metrics.
+	a := http.NewServeMux()
+	registerAPIRoutes(a)
+	alertsHandler.Store(nil)
+	t.Cleanup(func() { alertsHandler.Store(nil) })
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/alerts", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("/api/alerts on the api mux should be 503 (route present, handler not installed), got %d", rec.Code)
 	}
 }
 
@@ -76,12 +130,35 @@ func TestMuxRoutes(t *testing.T) {
 	channelsHandler.Store(nil)
 	mux := buildMux()
 
-	t.Run("healthz always 200", func(t *testing.T) {
+	t.Run("healthz reflects leader heartbeat", func(t *testing.T) {
+		// Follower / non-leader: always live.
+		SetLeading(false)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 		if rec.Code != http.StatusOK {
-			t.Fatalf("/healthz: got %d, want 200", rec.Code)
+			t.Fatalf("/healthz (follower): got %d, want 200", rec.Code)
 		}
+
+		// Leader with a fresh heartbeat: live.
+		SetLeading(true)
+		Heartbeat()
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("/healthz (fresh leader): got %d, want 200", rec.Code)
+		}
+
+		// Leader whose heartbeat has gone stale: not live, so the kubelet
+		// restarts the wedged controller.
+		lastBeatNano.Store(time.Now().Add(-2 * LivenessStaleWindow).UnixNano())
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("/healthz (stale leader): got %d, want 503", rec.Code)
+		}
+
+		// Reset so other tests/packages see a clean, live process.
+		SetLeading(false)
 	})
 
 	t.Run("metrics 200", func(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/slack-go/slack"
+
 	"alertkube/internal/alert"
 )
 
@@ -13,6 +15,34 @@ func TestBuildResolvedHeader(t *testing.T) {
 	blocks := Build(a)
 	if len(blocks) == 0 {
 		t.Fatal("no blocks built")
+	}
+}
+
+func TestBuildEscapesSlackControlChars(t *testing.T) {
+	// A summary must not be able to inject a Slack link or a broadcast
+	// mention; the mrkdwn control characters are escaped to HTML entities.
+	a := alert.New(alert.KindPod, "ns", "pod-1", "CrashLoopBackOff", alert.SeverityCritical)
+	a.Summary = "<!channel> see <https://evil.example|click> & run"
+	blocks := Build(a)
+
+	var summaryText string
+	for _, b := range blocks {
+		sb, ok := b.(*slack.SectionBlock)
+		if !ok || sb.Text == nil {
+			continue
+		}
+		if strings.HasPrefix(sb.Text.Text, "*Summary:*") {
+			summaryText = sb.Text.Text
+		}
+	}
+	if summaryText == "" {
+		t.Fatal("summary section not found")
+	}
+	if strings.Contains(summaryText, "<!channel>") || strings.Contains(summaryText, "<https://evil.example|click>") {
+		t.Fatalf("summary leaked unescaped Slack control chars: %q", summaryText)
+	}
+	if !strings.Contains(summaryText, "&lt;!channel&gt;") {
+		t.Fatalf("summary should escape <> to entities: %q", summaryText)
 	}
 }
 

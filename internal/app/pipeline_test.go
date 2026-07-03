@@ -54,17 +54,24 @@ func newPipeline(t *testing.T, cfg *config.Config) *pipelineHarness {
 	reg.Add(sink)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 
+	// syncEnqueue delivers inline so tests can assert delivery synchronously;
+	// production uses the async dispatch worker pool with the same signature.
+	syncEnqueue := func(a *alert.Alert, route []string, onFail func()) {
+		if !dispatch(reg, a, route) && onFail != nil {
+			onFail()
+		}
+	}
 	store := alert.NewStore(
 		time.Duration(cfg.Behavior.MuteSeconds)*time.Second,
 		time.Duration(cfg.Behavior.ResolveTTLSeconds)*time.Second,
 		func(a *alert.Alert) {
 			// resolves route then dispatch, mirroring dispatchResolved.
 			if route := r.Route(a); route != nil {
-				dispatch(reg, a, route)
+				syncEnqueue(a, route, nil)
 			}
 		},
 	)
-	emit := makeEmitter(store, r, reg, cfg, nil, nil)
+	emit := makeEmitter(store, r, syncEnqueue, cfg, nil, nil)
 	return &pipelineHarness{store: store, emit: emit, sink: sink}
 }
 
@@ -175,12 +182,17 @@ func TestPipeline_GroupingFoldsStorm(t *testing.T) {
 	reg.Add(sink)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
 	store := alert.NewStore(600*time.Second, 600*time.Second, nil)
+	syncEnqueue := func(a *alert.Alert, route []string, onFail func()) {
+		if !dispatch(reg, a, route) && onFail != nil {
+			onFail()
+		}
+	}
 	grouper := group.New(time.Duration(cfg.Grouping.WindowSeconds)*time.Second, cfg.Grouping.By, func(s *alert.Alert) {
 		if route := r.Route(s); route != nil {
-			dispatch(reg, s, route)
+			syncEnqueue(s, route, nil)
 		}
 	})
-	emit := makeEmitter(store, r, reg, cfg, grouper, nil)
+	emit := makeEmitter(store, r, syncEnqueue, cfg, grouper, nil)
 
 	// First alert of the group passes; the rest fold into the pending summary.
 	for i := 0; i < 5; i++ {

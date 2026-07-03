@@ -13,10 +13,7 @@ import (
 
 const sourceCloudWatch = "aws-cloudwatch"
 
-type cwRegion struct {
-	region string
-	client cloudwatchAPI
-}
+type cwRegion = regionClient[cloudwatchAPI]
 
 // cloudWatchSource turns CloudWatch alarms into alerts. An alarm in ALARM
 // state fires; OK or INSUFFICIENT_DATA resolves. Because CloudWatch alarms
@@ -32,18 +29,14 @@ type cloudWatchSource struct {
 func (s *cloudWatchSource) Name() string { return sourceCloudWatch }
 
 func (s *cloudWatchSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *cloudWatchSource) pollRegion(ctx context.Context, rc cwRegion, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceCloudWatch, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceCloudWatch, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.MetricAlarms {
 			a := out.MetricAlarms[i]
@@ -59,11 +52,8 @@ func (s *cloudWatchSource) pollRegion(ctx context.Context, rc cwRegion, emit sou
 			evaluateAlarm(rc.region, awssdk.ToString(a.AlarmName), a.StateValue, awssdk.ToString(a.StateReason),
 				map[string]string{"type": "composite"}, emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 // evaluateAlarm fires on ALARM and resolves on OK / INSUFFICIENT_DATA. Severity

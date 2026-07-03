@@ -33,7 +33,7 @@ func keepStateful(route []string) []string {
 	return filterRoute(route, func(s string) bool { return statefulSinks[s] })
 }
 
-// Delivery-path timeout budget (canonical description — perSinkTimeout in
+// Delivery-path timeout budget (canonical description - perSinkTimeout in
 // internal/sinks and DefaultTimeout/DefaultRetry in internal/httpx point
 // here). The budgets nest, outermost first:
 //

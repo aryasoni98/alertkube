@@ -44,16 +44,7 @@ type gceSource struct {
 func (s *gceSource) Name() string { return sourceGCE }
 
 func (s *gceSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, project := range s.projects {
-		instances, err := s.lister.List(ctx, project)
-		if err != nil {
-			pollErr(sourceGCE, project, err)
-			continue
-		}
-		for _, in := range instances {
-			evaluateGCEInstance(project, in, emit)
-		}
-	}
+	pollByProject(ctx, sourceGCE, s.projects, s.lister, emit, evaluateGCEInstance)
 }
 
 // evaluateGCEInstance alerts on instances in REPAIRING (critical). Other states
@@ -64,10 +55,7 @@ func evaluateGCEInstance(project string, in *compute.Instance, emit sources.Emit
 		return
 	}
 	zone := shortZone(in.Zone)
-	scope := project
-	if zone != "" {
-		scope = project + "/" + zone
-	}
+	scope := sources.Scope(project, zone)
 	if in.Status == "REPAIRING" {
 		emitFiring(emit, alert.KindGCEInstance, scope, in.Name, "GCEInstanceRepairing",
 			"Compute Engine instance "+in.Name+" is REPAIRING", alert.SeverityCritical,

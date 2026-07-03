@@ -13,10 +13,7 @@ import (
 
 const sourceDynamoDB = "aws-dynamodb"
 
-type dynRegion struct {
-	region string
-	client dynamoDBAPI
-}
+type dynRegion = regionClient[dynamoDBAPI]
 
 // dynamoDBSource discovers DynamoDB tables per region and alerts on tables
 // whose status is not healthy. INACCESSIBLE_ENCRYPTION_CREDENTIALS is critical
@@ -30,18 +27,14 @@ type dynamoDBSource struct {
 func (s *dynamoDBSource) Name() string { return sourceDynamoDB }
 
 func (s *dynamoDBSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *dynamoDBSource) pollRegion(ctx context.Context, rc dynRegion, emit sources.Emit) {
-	var start *string
-	for {
+	forEachPage(ctx, sourceDynamoDB, rc.region, func(ctx context.Context, start *string) (*string, error) {
 		list, err := rc.client.ListTables(ctx, &dynamodb.ListTablesInput{ExclusiveStartTableName: start})
 		if err != nil {
-			pollErr(sourceDynamoDB, rc.region, err)
-			return
+			return nil, err
 		}
 		for _, name := range list.TableNames {
 			out, err := rc.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: awssdk.String(name)})
@@ -54,11 +47,8 @@ func (s *dynamoDBSource) pollRegion(ctx context.Context, rc dynRegion, emit sour
 			}
 			evaluateDynamoTable(rc.region, name, out.Table.TableStatus, emit)
 		}
-		if list.LastEvaluatedTableName == nil || *list.LastEvaluatedTableName == "" {
-			return
-		}
-		start = list.LastEvaluatedTableName
-	}
+		return list.LastEvaluatedTableName, nil
+	})
 }
 
 func evaluateDynamoTable(region, name string, status dynamodbtypes.TableStatus, emit sources.Emit) {

@@ -88,6 +88,15 @@ type Config struct {
 
 	MetricsAddr string `yaml:"metricsAddr"`
 
+	// APIAddr optionally serves the sensitive data plane (/api/*, the console
+	// SPA, and the Alertmanager receiver) on a SEPARATE listen address from
+	// MetricsAddr, which then serves only /metrics + the health probes. This
+	// lets an operator expose the metrics/probe port for scraping and kubelet
+	// probes while firewalling the data/console/receiver port with a
+	// NetworkPolicy. Empty (default) co-locates everything on MetricsAddr, the
+	// original single-port behavior.
+	APIAddr string `yaml:"apiAddr"`
+
 	// Grouping folds alert storms: the first alert of a group dispatches
 	// immediately, later same-group alerts within the window collapse
 	// into one summary. Stateful incident sinks (pagerduty, opsgenie)
@@ -565,6 +574,10 @@ func (c *Config) applyEnvDefaults() {
 	}
 	if c.MetricsAddr == "" {
 		c.MetricsAddr = env.Or("METRICS_ADDR", ":9090")
+	}
+	if c.APIAddr == "" {
+		// Empty stays empty (co-located) unless an address is supplied.
+		c.APIAddr = os.Getenv("ALERTKUBE_API_ADDR")
 	}
 	if c.Grouping.WindowSeconds == 0 {
 		c.Grouping.WindowSeconds = 30

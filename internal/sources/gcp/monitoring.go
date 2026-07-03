@@ -56,16 +56,7 @@ type gcpMonitoringSource struct {
 func (s *gcpMonitoringSource) Name() string { return sourceGCPMonitoring }
 
 func (s *gcpMonitoringSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, project := range s.projects {
-		policies, err := s.lister.List(ctx, project)
-		if err != nil {
-			pollErr(sourceGCPMonitoring, project, err)
-			continue
-		}
-		for _, p := range policies {
-			evaluateAlertPolicy(project, p, emit)
-		}
-	}
+	pollByProject(ctx, sourceGCPMonitoring, s.projects, s.lister, emit, evaluateAlertPolicy)
 }
 
 func evaluateAlertPolicy(project string, p *monitoringpb.AlertPolicy, emit sources.Emit) {

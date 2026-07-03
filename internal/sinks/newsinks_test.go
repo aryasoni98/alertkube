@@ -172,6 +172,47 @@ func TestRunbookURLGuardNewSinks(t *testing.T) {
 	}
 }
 
+func TestChatSinksNeutralizeMarkdownInjection(t *testing.T) {
+	// A workload- or upstream-supplied summary must not render as a masked
+	// markdown link (phishing) or HTML in the chat sinks.
+	const inject = "click [here](https://evil.example) <b>now</b>"
+
+	t.Run("discord/mattermost/teams escape markdown", func(t *testing.T) {
+		srv, payloads, _ := capture(t)
+		t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+		t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
+		t.Setenv("TEAMS_WEBHOOK_URL", srv.URL)
+		for _, s := range []Sink{NewDiscord(), NewMattermost(), NewTeams()} {
+			*payloads = (*payloads)[:0]
+			a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
+			a.Summary = inject
+			if err := s.Send(context.Background(), a); err != nil {
+				t.Fatalf("%s send: %v", s.Name(), err)
+			}
+			raw, _ := json.Marshal((*payloads)[0])
+			// The raw "](" masked-link pivot must not survive unescaped.
+			if strings.Contains(string(raw), "](") {
+				t.Fatalf("%s: masked-link pivot survived: %s", s.Name(), raw)
+			}
+		}
+	})
+
+	t.Run("googlechat escapes html", func(t *testing.T) {
+		srv, payloads, _ := capture(t)
+		t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)
+		a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
+		a.Summary = inject
+		if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		// The rendered card widgets must not carry a raw <b> tag.
+		cards, _ := json.Marshal((*payloads)[0]["cardsV2"])
+		if strings.Contains(string(cards), "<b>") {
+			t.Fatalf("googlechat: unescaped HTML in card: %s", cards)
+		}
+	})
+}
+
 func TestGoogleChatSend(t *testing.T) {
 	srv, payloads, _ := capture(t)
 	t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)

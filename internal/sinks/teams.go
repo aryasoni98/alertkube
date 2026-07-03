@@ -1,26 +1,22 @@
 package sinks
 
 import (
-	"context"
-
 	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
 	"alertkube/internal/templates"
 )
 
-// TeamsSink posts Adaptive Cards to a Microsoft Teams webhook.
+// NewTeams posts Adaptive Cards to a Microsoft Teams webhook.
 //
 // Payload is the `{type: message, attachments: [adaptive card]}` envelope
 // accepted by Power Automate Workflows webhooks - the replacement for
 // Office 365 connectors, which Microsoft retired. Legacy connector URLs
 // (while they still function) accept the same envelope.
 // Webhook URL is read on each Send so Secret rotation is honored.
-type TeamsSink struct{}
+func init() { Register("teams", func(SinkConfig) Sink { return NewTeams() }) }
 
-func NewTeams() *TeamsSink { return &TeamsSink{} }
-
-func (*TeamsSink) Name() string                   { return "teams" }
-func (*TeamsSink) Supports(_ alert.Severity) bool { return true }
+func NewTeams() Sink {
+	return &webhookSink{name: "teams", credEnv: "TEAMS_WEBHOOK_URL", payload: teamsPayload}
+}
 
 // teamsColor maps severity to Adaptive Card TextBlock colors.
 func teamsColor(a *alert.Alert) string {
@@ -30,18 +26,15 @@ func teamsColor(a *alert.Alert) string {
 	return severityTier(a.Severity, "attention", "warning", "accent")
 }
 
-func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
-	url := cred(ctx, "TEAMS_WEBHOOK_URL")
-	if url == "" {
-		return nil
-	}
-
+func teamsPayload(a *alert.Alert) any {
+	// Adaptive Card FactSet values and TextBlocks render markdown; escape the
+	// alert-derived facts so injected markdown cannot render a phishing link.
 	facts := []map[string]string{
-		{"title": "Cluster", "value": a.Cluster},
+		{"title": "Cluster", "value": escapeMarkdown(a.Cluster)},
 		{"title": "Kind", "value": string(a.Kind)},
-		{"title": "Namespace", "value": a.Namespace},
-		{"title": "Name", "value": a.Name},
-		{"title": "Reason", "value": a.Reason},
+		{"title": "Namespace", "value": escapeMarkdown(a.Namespace)},
+		{"title": "Name", "value": escapeMarkdown(a.Name)},
+		{"title": "Reason", "value": escapeMarkdown(a.Reason)},
 		{"title": "Fingerprint", "value": a.Fingerprint},
 	}
 
@@ -57,7 +50,7 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 		{
 			"type": "TextBlock",
 			"wrap": true,
-			"text": a.Summary,
+			"text": escapeMarkdown(a.Summary),
 		},
 		{
 			"type":  "FactSet",
@@ -78,7 +71,7 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 		}
 	}
 
-	payload := map[string]any{
+	return map[string]any{
 		"type": "message",
 		"attachments": []map[string]any{
 			{
@@ -88,5 +81,4 @@ func (t *TeamsSink) Send(ctx context.Context, a *alert.Alert) error {
 			},
 		},
 	}
-	return httpx.PostJSON(ctx, url, payload)
 }

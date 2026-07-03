@@ -51,6 +51,25 @@ client:
   # -- Client-side burst to the API server (0 = controller default of 100).
   burst: 100
 
+# Alert delivery runs on a bounded worker pool decoupled from the informer/
+# receiver/source goroutines: producers enqueue near-instantly while workers do
+# the blocking sink fan-out, so a slow sink cannot stall Kubernetes event
+# processing. Raise workers for many concurrent sinks; raise queueSize to absorb
+# larger storms before backpressure kicks in.
+dispatch:
+  # -- Delivery worker pool size (0 = controller default of 16).
+  workers: 0
+  # -- Delivery queue capacity (0 = controller default of 2048).
+  queueSize: 0
+
+# Go pprof profiling on /debug/pprof (served on the data plane). Off by default
+# and fail-closed: it will NOT be exposed unless api.token (or api.tokenSecret
+# KeyRef) is set, so profiles are never served unauthenticated. Enable only for
+# a debugging session, ideally with the data port restricted by a NetworkPolicy.
+pprof:
+  # -- Enable /debug/pprof profiling (requires an api token; fail-closed).
+  enabled: false
+
 # Opt-in CRDs. When enabled, the chart installs the CRD and grants the
 # controller read-only RBAC, and the controller watches it via a dynamic
 # informer (no controller-runtime; see ADR-0001). Off by default - the

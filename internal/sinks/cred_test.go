@@ -27,3 +27,21 @@ func TestCredPrefersOverrideThenEnv(t *testing.T) {
 		t.Fatalf("empty override should fall back to env: got %q", got)
 	}
 }
+
+func TestRequireCredReportsPresence(t *testing.T) {
+	ctx := context.Background()
+	// Absent credential -> ("", false) so the caller no-ops observably.
+	if v, ok := requireCred(ctx, "testsink", "ALERTKUBE_TEST_CRED_ABSENT"); ok || v != "" {
+		t.Fatalf("absent credential: got (%q,%v), want (\"\",false)", v, ok)
+	}
+	// Present credential -> (value, true).
+	t.Setenv("ALERTKUBE_TEST_CRED_PRESENT", "secret-value")
+	if v, ok := requireCred(ctx, "testsink", "ALERTKUBE_TEST_CRED_PRESENT"); !ok || v != "secret-value" {
+		t.Fatalf("present credential: got (%q,%v), want (secret-value,true)", v, ok)
+	}
+	// Override still wins over env.
+	octx := WithCreds(ctx, map[string]string{"ALERTKUBE_TEST_CRED_PRESENT": "override-value"})
+	if v, ok := requireCred(octx, "testsink", "ALERTKUBE_TEST_CRED_PRESENT"); !ok || v != "override-value" {
+		t.Fatalf("override credential: got (%q,%v), want (override-value,true)", v, ok)
+	}
+}

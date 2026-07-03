@@ -22,22 +22,11 @@ type armRedisLister struct {
 }
 
 func (l *armRedisLister) List(ctx context.Context) ([]*armredis.ResourceInfo, error) {
-	var out []*armredis.ResourceInfo
-	pager := l.client.NewListBySubscriptionPager(nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Value...)
-	}
-	return out, nil
+	return drainPager(ctx, l.client.NewListBySubscriptionPager(nil),
+		func(r armredis.ClientListBySubscriptionResponse) []*armredis.ResourceInfo { return r.Value })
 }
 
-type azureRedisSubscription struct {
-	subscription string
-	lister       redisLister
-}
+type azureRedisSubscription = subLister[redisLister]
 
 // azureRedisSource alerts on Azure Cache for Redis instances in a bad
 // provisioning state - the Azure analog of the AWS ElastiCache source. Failed is
@@ -51,16 +40,7 @@ type azureRedisSource struct {
 func (s *azureRedisSource) Name() string { return sourceAzureRedis }
 
 func (s *azureRedisSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		caches, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAzureRedis, sub.subscription, err)
-			continue
-		}
-		for _, c := range caches {
-			evaluateRedisCache(sub.subscription, c, emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAzureRedis, s.subs, emit, evaluateRedisCache)
 }
 
 func evaluateRedisCache(subscription string, c *armredis.ResourceInfo, emit sources.Emit) {
@@ -68,7 +48,7 @@ func evaluateRedisCache(subscription string, c *armredis.ResourceInfo, emit sour
 		return
 	}
 	name := *c.Name
-	scope := subscription + "/" + strVal(c.Location)
+	scope := sources.Scope(subscription, strVal(c.Location))
 	state := ""
 	if c.Properties != nil && c.Properties.ProvisioningState != nil {
 		state = string(*c.Properties.ProvisioningState)

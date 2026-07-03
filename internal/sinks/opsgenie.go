@@ -19,6 +19,8 @@ import (
 // accounts.
 type OpsgenieSink struct{}
 
+func init() { Register("opsgenie", func(SinkConfig) Sink { return NewOpsgenie() }) }
+
 func NewOpsgenie() *OpsgenieSink { return &OpsgenieSink{} }
 
 func (*OpsgenieSink) Name() string { return "opsgenie" }
@@ -36,8 +38,8 @@ func ogPriority(s alert.Severity) string {
 }
 
 func (*OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
-	apiKey := cred(ctx, "OPSGENIE_API_KEY")
-	if apiKey == "" {
+	apiKey, ok := requireCred(ctx, "opsgenie", "OPSGENIE_API_KEY")
+	if !ok {
 		return nil
 	}
 	base := os.Getenv("OPSGENIE_API_URL")

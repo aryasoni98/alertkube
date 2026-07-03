@@ -57,3 +57,13 @@ func StrVal(s *string) string {
 	}
 	return *s
 }
+
+// Scope joins a provider parent scope (Azure subscription, GCP project) with a
+// location qualifier (region/zone) into the alert-identity scope, omitting the
+// separator when the location is unknown so identities stay stable.
+func Scope(parent, location string) string {
+	if location == "" {
+		return parent
+	}
+	return parent + "/" + location
+}

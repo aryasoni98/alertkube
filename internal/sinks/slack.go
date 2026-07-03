@@ -27,6 +27,10 @@ type SlackSink struct {
 	httpClient *http.Client
 }
 
+func init() {
+	Register("slack", func(c SinkConfig) Sink { return NewSlack(c.Cluster, "alertkube", c.Channels) })
+}
+
 func NewSlack(cluster, username string, channels map[alert.Severity]string) *SlackSink {
 	if os.Getenv("SLACK_WEBHOOK_URL") == "" && os.Getenv("SLACK_BOT_TOKEN") == "" {
 		klog.Warning("SLACK_WEBHOOK_URL and SLACK_BOT_TOKEN unset; Slack sink will no-op")
@@ -71,8 +75,10 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
 		return s.sendBotToken(ctx, token, channel, blocks, attachment)
 	}
-	webhookURL := cred(ctx, "SLACK_WEBHOOK_URL")
-	if webhookURL == "" {
+	// Reached only when SLACK_BOT_TOKEN is also unset (checked above), so a
+	// no-op here means Slack has no credential at all - record it.
+	webhookURL, ok := requireCred(ctx, "slack", "SLACK_WEBHOOK_URL")
+	if !ok {
 		return nil
 	}
 	msg := &slack.WebhookMessage{

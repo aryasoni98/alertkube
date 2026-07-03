@@ -23,7 +23,8 @@ import (
 // of queueing.
 const enrichWorkers = 4
 
-// PodWatcher reacts to restart, crashloop, oom, imagepull, pending events.
+// PodWatcher reacts to container restart, crashloop, OOM, image-pull, and
+// unexpected-kill transitions.
 type PodWatcher struct {
 	clientset     kubernetes.Interface
 	cfg           *config.Config
@@ -152,7 +153,7 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 	a.Labels["container"] = st.Name
 	a.Summary = fmt.Sprintf("container %q in pod %s/%s entered %s", st.Name, pod.Namespace, pod.Name, reason)
 	if cause := terminationCause(st); cause != "" {
-		a.Summary += " — last termination: " + cause
+		a.Summary += " - last termination: " + cause
 	}
 	a.Annotations = mergeAnnotations(pod)
 

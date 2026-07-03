@@ -19,10 +19,7 @@ const sourceACM = "aws-acm"
 // rather than a config knob to keep the source surface small.
 const acmExpiryWindow = 30 * 24 * time.Hour
 
-type acmRegion struct {
-	region string
-	client acmAPI
-}
+type acmRegion = regionClient[acmAPI]
 
 // acmSource alerts on ACM certificates that are unusable or near expiry. EXPIRED
 // / REVOKED / FAILED / VALIDATION_TIMED_OUT are critical (the cert cannot serve
@@ -37,27 +34,22 @@ func (s *acmSource) Name() string { return sourceACM }
 
 func (s *acmSource) Poll(ctx context.Context, emit sources.Emit) {
 	now := time.Now()
-	for _, rc := range s.regions {
+	pollByRegion(ctx, s.regions, emit, func(ctx context.Context, rc acmRegion, emit sources.Emit) {
 		s.pollRegion(ctx, rc, now, emit)
-	}
+	})
 }
 
 func (s *acmSource) pollRegion(ctx context.Context, rc acmRegion, now time.Time, emit sources.Emit) {
-	var token *string
-	for {
+	forEachPage(ctx, sourceACM, rc.region, func(ctx context.Context, token *string) (*string, error) {
 		out, err := rc.client.ListCertificates(ctx, &acm.ListCertificatesInput{NextToken: token})
 		if err != nil {
-			pollErr(sourceACM, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.CertificateSummaryList {
 			evaluateCertificate(rc.region, now, out.CertificateSummaryList[i], emit)
 		}
-		if out.NextToken == nil || *out.NextToken == "" {
-			return
-		}
-		token = out.NextToken
-	}
+		return out.NextToken, nil
+	})
 }
 
 func evaluateCertificate(region string, now time.Time, c acmtypes.CertificateSummary, emit sources.Emit) {

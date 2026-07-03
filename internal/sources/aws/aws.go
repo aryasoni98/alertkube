@@ -59,6 +59,17 @@ import (
 // cloud source as a class via the "provider": "aws" label.
 const provider = "aws"
 
+// init self-registers the AWS provider so the controller wires it from the
+// registry rather than hardcoding it (mirrors sink self-registration).
+func init() {
+	sources.RegisterProvider(sources.Provider{
+		Name:        provider,
+		Enabled:     func(c *config.Config) bool { return c.AWS.Enabled },
+		PollSeconds: func(c *config.Config) int { return c.AWS.PollSeconds },
+		Build:       NewProvider,
+	})
+}
+
 // eksAPI is the subset of the EKS client the EKS source uses.
 type eksAPI interface {
 	ListClusters(context.Context, *eks.ListClustersInput, ...func(*eks.Options)) (*eks.ListClustersOutput, error)

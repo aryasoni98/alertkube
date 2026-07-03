@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	// Register client-go auth plugins (gcp, azure, oidc, exec) so a local run
+	// against a kubeconfig that uses one of them can authenticate.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/client-go/dynamic"
@@ -91,8 +93,10 @@ func Run() {
 	}
 
 	// Metrics + health start outside the leader-election gate so the pod
-	// can still be scraped and probed when it is a hot-standby follower.
-	srv := metrics.Serve(cfg.MetricsAddr)
+	// can still be scraped and probed when it is a hot-standby follower. When
+	// cfg.APIAddr is set, the sensitive data plane is served on its own
+	// listener so the metrics/probe port can be exposed independently.
+	srvs := metrics.Serve(cfg.MetricsAddr, cfg.APIAddr)
 
 	if flags.leaderElect {
 		runWithLeaderElection(ctx, clientset, dynClient, cfg, flags)
@@ -100,12 +104,12 @@ func Run() {
 		runController(ctx, clientset, dynClient, cfg, flags.watchNamespace)
 	}
 
-	if srv != nil {
+	for _, srv := range srvs {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutdownCancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			klog.Warningf("metrics server shutdown: %v", err)
+			klog.Warningf("http server shutdown: %v", err)
 		}
+		shutdownCancel()
 	}
 }
 

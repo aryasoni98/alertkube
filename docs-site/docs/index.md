@@ -1,13 +1,13 @@
 # alertkube
 
-**Kubernetes multi-resource alerting controller** — severity tiers, multi-sink
+**Kubernetes multi-resource alerting controller** - severity tiers, multi-sink
 routing, fingerprint dedupe, inhibitions, silences, storm folding, and Prometheus
 metrics. Deterministic by design: every routing and suppression decision traces
 back to your config and an alert's fingerprint.
 
 alertkube watches Pods, Nodes, Deployments, StatefulSets, DaemonSets, Jobs,
 CronJobs, PersistentVolumeClaims, and HPAs; classifies each event as
-`critical` / `warning` / `info`; and routes it to one or more sinks — Slack,
+`critical` / `warning` / `info`; and routes it to one or more sinks - Slack,
 PagerDuty, Microsoft Teams, Opsgenie, Discord, Telegram, a generic webhook, or
 stdout.
 
@@ -23,14 +23,14 @@ flowchart LR
 
 ## Find your way around
 
-This documentation follows the [Diátaxis](https://diataxis.fr/) framework — four
+This documentation follows the [Diátaxis](https://diataxis.fr/) framework - four
 kinds of docs for four kinds of need:
 
 <div class="grid cards" markdown>
 
 - :material-school: **[Tutorials](tutorials/install-with-helm.md)**
 
-    Learning-oriented lessons. Start here if you are new — install with Helm and
+    Learning-oriented lessons. Start here if you are new - install with Helm and
     get your first alert.
 
 - :material-wrench: **[How-to guides](how-to/add-a-silence.md)**
@@ -52,8 +52,8 @@ kinds of docs for four kinds of need:
 
 ## Quick links
 
-- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) — current `v1.1.0`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
-- [Architecture](architecture.md) — how the pipeline fits together
+- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) - current `v1.2.0`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
+- [Architecture](architecture.md) - how the pipeline fits together
 - [GitHub repository](https://github.com/aryasoni98/alertkube)
 - [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md)
 - [Troubleshooting](https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md)

@@ -22,6 +22,19 @@ type Snapshot struct {
 	Active          []*Alert             `json:"active"`
 	LastSent        map[string]time.Time `json:"lastSent"`
 	RuntimeSilences []silence.Silence    `json:"runtimeSilences,omitempty"`
+	// Pending is the durable outbox: deliveries accepted by the dispatcher but
+	// not yet acknowledged (delivered or dead-lettered). Replayed on startup so
+	// an enqueued-but-undelivered alert survives a restart / leader failover.
+	// Additive + omitempty, so an older build simply restores none.
+	Pending []PendingDelivery `json:"pending,omitempty"`
+}
+
+// PendingDelivery is one durable outbox entry: an alert (enrichment Details
+// stripped to bound size, like Active) and the route it was headed to.
+type PendingDelivery struct {
+	ID    uint64   `json:"id"`
+	Alert *Alert   `json:"alert"`
+	Route []string `json:"route"`
 }
 
 // Export copies the store's state into a Snapshot. Details maps are
@@ -30,8 +43,8 @@ type Snapshot struct {
 // limits on busy clusters. A resolve sent after a restart simply carries
 // no enrichment.
 func (s *Store) Export() *Snapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	snap := &Snapshot{
 		Version:  SnapshotVersion,
 		SavedAt:  time.Now(),
@@ -96,7 +109,7 @@ func (s *Store) Restore(snap *Snapshot) {
 // Generation returns a counter that increments on every state mutation.
 // Persistence callers compare generations to skip no-op saves.
 func (s *Store) Generation() uint64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.gen
 }

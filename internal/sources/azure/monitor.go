@@ -22,22 +22,11 @@ type armAlertsLister struct {
 }
 
 func (l *armAlertsLister) List(ctx context.Context) ([]*armalertsmanagement.Alert, error) {
-	var out []*armalertsmanagement.Alert
-	pager := l.client.NewGetAllPager(nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, page.Value...)
-	}
-	return out, nil
+	return drainPager(ctx, l.client.NewGetAllPager(nil),
+		func(r armalertsmanagement.AlertsClientGetAllResponse) []*armalertsmanagement.Alert { return r.Value })
 }
 
-type azureMonitorSubscription struct {
-	subscription string
-	lister       alertsLister
-}
+type azureMonitorSubscription = subLister[alertsLister]
 
 // azureMonitorSource ingests fired Azure Monitor alerts (Alerts Management).
 // An alert whose monitorCondition is Fired pages (severity mapped from
@@ -51,16 +40,7 @@ type azureMonitorSource struct {
 func (s *azureMonitorSource) Name() string { return sourceAzureMonitor }
 
 func (s *azureMonitorSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		alerts, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAzureMonitor, sub.subscription, err)
-			continue
-		}
-		for _, a := range alerts {
-			evaluateAzureAlert(sub.subscription, a, emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAzureMonitor, s.subs, emit, evaluateAzureAlert)
 }
 
 func evaluateAzureAlert(subscription string, al *armalertsmanagement.Alert, emit sources.Emit) {

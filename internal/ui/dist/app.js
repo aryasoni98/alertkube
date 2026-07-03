@@ -50,9 +50,9 @@ function esc(s) {
 }
 
 function ago(ts) {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const t = new Date(ts).getTime();
-  if (isNaN(t)) return "—";
+  if (isNaN(t)) return "-";
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
   if (s < 60) return s + "s";
   if (s < 3600) return Math.floor(s / 60) + "m";
@@ -322,9 +322,9 @@ function renderConfig(cfg, raw) {
     return `<div>${esc(m)} → ${sinks}</div>`;
   }).join("") || '<span class="muted">none</span>';
   $("#cfg-routing").innerHTML = kv([
-    ["critical", esc(ch.critical || "—")],
-    ["warning", esc(ch.warning || "—")],
-    ["info", esc(ch.info || "—")],
+    ["critical", esc(ch.critical || "-")],
+    ["warning", esc(ch.warning || "-")],
+    ["info", esc(ch.info || "-")],
     ["routing", routing],
   ]);
 
@@ -333,8 +333,8 @@ function renderConfig(cfg, raw) {
   $("#cfg-rules").innerHTML = rules.length
     ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Sev</th><th>Type</th><th>Window</th></tr></thead><tbody>` +
       rules.map((r) => {
-        const type = r.count ? "count" : r.all ? "all" : r.absent ? "absent" : "—";
-        const win = r.absent && r.absent.forSeconds ? r.absent.forSeconds + "s" : (r.windowSeconds ? r.windowSeconds + "s" : "—");
+        const type = r.count ? "count" : r.all ? "all" : r.absent ? "absent" : "-";
+        const win = r.absent && r.absent.forSeconds ? r.absent.forSeconds + "s" : (r.windowSeconds ? r.windowSeconds + "s" : "-");
         return `<tr><td>${esc(r.name)}</td><td>${esc(r.severity)}</td><td>${esc(type)}</td><td>${esc(win)}</td></tr>`;
       }).join("") + "</tbody></table></div>"
     : '<span class="muted">No correlation rules configured.</span>';
@@ -343,7 +343,7 @@ function renderConfig(cfg, raw) {
   const g = cfg.grouping || {};
   $("#cfg-grouping").innerHTML = kv([
     ["enabled", onoff(!!g.enabled)],
-    ["window", g.windowSeconds ? esc(g.windowSeconds) + "s" : "—"],
+    ["window", g.windowSeconds ? esc(g.windowSeconds) + "s" : "-"],
     ["group by", (g.by || []).map((b) => `<span class="pill">${esc(b)}</span>`).join("") || '<span class="muted">kind, namespace, reason, severity (default)</span>'],
   ]);
 
@@ -396,7 +396,7 @@ function initValidate() {
       headers: { "Content-Type": "application/x-yaml" },
       body,
     });
-    if (res.status === 401) { out.textContent = "unauthorized — set token"; out.className = "validate-result bad"; return; }
+    if (res.status === 401) { out.textContent = "unauthorized - set token"; out.className = "validate-result bad"; return; }
     if (res.data && res.data.ok) {
       out.textContent = "✓ valid";
       out.className = "validate-result ok";
@@ -469,7 +469,7 @@ function renderSilences(list) {
   const tbody = $("#sil-table tbody");
   tbody.innerHTML = (list || []).map((s) => {
     const m = Object.entries(s.matchers || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(", ");
-    const until = s.until ? new Date(s.until).toLocaleString() : "—";
+    const until = s.until ? new Date(s.until).toLocaleString() : "-";
     return `<tr>
       <td>${esc(m)}</td>
       <td>${esc(until)}</td>
@@ -505,7 +505,7 @@ async function createSilence() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ matchers, until, comment: $("#sil-comment").value }),
   });
-  if (res.status === 403) { msg.textContent = "✗ writes disabled — set a write token"; msg.className = "validate-result bad"; return; }
+  if (res.status === 403) { msg.textContent = "✗ writes disabled - set a write token"; msg.className = "validate-result bad"; return; }
   if (res.status === 401) { msg.textContent = "✗ write token rejected"; msg.className = "validate-result bad"; return; }
   if (!res.ok) { msg.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); msg.className = "validate-result bad"; return; }
   msg.textContent = "✓ created";
@@ -562,7 +562,7 @@ async function testChannel(name) {
     body: JSON.stringify({ sink: name }),
   });
   if (!cell) return;
-  if (res.status === 403) { cell.textContent = "✗ writes disabled — set write token"; cell.className = "chan-result bad"; return; }
+  if (res.status === 403) { cell.textContent = "✗ writes disabled - set write token"; cell.className = "chan-result bad"; return; }
   if (res.status === 401) { cell.textContent = "✗ write token rejected"; cell.className = "chan-result bad"; return; }
   if (res.data && res.data.ok) { cell.textContent = "✓ sent"; cell.className = "chan-result ok"; }
   else { cell.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); cell.className = "chan-result bad"; }
@@ -580,9 +580,9 @@ async function testChannelByRef() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type: $("#ref-type").value, secretRef: { name, key } }),
   });
-  if (res.status === 403) { msg.textContent = "✗ disabled — needs api.allowSecretRead + write token"; msg.className = "chan-result bad"; return; }
+  if (res.status === 403) { msg.textContent = "✗ disabled - needs api.allowSecretRead + write token"; msg.className = "chan-result bad"; return; }
   if (res.status === 401) { msg.textContent = "✗ write token rejected"; msg.className = "chan-result bad"; return; }
-  if (res.data && res.data.ok) { msg.textContent = "✓ credential valid — channel reachable"; msg.className = "chan-result ok"; }
+  if (res.data && res.data.ok) { msg.textContent = "✓ credential valid - channel reachable"; msg.className = "chan-result ok"; }
   else { msg.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); msg.className = "chan-result bad"; }
 }
 
@@ -642,7 +642,7 @@ async function validateAuthor() {
     headers: { "Content-Type": "application/x-yaml" },
     body: $("#author-input").value,
   });
-  if (res.status === 401) { out.textContent = "unauthorized — set token"; out.className = "validate-result bad"; return; }
+  if (res.status === 401) { out.textContent = "unauthorized - set token"; out.className = "validate-result bad"; return; }
   if (res.data && res.data.ok) { out.textContent = "✓ valid"; out.className = "validate-result ok"; }
   else { out.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status)); out.className = "validate-result bad"; }
 }
@@ -653,7 +653,7 @@ async function copyAuthor() {
     await navigator.clipboard.writeText($("#author-input").value);
     out.textContent = "✓ copied"; out.className = "validate-result ok";
   } catch (_) {
-    out.textContent = "copy failed — select and copy manually"; out.className = "validate-result bad";
+    out.textContent = "copy failed - select and copy manually"; out.className = "validate-result bad";
   }
 }
 
@@ -784,10 +784,10 @@ async function renderFromForms() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (res.status === 401) { msg.textContent = "unauthorized — set token"; msg.className = "validate-result bad"; return; }
+  if (res.status === 401) { msg.textContent = "unauthorized - set token"; msg.className = "validate-result bad"; return; }
   if (res.ok && res.data && res.data.yaml) {
     $("#author-input").value = res.data.yaml;
-    msg.textContent = "✓ rendered into the editor above — now Validate / Diff / Export";
+    msg.textContent = "✓ rendered into the editor above - now Validate / Diff / Export";
     msg.className = "validate-result ok";
   } else {
     msg.textContent = "✗ " + ((res.data && res.data.error) || ("status " + res.status));
@@ -807,7 +807,7 @@ function initFormBuilders() {
 function initAuthor() {
   $("#auth-load").addEventListener("click", () => {
     $("#author-input").value = lastConfigYaml || "";
-    $("#author-msg").textContent = lastConfigYaml ? "loaded live config" : "no config loaded yet — connect first";
+    $("#author-msg").textContent = lastConfigYaml ? "loaded live config" : "no config loaded yet - connect first";
     $("#author-msg").className = "validate-result";
   });
   $("#auth-validate").addEventListener("click", validateAuthor);

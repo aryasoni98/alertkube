@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -26,7 +27,38 @@ import (
 // budgets are documented at dispatchTimeout in controller.go.
 const DefaultTimeout = 10 * time.Second
 
-var defaultClient = &http.Client{Timeout: DefaultTimeout}
+var defaultClient = &http.Client{Timeout: DefaultTimeout, Transport: guardedTransport()}
+
+// guardedTransport clones the default transport and installs a dialer Control
+// hook that re-validates the IP actually being connected to. guardDest checks
+// the destination up front, but the HTTP client resolves the hostname again at
+// dial time - a DNS-rebind between the two would let a name that first resolved
+// to a public IP be reconnected to a blocked one (e.g. the 169.254.169.254
+// metadata endpoint). Control runs after resolution and before connect with the
+// resolved ip:port, so a blocked address aborts the dial and closes that window.
+func guardedTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			if ip := net.ParseIP(host); ip != nil {
+				return ipBlocked(ip, strictEgress())
+			}
+			return nil
+		},
+	}
+	t.DialContext = dialer.DialContext
+	return t
+}
+
+// strictEgress reports whether loopback/private destinations are additionally
+// blocked (see strictEgressEnv).
+func strictEgress() bool { return strings.EqualFold(os.Getenv(strictEgressEnv), "true") }
 
 // RetryPolicy controls how PostJSON retries transient failures.
 type RetryPolicy struct {
@@ -190,30 +222,38 @@ func guardDest(ctx context.Context, dest string) error {
 	if host == "" {
 		return errors.New("destination URL has no host")
 	}
-	strict := strings.EqualFold(os.Getenv(strictEgressEnv), "true")
-	check := func(ip net.IP) error {
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("destination %s is link-local (blocked: SSRF/cloud-metadata risk)", ip)
-		}
-		if strict && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
-			return fmt.Errorf("destination %s is loopback/private (blocked by %s)", ip, strictEgressEnv)
-		}
-		return nil
-	}
+	strict := strictEgress()
 	if ip := net.ParseIP(host); ip != nil {
-		return check(ip)
+		return ipBlocked(ip, strict)
 	}
 	// Hostname: resolve and reject if any resolved address is in a blocked
 	// range (catches names like metadata.google.internal). A resolution
-	// failure is not fatal - the real dial will surface it with context.
+	// failure is not fatal - the real dial will surface it with context. The
+	// dialer Control hook re-checks the finally-connected IP, so a rebind
+	// after this pre-check is still caught.
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil //nolint:nilerr // resolution failure is non-fatal; the real dial surfaces it with context
 	}
 	for _, a := range addrs {
-		if cerr := check(a.IP); cerr != nil {
+		if cerr := ipBlocked(a.IP, strict); cerr != nil {
 			return cerr
 		}
+	}
+	return nil
+}
+
+// ipBlocked reports why an IP is an unsafe webhook destination, or nil when it
+// is allowed. Link-local (incl. the cloud metadata endpoint) is always blocked;
+// loopback/private/unspecified are additionally blocked under strict egress.
+// Shared by the up-front guardDest check and the dial-time Control hook so both
+// enforce exactly the same policy.
+func ipBlocked(ip net.IP, strict bool) error {
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return fmt.Errorf("destination %s is link-local (blocked: SSRF/cloud-metadata risk)", ip)
+	}
+	if strict && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
+		return fmt.Errorf("destination %s is loopback/private (blocked by %s)", ip, strictEgressEnv)
 	}
 	return nil
 }

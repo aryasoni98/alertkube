@@ -12,10 +12,7 @@ import (
 
 const sourceElastiCache = "aws-elasticache"
 
-type ecRegion struct {
-	region string
-	client elastiCacheAPI
-}
+type ecRegion = regionClient[elastiCacheAPI]
 
 // elastiCacheSource alerts on ElastiCache clusters whose status indicates a
 // problem. incompatible-network and restore-failed are critical; everything
@@ -29,29 +26,22 @@ type elastiCacheSource struct {
 func (s *elastiCacheSource) Name() string { return sourceElastiCache }
 
 func (s *elastiCacheSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *elastiCacheSource) pollRegion(ctx context.Context, rc ecRegion, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceElastiCache, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceElastiCache, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.CacheClusters {
 			cc := out.CacheClusters[i]
 			evaluateCacheCluster(rc.region, awssdk.ToString(cc.CacheClusterId),
 				awssdk.ToString(cc.CacheClusterStatus), awssdk.ToString(cc.Engine), emit)
 		}
-		if out.Marker == nil || *out.Marker == "" {
-			return
-		}
-		marker = out.Marker
-	}
+		return out.Marker, nil
+	})
 }
 
 func evaluateCacheCluster(region, id, status, engine string, emit sources.Emit) {

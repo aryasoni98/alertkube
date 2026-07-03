@@ -5,7 +5,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/fake"
 
 	"alertkube/internal/alert"
 )
@@ -99,7 +98,7 @@ func TestNodeEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewNode(fake.NewSimpleClientset())
+			w := NewNode()
 
 			var got []*alert.Alert
 			w.evaluate(tc.oldNode, tc.newNode, func(a *alert.Alert) { got = append(got, a) })

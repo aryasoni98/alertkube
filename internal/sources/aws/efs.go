@@ -13,10 +13,7 @@ import (
 
 const sourceEFS = "aws-efs"
 
-type efsRegion struct {
-	region string
-	client efsAPI
-}
+type efsRegion = regionClient[efsAPI]
 
 // efsSource alerts on EFS file systems in the "error" lifecycle state - the only
 // definitively-bad LifeCycleState. "available" plus the transient states
@@ -29,27 +26,20 @@ type efsSource struct {
 func (s *efsSource) Name() string { return sourceEFS }
 
 func (s *efsSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *efsSource) pollRegion(ctx context.Context, rc efsRegion, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceEFS, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceEFS, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.FileSystems {
 			evaluateFileSystem(rc.region, out.FileSystems[i], emit)
 		}
-		if out.NextMarker == nil || *out.NextMarker == "" {
-			return
-		}
-		marker = out.NextMarker
-	}
+		return out.NextMarker, nil
+	})
 }
 
 func evaluateFileSystem(region string, fs efstypes.FileSystemDescription, emit sources.Emit) {

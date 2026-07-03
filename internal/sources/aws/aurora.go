@@ -13,10 +13,7 @@ import (
 
 const sourceAurora = "aws-aurora"
 
-type auroraRegion struct {
-	region string
-	client auroraAPI
-}
+type auroraRegion = regionClient[auroraAPI]
 
 // auroraSource alerts on Aurora DB clusters whose status is not healthy. It is
 // distinct from rdsSource (which watches individual DB instances via
@@ -34,27 +31,20 @@ type auroraSource struct {
 func (s *auroraSource) Name() string { return sourceAurora }
 
 func (s *auroraSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, rc := range s.regions {
-		s.pollRegion(ctx, rc, emit)
-	}
+	pollByRegion(ctx, s.regions, emit, s.pollRegion)
 }
 
 func (s *auroraSource) pollRegion(ctx context.Context, rc auroraRegion, emit sources.Emit) {
-	var marker *string
-	for {
+	forEachPage(ctx, sourceAurora, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{Marker: marker})
 		if err != nil {
-			pollErr(sourceAurora, rc.region, err)
-			return
+			return nil, err
 		}
 		for i := range out.DBClusters {
 			evaluateDBCluster(rc.region, out.DBClusters[i], emit)
 		}
-		if out.Marker == nil || *out.Marker == "" {
-			return
-		}
-		marker = out.Marker
-	}
+		return out.Marker, nil
+	})
 }
 
 func evaluateDBCluster(region string, c rdstypes.DBCluster, emit sources.Emit) {
@@ -73,20 +63,19 @@ func evaluateDBCluster(region string, c rdstypes.DBCluster, emit sources.Emit) {
 		map[string]string{"status": status, "engine": awssdk.ToString(c.Engine)})
 }
 
+// auroraCriticalStatuses are the cluster states that page immediately; see
+// dbStatusSeverity for the shared stopped/healthy classification.
+var auroraCriticalStatuses = map[string]bool{
+	"failed":                              true,
+	"storage-failure":                     true,
+	"inaccessible-encryption-credentials": true,
+	"incompatible-parameters":             true,
+	"incompatible-network":                true,
+	"migration-failed":                    true,
+}
+
 // auroraSeverity classifies an Aurora cluster status string. The bool reports
 // whether the status is firing (true) or healthy/benign-transient (false).
 func auroraSeverity(status string) (alert.Severity, bool) {
-	switch status {
-	case "failed",
-		"storage-failure",
-		"inaccessible-encryption-credentials",
-		"incompatible-parameters",
-		"incompatible-network",
-		"migration-failed":
-		return alert.SeverityCritical, true
-	case "stopped":
-		return alert.SeverityWarning, true
-	default:
-		return alert.SeverityInfo, false
-	}
+	return dbStatusSeverity(status, auroraCriticalStatuses)
 }

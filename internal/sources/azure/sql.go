@@ -36,39 +36,35 @@ type armSQLLister struct {
 }
 
 func (l *armSQLLister) List(ctx context.Context) ([]sqlDatabase, error) {
+	servers, err := drainPager(ctx, l.servers.NewListPager(nil),
+		func(r armsql.ServersClientListResponse) []*armsql.Server { return r.Value })
+	if err != nil {
+		return nil, err
+	}
 	var dbs []sqlDatabase
-	sp := l.servers.NewListPager(nil)
-	for sp.More() {
-		page, err := sp.NextPage(ctx)
+	for _, srv := range servers {
+		if srv == nil || srv.Name == nil || srv.ID == nil {
+			continue
+		}
+		rg := resourceGroupFromID(*srv.ID)
+		if rg == "" {
+			continue
+		}
+		loc := strVal(srv.Location)
+		serverDBs, err := drainPager(ctx, l.databases.NewListByServerPager(rg, *srv.Name, nil),
+			func(r armsql.DatabasesClientListByServerResponse) []*armsql.Database { return r.Value })
 		if err != nil {
 			return nil, err
 		}
-		for _, srv := range page.Value {
-			if srv == nil || srv.Name == nil || srv.ID == nil {
+		for _, db := range serverDBs {
+			if db == nil || db.Name == nil {
 				continue
 			}
-			rg := resourceGroupFromID(*srv.ID)
-			if rg == "" {
-				continue
+			status := ""
+			if db.Properties != nil && db.Properties.Status != nil {
+				status = string(*db.Properties.Status)
 			}
-			loc := strVal(srv.Location)
-			dp := l.databases.NewListByServerPager(rg, *srv.Name, nil)
-			for dp.More() {
-				dpage, err := dp.NextPage(ctx)
-				if err != nil {
-					return nil, err
-				}
-				for _, db := range dpage.Value {
-					if db == nil || db.Name == nil {
-						continue
-					}
-					status := ""
-					if db.Properties != nil && db.Properties.Status != nil {
-						status = string(*db.Properties.Status)
-					}
-					dbs = append(dbs, sqlDatabase{server: *srv.Name, name: *db.Name, location: loc, status: status})
-				}
-			}
+			dbs = append(dbs, sqlDatabase{server: *srv.Name, name: *db.Name, location: loc, status: status})
 		}
 	}
 	return dbs, nil
@@ -86,10 +82,7 @@ func resourceGroupFromID(id string) string {
 	return ""
 }
 
-type azureSQLSubscription struct {
-	subscription string
-	lister       sqlLister
-}
+type azureSQLSubscription = subLister[sqlLister]
 
 // azureSQLSource alerts on Azure SQL databases in an unhealthy status - the
 // Azure analog of the AWS RDS source. Suspect / Offline / Inaccessible /
@@ -104,23 +97,14 @@ type azureSQLSource struct {
 func (s *azureSQLSource) Name() string { return sourceAzureSQL }
 
 func (s *azureSQLSource) Poll(ctx context.Context, emit sources.Emit) {
-	for _, sub := range s.subs {
-		dbs, err := sub.lister.List(ctx)
-		if err != nil {
-			pollErr(sourceAzureSQL, sub.subscription, err)
-			continue
-		}
-		for _, db := range dbs {
-			evaluateSQLDatabase(sub.subscription, db, emit)
-		}
-	}
+	pollBySubscription(ctx, sourceAzureSQL, s.subs, emit, evaluateSQLDatabase)
 }
 
 func evaluateSQLDatabase(subscription string, db sqlDatabase, emit sources.Emit) {
 	if db.name == "" {
 		return
 	}
-	scope := subscription + "/" + db.location
+	scope := sources.Scope(subscription, db.location)
 	id := db.server + "/" + db.name
 	if !sqlStatusCritical(db.status) {
 		emitResolve(emit, alert.KindAzureSQLDatabase, scope, id)

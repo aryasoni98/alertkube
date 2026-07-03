@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"os"
 
 	"alertkube/internal/alert"
 	"alertkube/internal/httpx"
@@ -19,15 +18,20 @@ var telegramAPIBase = "https://api.telegram.org"
 // Token and chat id are read on each Send so Secret rotation is honored.
 type TelegramSink struct{}
 
+func init() { Register("telegram", func(SinkConfig) Sink { return NewTelegram() }) }
+
 func NewTelegram() *TelegramSink { return &TelegramSink{} }
 
 func (*TelegramSink) Name() string                   { return "telegram" }
 func (*TelegramSink) Supports(_ alert.Severity) bool { return true }
 
 func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
-	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	chatID := os.Getenv("TELEGRAM_CHAT_ID")
-	if token == "" || chatID == "" {
+	token, ok := requireCred(ctx, "telegram", "TELEGRAM_BOT_TOKEN")
+	if !ok {
+		return nil
+	}
+	chatID, ok := requireCred(ctx, "telegram", "TELEGRAM_CHAT_ID")
+	if !ok {
 		return nil
 	}
 

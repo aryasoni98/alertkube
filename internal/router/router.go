@@ -38,7 +38,12 @@ type Router struct {
 	// watching is disabled.
 	crdSilences func() []config.Silence
 
-	mu             sync.Mutex
+	// mu is an RWMutex: inhibited() runs on every firing alert and only reads
+	// activeInhibits, so it takes a shared read lock and concurrent routing
+	// decisions do not serialize on it. maybeArmInhibition (the write path)
+	// takes the exclusive lock and also prunes expired keys, so pruning stays
+	// off the hot read path.
+	mu             sync.RWMutex
 	activeInhibits map[string]time.Time // equal-key -> expiry
 }
 
@@ -171,10 +176,12 @@ func (r *Router) inMaintenance(a *alert.Alert, now time.Time) bool {
 }
 
 func (r *Router) inhibited(a *alert.Alert) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	now := time.Now()
-	r.pruneExpiredLocked(now)
+	// Read-only: expired keys are ignored by the now.Before(exp) check and
+	// reclaimed later by maybeArmInhibition, so no pruning (a write) happens
+	// on this hot path.
 	for _, inh := range r.inhibitions {
 		if !a.MatchLabels(inh.Target) {
 			continue
@@ -197,13 +204,17 @@ func (r *Router) pruneExpiredLocked(now time.Time) {
 }
 
 func (r *Router) maybeArmInhibition(a *alert.Alert) {
+	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Arm is the write path and the only place the map grows, so reclaim
+	// expired keys here rather than on the hot inhibited() read path.
+	r.pruneExpiredLocked(now)
 	for _, inh := range r.inhibitions {
 		if !a.MatchLabels(inh.Source) {
 			continue
 		}
-		r.activeInhibits[inhibitKey(inh, a)] = time.Now().Add(inh.DurationParsed())
+		r.activeInhibits[inhibitKey(inh, a)] = now.Add(inh.DurationParsed())
 	}
 }
 
