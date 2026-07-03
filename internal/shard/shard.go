@@ -56,7 +56,10 @@ func (s *Sharder) Owns(key string) bool {
 	}
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
-	return int(h.Sum32()%uint32(s.total)) == s.index
+	// Compute the modulo in uint64 to avoid a narrowing int->uint32 conversion
+	// of s.total. total is a small, positive, operator-set value, but the wider
+	// arithmetic is bounds-safe regardless (CWE-190/681).
+	return int(uint64(h.Sum32())%uint64(s.total)) == s.index
 }
 
 func (s *Sharder) shardOr() *Sharder {

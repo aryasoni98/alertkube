@@ -4,13 +4,13 @@ Deploys [alertkube](https://github.com/aryasoni98/alertkube) - a Kubernetes
 multi-resource alerting controller - with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
-![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.0](https://img.shields.io/badge/AppVersion-1.1.0-informational?style=flat-square)
+![Version: 1.2.0](https://img.shields.io/badge/Version-1.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.2.0](https://img.shields.io/badge/AppVersion-1.2.0-informational?style=flat-square)
 
 ## Install
 
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
-  --version 1.1.0 \
+  --version 1.2.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -101,6 +101,8 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | crds.silences.enabled | bool | `false` | Install the Silence CRD + RBAC and watch silences.alertkube.io. |
 | discord.webhookUrl | string | `""` | Discord channel webhook URL (inline; prefer the Secret ref). |
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |
+| dispatch.queueSize | int | `0` | Delivery queue capacity (0 = controller default of 2048). |
+| dispatch.workers | int | `0` | Delivery worker pool size (0 = controller default of 16). |
 | escalations | list | `[]` | Escalation rules; re-dispatch unresolved alerts to extra sinks after a delay. |
 | extraArgs | list | `[]` | Extra arguments appended to the controller command line. |
 | extraEnv | list | `[]` | Extra environment variables for the controller container. Use this to inject static AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) when not using IRSA, or any other sink credential by env. |
@@ -160,6 +162,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | podDisruptionBudget.maxUnavailable | int | `1` | Tolerated unavailable replicas during voluntary disruption. |
 | podDisruptionBudget.minAvailable | string | `""` | Minimum available replicas (mutually exclusive with maxUnavailable). |
 | podSecurityContext | object | `{"fsGroup":65532,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level security context. |
+| pprof.enabled | bool | `false` | Enable /debug/pprof profiling (requires an api token; fail-closed). |
 | prometheusRule.absentFor | string | `"10m"` | How long alertkube metrics may be absent before `AlertkubeAbsent` fires. |
 | prometheusRule.additionalRules | list | `[]` | Extra PrometheusRule entries appended verbatim. |
 | prometheusRule.dispatchInflightThreshold | int | `20` | `AlertkubeDispatchSaturated` in-flight threshold. |
