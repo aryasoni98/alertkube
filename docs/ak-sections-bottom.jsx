@@ -105,7 +105,15 @@ function AKInstall() {
 /* ----------------------------- CHANGELOG ----------------------------- */
 const AK_RELEASES = [
   {
-    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Hardening", latest: true,
+    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Scale & durability", latest: true,
+    items: [
+      "Horizontal hash sharding spreads watch/evaluate load across replicas; durable outbox replays undelivered alerts after restart",
+      "Dead-letter observability for permanently-abandoned deliveries; bounded resolve-retry for PagerDuty/Opsgenie",
+      "Async dispatch worker pool decouples sink delivery from the informer thread",
+    ],
+  },
+  {
+    v: "v1.1.0", date: "2026-06-27", tag: "Hardening",
     items: ["Opt-in Silence CRD (client-go dynamic informer), recurring maintenance windows, per-sink circuit breaker", "Google Chat and Mattermost sinks; console live updates (SSE), sortable/expandable alerts, keyboard nav, light theme", "validate/version CLI, tunable client QPS/burst, expanded e2e, coverage gate ratcheted to 66%"],
   },
   {
