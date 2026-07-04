@@ -6,7 +6,7 @@ const akFM = window.FramerMotion || {};
  * landing page (nav badge, hero pill, install snippets, footer tag).
  * AK_VERSION is bumped automatically by release-please (see
  * release-please-config.json). Update AK_VERSION_DATE in the release PR. */
-const AK_VERSION = "v1.2.0"; // x-release-please-version
+const AK_VERSION = "v1.3.0"; // x-release-please-version
 const AK_VERSION_DATE = "2026-07-03";
 // Helm chart version carries no leading "v" (semver per Chart.yaml).
 const AK_CHART_VERSION = AK_VERSION.replace(/^v/, "");
