@@ -6,7 +6,7 @@ alertkube keeps the alerting decision path deterministic: watch, identify, dedup
 
 The project's [governance](https://github.com/aryasoni98/alertkube/blob/master/GOVERNANCE.md) treats deterministic alerting as a core value:
 
-> **Determinism** — the project's core promise is predictable, explainable
+> **Determinism** - the project's core promise is predictable, explainable
 > alerting. Features that compromise that (e.g. nondeterministic/AI-driven
 > routing in the critical path) face a high bar.
 
@@ -36,9 +36,9 @@ This rules out nondeterministic components in the decision path. It does not rul
 
 ## See Also
 
-- [The fingerprint and dedup model](fingerprint-and-dedup.md) — the deterministic
+- [The fingerprint and dedup model](fingerprint-and-dedup.md) - the deterministic
   identity function at the center of every decision.
-- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) — the
+- [Silence vs inhibition vs mute window](silence-vs-inhibition-vs-mute.md) - the
   rule-driven (not learned) suppression mechanisms.
-- [How alertkube compares](comparison.md) — where a deterministic, Kubernetes-
+- [How alertkube compares](comparison.md) - where a deterministic, Kubernetes-
   native controller fits next to other alerting tools.

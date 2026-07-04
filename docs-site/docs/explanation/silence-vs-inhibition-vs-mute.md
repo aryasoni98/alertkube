@@ -73,7 +73,7 @@ Suppression order is fixed:
 
 1. **Mute window (Store).** Before the alert ever reaches the Router, the Store
    checks whether this fingerprint was sent inside the mute window. If so it is
-   dropped here — the Router never sees it.
+   dropped here - the Router never sees it.
 2. **Silence (Router).** If the alert survives dedupe, the Router checks silences
    (config and annotation) first.
 3. **Inhibition (Router).** If not silenced, the Router checks inhibitions.
@@ -90,13 +90,13 @@ Muted source re-fires still re-arm inhibitions. This keeps a long `NodeNotReady`
 
 ## See Also
 
-- [The fingerprint and dedup model](fingerprint-and-dedup.md) — the identity that
+- [The fingerprint and dedup model](fingerprint-and-dedup.md) - the identity that
   the mute window keys on.
-- [Add a silence](../how-to/add-a-silence.md) — the task guide for writing a
+- [Add a silence](../how-to/add-a-silence.md) - the task guide for writing a
   silence rule.
-- [Configure an inhibition](../how-to/configure-inhibition.md) — the task guide
+- [Configure an inhibition](../how-to/configure-inhibition.md) - the task guide
   for writing a source→target inhibition.
-- [Tune the mute window and grouping](../how-to/tune-mute-and-grouping.md) —
+- [Tune the mute window and grouping](../how-to/tune-mute-and-grouping.md) -
   configuring `muteSeconds`.
-- [Why alertkube is deterministic](deterministic-design.md) — why suppression is
+- [Why alertkube is deterministic](deterministic-design.md) - why suppression is
   rule-driven rather than learned.

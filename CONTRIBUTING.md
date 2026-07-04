@@ -6,7 +6,7 @@
   the GitHub issues labeled `good first issue` / `help wanted`.
 - Have a question or an idea to float first? Use
   [GitHub Discussions](https://github.com/aryasoni98/alertkube/discussions).
-- Found a security issue? Do **not** open a public issue — see [`SECURITY.md`](SECURITY.md).
+- Found a security issue? Do **not** open a public issue - see [`SECURITY.md`](SECURITY.md).
 
 ## Local Setup
 
@@ -20,18 +20,18 @@ go run ./cmd/alertkube
 ## Workflow
 
 1. Fork the repository and create a feature branch from `master`.
-2. Make focused changes — one concern per PR.
+2. Make focused changes - one concern per PR.
 3. Add or update tests for behavior changes.
 4. Run `go test -race ./...` and `golangci-lint run` (CI pins v2.12.2).
 5. Update `CHANGELOG.md` under `[Unreleased]` if the change is user-facing.
-6. **Sign off** every commit (`git commit -s`) — see [DCO](#dco).
+6. **Sign off** every commit (`git commit -s`) - see [DCO](#dco).
 7. Open a pull request using the PR template.
 
 ## Code Conventions
 
 - Match existing naming and package layout under `internal/`.
-- Watchers implement `Name() / Setup(ctx, factory, emit)` — see `internal/watchers/watcher.go`.
-- Sinks implement `Name() / Send(ctx, alert) / Supports(severity)` — see `internal/sinks/sink.go`.
+- Watchers implement `Name() / Setup(ctx, factory, emit)` - see `internal/watchers/watcher.go`.
+- Sinks implement `Name() / Send(ctx, alert) / Supports(severity)` - see `internal/sinks/sink.go`.
 - Keep diffs minimal; avoid drive-by refactors.
 - Security-sensitive paths (annotations, log redaction, credential handling) need tests.
 

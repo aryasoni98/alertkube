@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory holds **Architecture Decision Records (ADRs)** — short documents
+This directory holds **Architecture Decision Records (ADRs)** - short documents
 that capture a significant technical or project decision, the context that forced
 it, and its consequences. They are the durable memory of *why* alertkube is built
 the way it is.

@@ -2,7 +2,7 @@
 
 Silence alerts either centrally in config or per workload with an annotation.
 
-## Method A — config `silences:` (operator-controlled)
+## Method A - config `silences:` (operator-controlled)
 
 Use config silences for operator-controlled maintenance windows:
 
@@ -36,7 +36,7 @@ silences:
     until: "2026-07-01T00:00:00Z"
 ```
 
-## Method B — the `alert-silence-until` annotation (workload self-service)
+## Method B - the `alert-silence-until` annotation (workload self-service)
 
 Use the annotation for workload self-service:
 
@@ -76,6 +76,6 @@ Config-file silences still apply. Resolved alerts are never silenced, so inciden
 
 ## See Also
 
-- [Suppress dependent alerts with inhibitions](configure-inhibition.md) — silence by *cause*, not by time window.
-- [Tune the mute window and storm folding](tune-mute-and-grouping.md) — reduce duplicate noise instead of silencing it.
-- [Silence vs. inhibition vs. mute](../explanation/silence-vs-inhibition-vs-mute.md) — when to reach for which.
+- [Suppress dependent alerts with inhibitions](configure-inhibition.md) - silence by *cause*, not by time window.
+- [Tune the mute window and storm folding](tune-mute-and-grouping.md) - reduce duplicate noise instead of silencing it.
+- [Silence vs. inhibition vs. mute](../explanation/silence-vs-inhibition-vs-mute.md) - when to reach for which.

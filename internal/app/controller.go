@@ -30,12 +30,13 @@ import (
 	"alertkube/internal/shard"
 	"alertkube/internal/silence"
 	"alertkube/internal/sources"
-	// Cloud providers self-register into the sources registry via init; blank
-	// imports pull them in so startCloudSources can iterate them.
+	"alertkube/internal/watchers"
+
+	// Cloud providers self-register into the sources registry via init; the
+	// blank imports pull them in so startCloudSources can iterate the registry.
 	_ "alertkube/internal/sources/aws"
 	_ "alertkube/internal/sources/azure"
 	_ "alertkube/internal/sources/gcp"
-	"alertkube/internal/watchers"
 )
 
 // informerResyncPeriod is how often cached objects are re-delivered as

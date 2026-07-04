@@ -26,12 +26,12 @@ Reviewers have review authority in specific areas but do not merge.
 
 ## Areas
 
-- `area/watchers` — `internal/watchers/` (Kubernetes resource observers)
-- `area/sinks` — `internal/sinks/` (alert delivery targets)
-- `area/router` — `internal/router/`, `internal/alert/` (suppression & dedup)
-- `area/helm` — `helm/` (chart and Kubernetes manifests)
-- `area/ci` — `.github/` (workflows, automation)
-- `area/docs` — `docs/`, `docs-site/`, top-level docs
+- `area/watchers` - `internal/watchers/` (Kubernetes resource observers)
+- `area/sinks` - `internal/sinks/` (alert delivery targets)
+- `area/router` - `internal/router/`, `internal/alert/` (suppression & dedup)
+- `area/helm` - `helm/` (chart and Kubernetes manifests)
+- `area/ci` - `.github/` (workflows, automation)
+- `area/docs` - `docs/`, `docs-site/`, top-level docs
 
 ## Releasing
 

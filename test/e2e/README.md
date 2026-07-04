@@ -39,6 +39,6 @@ Two layers live here:
 
 ## Adding a scenario
 
-Prefer a chainsaw spec (`chainsaw/<name>/chainsaw-test.yaml`) — `apply` the
+Prefer a chainsaw spec (`chainsaw/<name>/chainsaw-test.yaml`) - `apply` the
 workload, then `assert`/`script` the expected alert. Keep each scenario isolated
 in its own namespace so they can run concurrently.

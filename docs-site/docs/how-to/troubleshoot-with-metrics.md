@@ -105,10 +105,10 @@ Check suppression counters:
     ```
 
     The `reason` label tells you why:
-    - **`dedupe` / `muted`** — same fingerprint fired recently (within `muteSeconds`). Wait, trigger from a fresh pod, or lower `muteSeconds` for testing.
-    - **`silenced`** — a `silences:` config or `alert-silence-until` annotation matched.
-    - **`inhibited`** — an inhibition rule suppressed it (e.g., pods on a down node).
-    - **`grouped`** — it was the 2nd or later alert in a group within `windowSeconds`.
+    - **`dedupe` / `muted`** - same fingerprint fired recently (within `muteSeconds`). Wait, trigger from a fresh pod, or lower `muteSeconds` for testing.
+    - **`silenced`** - a `silences:` config or `alert-silence-until` annotation matched.
+    - **`inhibited`** - an inhibition rule suppressed it (e.g., pods on a down node).
+    - **`grouped`** - it was the 2nd or later alert in a group within `windowSeconds`.
 
 Then check the matching mechanism:
 
@@ -210,7 +210,7 @@ curl -X POST http://localhost:9090/api/v1/alerts \
 
 ## See Also
 
-- [Metrics reference](../reference/metrics.md) — complete metric definitions and label values.
-- [Troubleshooting (main docs)](https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md) — more detailed troubleshooting guide.
-- [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md) — capacity planning and SLOs.
-- [Grafana dashboard](https://github.com/aryasoni98/alertkube/blob/master/docs/grafana-dashboard.json) — importable dashboard for visualization.
+- [Metrics reference](../reference/metrics.md) - complete metric definitions and label values.
+- [Troubleshooting (main docs)](https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md) - more detailed troubleshooting guide.
+- [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md) - capacity planning and SLOs.
+- [Grafana dashboard](https://github.com/aryasoni98/alertkube/blob/master/docs/grafana-dashboard.json) - importable dashboard for visualization.

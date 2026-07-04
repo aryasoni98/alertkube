@@ -48,7 +48,7 @@ not yet pressing; if they become so, this ADR can be superseded.
 - **i18n** is weaker than Docusaurus; revisit if Phase 3 translations become a
   priority.
 - The existing `docs/index.html` landing page and a MkDocs site cannot both be
-  the repository's single GitHub Pages site — hosting must be decided
+  the repository's single GitHub Pages site - hosting must be decided
   (subpath, separate Pages source, or external host). Tracked as a follow-up.
 
 ### Follow-ups / triggers to revisit

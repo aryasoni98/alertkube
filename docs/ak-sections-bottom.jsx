@@ -122,7 +122,7 @@ const AK_RELEASES = [
   },
   {
     v: "v0.2.2", date: "2026-06-15", tag: "CNCF readiness",
-    items: ["Governance, issue/PR templates, DCO, and security insights", "Project-maturity work — no controller behavior change"],
+    items: ["Governance, issue/PR templates, DCO, and security insights", "Project-maturity work - no controller behavior change"],
   },
   {
     v: "v0.2.1", date: "2026-06-12", tag: "Launch",

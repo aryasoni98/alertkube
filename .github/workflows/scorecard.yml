@@ -1,6 +1,6 @@
 name: Scorecard
 
-# OpenSSF Scorecard — supply-chain security posture analysis.
+# OpenSSF Scorecard - supply-chain security posture analysis.
 # Publishes results so the README badge and https://securityscorecards.dev work,
 # and uploads SARIF to the GitHub Security tab.
 

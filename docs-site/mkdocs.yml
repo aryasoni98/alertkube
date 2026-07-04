@@ -1,5 +1,5 @@
 site_name: alertkube
-site_description: Kubernetes multi-resource alerting controller — severity tiers, multi-sink routing, dedupe, inhibitions, silences, Prometheus metrics.
+site_description: Kubernetes multi-resource alerting controller - severity tiers, multi-sink routing, dedupe, inhibitions, silences, Prometheus metrics.
 site_author: AlertKube
 site_url: https://aryasoni98.github.io/alertkube/manual/
 repo_url: https://github.com/aryasoni98/alertkube

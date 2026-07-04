@@ -31,7 +31,7 @@ not read from the environment by the sink:
 
 | Setting | Helm value | Config key | Env fallback (config layer) | Notes |
 | --- | --- | --- | --- | --- |
-| Username | `slack.username` | — | — | Display username (default `alertkube`). |
+| Username | `slack.username` | - | - | Display username (default `alertkube`). |
 | Critical channel | `slack.channels.critical` | `channels.critical` | `SLACK_CHANNEL_CRITICAL` | Default `alerts-critical`. |
 | Warning channel | `slack.channels.warning` | `channels.warning` | `SLACK_CHANNEL_WARNING`, then `SLACK_CHANNEL` | Default `alerts-warning`; `SLACK_CHANNEL` is the legacy single-channel fallback. |
 | Info channel | `slack.channels.info` | `channels.info` | `SLACK_CHANNEL_INFO` | Default `alerts-info`. |
@@ -56,7 +56,7 @@ individual workload (validated against `^#?[a-z0-9._-]{1,80}$`).
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
 | `OPSGENIE_API_KEY` | `opsgenie.apiKey` / `opsgenie.apiKeySecretKeyRef` | `opsgenieApiKey` | Opsgenie Alert API key. Stateful sink: receives every resolve and never receives grouping summaries. |
-| `OPSGENIE_API_URL` | `opsgenie.apiUrl` | — | Region/base-URL override. Set to `https://api.eu.opsgenie.com` for the EU region. |
+| `OPSGENIE_API_URL` | `opsgenie.apiUrl` | - | Region/base-URL override. Set to `https://api.eu.opsgenie.com` for the EU region. |
 
 ## Discord
 
@@ -69,20 +69,20 @@ individual workload (validated against `^#?[a-z0-9._-]{1,80}$`).
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | `telegram.botToken` / `telegram.botTokenSecretKeyRef` | `telegramBotToken` | Bot token from @BotFather (secret). |
-| `TELEGRAM_CHAT_ID` | `telegram.chatId` | — | Target chat/channel id (not secret). |
+| `TELEGRAM_CHAT_ID` | `telegram.chatId` | - | Target chat/channel id (not secret). |
 
 ## Generic webhook
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
 | `GENERIC_WEBHOOK_URL` | `genericWebhook.url` / `genericWebhook.urlSecretKeyRef` | `genericWebhookUrl` | Endpoint that receives the `Alert` struct as JSON. The sink name is `webhook`. |
-| `GENERIC_WEBHOOK_SECRET` | `genericWebhook.signingSecret` | — | Optional HMAC-SHA256 signing key. When set, every POST carries `X-Alertkube-Signature: sha256=<hex(hmac(secret, timestamp.body))>` and `X-Alertkube-Timestamp: <RFC3339>` so receivers can verify authenticity and reject replays. |
+| `GENERIC_WEBHOOK_SECRET` | `genericWebhook.signingSecret` | - | Optional HMAC-SHA256 signing key. When set, every POST carries `X-Alertkube-Signature: sha256=<hex(hmac(secret, timestamp.body))>` and `X-Alertkube-Timestamp: <RFC3339>` so receivers can verify authenticity and reject replays. |
 
 ## stdout
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| — | — | — | No credentials. Writes alerts to standard output; intended for local development. |
+| - | - | - | No credentials. Writes alerts to standard output; intended for local development. |
 
 ## HTTP API authentication
 

@@ -8,22 +8,22 @@ It will evolve as the contributor base grows.
 
 The alertkube community holds these values:
 
-- **Openness** — discussion, decisions, and roadmap happen in public (GitHub
+- **Openness** - discussion, decisions, and roadmap happen in public (GitHub
   issues, pull requests, and discussions) wherever possible.
-- **Neutrality** — alertkube is not controlled by any single company. Decisions
+- **Neutrality** - alertkube is not controlled by any single company. Decisions
   are made on technical merit, not commercial interest. No vendor receives
   preferential treatment in the codebase, roadmap, or documentation.
-- **Determinism** — the project's core promise is predictable, explainable
+- **Determinism** - the project's core promise is predictable, explainable
   alerting. Features that compromise that (e.g. nondeterministic/AI-driven
   routing in the critical path) face a high bar.
-- **Respect** — all participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Respect** - all participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Roles
 
 ### Contributor
 
 Anyone who contributes code, documentation, reviews, triage, design feedback, or
-support. There is no formal process to become a contributor — open a pull request
+support. There is no formal process to become a contributor - open a pull request
 or an issue. All contributors must follow the [Code of Conduct](CODE_OF_CONDUCT.md)
 and sign off their commits per the [DCO](#developer-certificate-of-origin-dco).
 
@@ -65,7 +65,7 @@ Contributor  ──►  Reviewer  ──►  Maintainer
 - **Removing:** an inactive maintainer (no substantive activity for ~6 months) or
   one in serious violation of the Code of Conduct may be removed by a
   supermajority vote of the *other* maintainers. Removal for inactivity is not a
-  judgment of character — emeritus maintainers are listed and welcomed back.
+  judgment of character - emeritus maintainers are listed and welcomed back.
 
 ## Decision making
 
