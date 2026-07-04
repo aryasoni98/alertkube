@@ -23,7 +23,7 @@
 /.github/             @aryasoni98
 
 # area/docs
-/docs/                @aryasoni98
-/docs-site/           @aryasoni98
+/web/                @aryasoni98
+/docs/           @aryasoni98
 /GOVERNANCE.md        @aryasoni98
 /MAINTAINERS.md       @aryasoni98

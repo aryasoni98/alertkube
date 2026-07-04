@@ -10,18 +10,18 @@ import (
 	"alertkube/internal/httpx"
 )
 
-// PagerDutySink sends critical alerts to PagerDuty Events API v2.
+// pagerdutySink sends critical alerts to PagerDuty Events API v2.
 // The routing key is read on each Send so Secret rotation is honored.
-type PagerDutySink struct{}
+type pagerdutySink struct{}
 
 func init() { Register("pagerduty", func(SinkConfig) Sink { return NewPagerDuty() }) }
 
-func NewPagerDuty() *PagerDutySink { return &PagerDutySink{} }
+func NewPagerDuty() Sink { return &pagerdutySink{} }
 
-func (p *PagerDutySink) Name() string { return "pagerduty" }
+func (p *pagerdutySink) Name() string { return "pagerduty" }
 
 // Only critical alerts page.
-func (p *PagerDutySink) Supports(sev alert.Severity) bool {
+func (p *pagerdutySink) Supports(sev alert.Severity) bool {
 	return sev == alert.SeverityCritical
 }
 
@@ -32,7 +32,7 @@ func pdSeverity(s alert.Severity) string {
 	return severityTier(s, "critical", "warning", "info")
 }
 
-func (p *PagerDutySink) Send(ctx context.Context, a *alert.Alert) error {
+func (p *pagerdutySink) Send(ctx context.Context, a *alert.Alert) error {
 	routingKey, ok := requireCred(ctx, "pagerduty", "PAGERDUTY_ROUTING_KEY")
 	if !ok {
 		return nil

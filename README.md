@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD033 -->
 <p align="center">
-  <img src="docs/assets/logo.png" alt="AlertKube logo" width="140" />
+  <img src="web/assets/logo.png" alt="AlertKube logo" width="140" />
 </p>
 <!-- markdownlint-enable MD033 -->
 
@@ -14,7 +14,11 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/aryasoni98/alertkube)](https://goreportcard.com/report/github.com/aryasoni98/alertkube)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences/inhibitions/grouping, and sends alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhooks, or stdout.
+[Website](https://aryasoni98.github.io/alertkube/) · [Manual](https://aryasoni98.github.io/alertkube/manual/) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/aryasoni98/alertkube/releases/latest)
+
+alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences, inhibitions, and optional storm grouping, and delivers alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhooks, or stdout.
+
+Delivery is **decoupled from the watch loop**: a bounded async worker pool fans out to sinks, a durable outbox replays undelivered alerts after restart, and static hash sharding (v1.2+) lets multiple replicas share load with exactly one owner per object.
 
 ## Install
 
@@ -34,42 +38,46 @@ helm upgrade --install alertkube ./helm \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 
-Image:
+Container image:
 
 ```bash
 docker pull ghcr.io/aryasoni98/alertkube:v1.2.0
 ```
 
-## Key Capabilities
+Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-- **Watchers:** pod restarts/crashloops/OOM/SIGKILL/image-pull, node readiness/pressure/cordon, workload availability, failed jobs, missed CronJobs, maxed HPAs, lost/pending PVCs.
-- **Routing:** match by severity, kind, namespace, reason, name, node, or labels.
+## Key capabilities
+
+- **Watchers:** pod restarts, crash loops, OOM, SIGKILL, image pull failures; node readiness, pressure, and cordon; workload availability; failed jobs; missed CronJobs; maxed HPAs; lost or pending PVCs.
+- **Routing:** match by severity, kind, namespace, reason, name, node, or labels; first match wins.
 - **Suppression:** fingerprint mute window, time-bounded silences, recurring maintenance windows, source/target inhibitions, optional storm grouping.
-- **State:** ConfigMap persistence preserves active alerts and mute history across restarts.
-- **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and Alertmanager webhook receiver.
-- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, Grafana dashboard.
-- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer, no controller-runtime - [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
-- **Web console (read-only):** embedded single-binary UI on the metrics port - view active alerts, the loaded config, and suppression counts. Guarded by `api.token`; config stays source-of-truth in Git.
+- **State:** gzip-compressed ConfigMap persistence preserves active alerts, mute history, and the delivery outbox across restarts.
+- **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/deadletter`), per-sink circuit breakers.
+- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` — N replicas share watch/evaluate load; leader election still gates shared state and the API.
+- **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and an Alertmanager-compatible webhook receiver.
+- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
+- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer — [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
+- **Web console:** embedded single-binary UI on the metrics port — active alerts, config review, runtime silences, channel tests. No npm, no sidecar.
 
-## Web Console
+## Web console
 
-A read-only console is embedded in the binary (no extra service, no npm) at `/` on the metrics port: active alerts + history, the effective config, and suppression counts from `/metrics`. `POST /api/config/validate` checks a candidate config before you commit it.
+The console lives at `/` on the metrics port (default `9090`). It shows active alerts and history, the effective config, suppression counts from `/metrics`, and accepts `POST /api/config/validate` for dry-run config checks before you commit to Git.
 
-Durable config is **never applied live** - you author it, review the diff, and commit to Git/ConfigMap (Git stays source of truth). The one runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
+Durable config is **never applied live** — Git/ConfigMap stays the source of truth. The supported runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
 
 ```bash
 kubectl -n <ns> port-forward deploy/alertkube 9090:9090
 open http://localhost:9090/   # paste ALERTKUBE_API_TOKEN (helm: api.token) when prompted
 ```
 
-Auth model (writes **fail closed**, every mutation audit-logged and counted via `alertkube_runtime_mutations_total`):
+Auth model (writes **fail closed**; every mutation is audit-logged via `alertkube_runtime_mutations_total`):
 
-- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`) - `Authorization: Bearer <api.token>`.
-- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) - gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a real Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources (`silences`, `channels`), managed with ordinary RBAC.
-- **Channel test-fire** reuses the sink's loaded credentials (no Secret read/stored) and sends a *real* notification. Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time without storing it - the one place the zero-secrets-read posture bends.
-- Data endpoints serve only from the elected leader; lock the port down with `networkPolicy.enabled=true`.
+- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`, `GET /api/deadletter`) — `Authorization: Bearer <api.token>`.
+- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) — gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources.
+- **Channel test-fire** reuses loaded sink credentials (no Secret stored). Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time only.
+- Data endpoints serve from the elected leader only. Lock the port down with `networkPolicy.enabled=true`.
 
-## Minimal Config
+## Minimal config
 
 ```yaml
 cluster: prod-us-east-1
@@ -95,7 +103,7 @@ inhibitions:
 
 silences:
   - matchers: {namespace: kube-system}
-    until: "2026-06-15T00:00:00Z"
+    until: "2026-12-31T00:00:00Z"
 ```
 
 Useful Helm values:
@@ -110,36 +118,56 @@ Useful Helm values:
 --set receiver.enabled=true --set receiver.token=...
 --set grouping.enabled=true
 --set metrics.serviceMonitor.enabled=true
+--set replicaCount=3 --set leaderElection.enabled=true   # HA failover
 ```
 
 Slack note: modern incoming webhooks ignore per-channel routing. Use `slack.botToken` with `chat:write` for real severity/channel routing.
 
-## Local Dev
+## Local development
+
+Requires Go 1.26+ (see `go.mod`) and a kubeconfig with read access to the resources you want to watch.
 
 ```bash
 export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxxxx/xxxxx
 export CLUSTER_NAME=my-cluster
-go run ./cmd/alertkube
+
+just run          # go run with stdout sink
+just test         # unit tests + race detector
+just build        # compile ./alertkube
 ```
 
 ## Documentation
 
-- Manual: [alertkube Manual](https://aryasoni98.github.io/alertkube/manual/)
-- Operations: [docs/OPERATIONS.md](docs/OPERATIONS.md)
-- Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- Migration: [docs/MIGRATION-FROM-V1.md](docs/MIGRATION-FROM-V1.md)
-- Testing: [docs/TESTING.md](docs/TESTING.md)
-- Performance: [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
-- ADRs: [docs/decisions/](docs/decisions/)
+| Topic | Link |
+| --- | --- |
+| **Manual** (MkDocs) | [aryasoni98.github.io/alertkube/manual/](https://aryasoni98.github.io/alertkube/manual/) |
+| Install tutorial | [Install with Helm](https://aryasoni98.github.io/alertkube/manual/tutorials/install-with-helm/) |
+| Architecture | [Pipeline overview](https://aryasoni98.github.io/alertkube/manual/architecture/) |
+| HA & sharding | [Leader election & sharding](https://aryasoni98.github.io/alertkube/manual/how-to/ha-leader-election/) |
+| Metrics & debugging | [Troubleshoot with metrics](https://aryasoni98.github.io/alertkube/manual/how-to/troubleshoot-with-metrics/) |
+| Config reference | [Config schema](https://aryasoni98.github.io/alertkube/manual/reference/config-schema/) |
+| ADRs | [docs/decisions/](docs/decisions/) |
+| Good first issues | [docs/good-first-issues.md](docs/good-first-issues.md) |
 
-Build docs locally:
+Preview the manual locally:
 
 ```bash
-make docs-serve
+just docs-serve    # http://127.0.0.1:8000
 ```
 
-## Community
+## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), [ADOPTERS.md](ADOPTERS.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
+Install [just](https://github.com/casey/just) for project tasks (`just` lists all recipes).
 
-Apache-2.0. See [LICENSE](LICENSE).
+```bash
+just test           # unit tests + race
+just lint           # golangci-lint
+just helm-lint      # chart lint
+just version-check  # manifest ↔ helm ↔ landing page drift gate
+```
+
+Releases use [release-please](https://github.com/googleapis/release-please) + Conventional Commits. After a version bump, run `just sync-version` to propagate the manifest to the Helm chart, landing page, README, and the docs manual.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), [ADOPTERS.md](ADOPTERS.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
+
+Apache-2.0 · [LICENSE](LICENSE)

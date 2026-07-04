@@ -16,7 +16,7 @@ repos:
         args: [--allow-multiple-documents]
         # Helm templates and the mkdocs config use non-standard YAML (Go
         # templating / Python tags) that this generic parser cannot load.
-        exclude: '^(helm/templates/.*|docs-site/mkdocs\.yml)$'
+        exclude: '^(helm/templates/.*|docs/mkdocs\.yml)$'
       - id: check-added-large-files
         args: [--maxkb=512]
 

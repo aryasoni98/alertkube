@@ -4,8 +4,8 @@ on:
   push:
     branches: [master, main]
     paths:
+      - "web/**"
       - "docs/**"
-      - "docs-site/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -39,20 +39,20 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Build manual (MkDocs) into docs/manual
-        # The Pages artifact is the docs/ tree (landing page at root). Build the
-        # MkDocs manual into docs/manual so it deploys at /alertkube/manual/ -
+      - name: Build manual (MkDocs) into web/manual
+        # The Pages artifact is the web/ tree (landing page at root). Build the
+        # MkDocs manual into web/manual so it deploys at /alertkube/manual/ -
         # the URL the landing-page navbar's "Docs" link targets. --strict fails
         # the deploy on a broken nav/link, so a bad mkdocs nav blocks publish.
-        working-directory: docs-site
+        working-directory: docs
         run: |
           pip install -r requirements.txt
-          mkdocs build --strict -d "${GITHUB_WORKSPACE}/docs/manual"
+          mkdocs build --strict -d "${GITHUB_WORKSPACE}/web/manual"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
-          path: docs
+          path: web
 
       - name: Deploy to GitHub Pages
         id: deployment

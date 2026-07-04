@@ -147,7 +147,7 @@ jobs:
       - name: Fail if helm/README.md is out of date
         run: |
           if ! git diff --exit-code helm/README.md; then
-            echo "::error::helm/README.md is stale. Run 'make helm-docs' and commit the result." >&2
+            echo "::error::helm/README.md is stale. Run 'just helm-docs' and commit the result." >&2
             exit 1
           fi
 

@@ -44,9 +44,9 @@ trivy-results.sarif
 *~
 
 # Docs site build output
-/docs-site/site/
+/docs/site/
 # MkDocs manual built into the Pages artifact in CI (pages.yml); never committed
-/docs/manual/
+/web/manual/
 
 # Local tooling
 .cache/

@@ -4,7 +4,7 @@ site_author: AlertKube
 site_url: https://aryasoni98.github.io/alertkube/manual/
 repo_url: https://github.com/aryasoni98/alertkube
 repo_name: aryasoni98/alertkube
-edit_uri: edit/master/docs-site/docs/
+edit_uri: edit/master/docs/docs/
 copyright: Apache-2.0 licensed. Built with MkDocs Material.
 
 docs_dir: docs

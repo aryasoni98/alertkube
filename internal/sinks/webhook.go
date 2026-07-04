@@ -13,17 +13,17 @@ import (
 	"alertkube/internal/httpx"
 )
 
-// WebhookSink POSTs the Alert struct as JSON to a generic endpoint.
+// webhookHTTPSink POSTs the Alert struct as JSON to a generic endpoint.
 // URL and HMAC secret are read on each Send so a Secret rotation is
 // picked up without a process restart.
-type WebhookSink struct{}
+type webhookHTTPSink struct{}
 
 func init() { Register("webhook", func(SinkConfig) Sink { return NewWebhook() }) }
 
-func NewWebhook() *WebhookSink { return &WebhookSink{} }
+func NewWebhook() Sink { return &webhookHTTPSink{} }
 
-func (*WebhookSink) Name() string                   { return "webhook" }
-func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
+func (*webhookHTTPSink) Name() string                   { return "webhook" }
+func (*webhookHTTPSink) Supports(_ alert.Severity) bool { return true }
 
 // Send POSTs the alert payload as JSON. When `GENERIC_WEBHOOK_SECRET`
 // is set, an HMAC-SHA256 signature of the body is added in
@@ -31,7 +31,7 @@ func (*WebhookSink) Supports(_ alert.Severity) bool { return true }
 // header to mitigate replay. Transient failures (network, 429, 5xx) are
 // retried with backoff; the timestamp + signature are recomputed per
 // attempt so retries stay within the receiver's replay window.
-func (*WebhookSink) Send(ctx context.Context, a *alert.Alert) error {
+func (*webhookHTTPSink) Send(ctx context.Context, a *alert.Alert) error {
 	url, ok := requireCred(ctx, "webhook", "GENERIC_WEBHOOK_URL")
 	if !ok {
 		return nil
