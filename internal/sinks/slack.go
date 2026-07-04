@@ -20,7 +20,7 @@ import (
 // arbitrary DMs or user mentions via the `alert-slack-channel` annotation.
 var channelOverridePattern = regexp.MustCompile(`^#?[a-z0-9._-]{1,80}$`)
 
-type SlackSink struct {
+type slackSink struct {
 	username   string
 	cluster    string
 	channels   map[alert.Severity]string
@@ -31,11 +31,11 @@ func init() {
 	Register("slack", func(c SinkConfig) Sink { return NewSlack(c.Cluster, "alertkube", c.Channels) })
 }
 
-func NewSlack(cluster, username string, channels map[alert.Severity]string) *SlackSink {
+func NewSlack(cluster, username string, channels map[alert.Severity]string) Sink {
 	if os.Getenv("SLACK_WEBHOOK_URL") == "" && os.Getenv("SLACK_BOT_TOKEN") == "" {
 		klog.Warning("SLACK_WEBHOOK_URL and SLACK_BOT_TOKEN unset; Slack sink will no-op")
 	}
-	return &SlackSink{
+	return &slackSink{
 		username:   username,
 		cluster:    cluster,
 		channels:   channels,
@@ -43,11 +43,11 @@ func NewSlack(cluster, username string, channels map[alert.Severity]string) *Sla
 	}
 }
 
-func (s *SlackSink) Name() string { return "slack" }
+func (s *slackSink) Name() string { return "slack" }
 
-func (s *SlackSink) Supports(_ alert.Severity) bool { return true }
+func (s *slackSink) Supports(_ alert.Severity) bool { return true }
 
-func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
+func (s *slackSink) Send(ctx context.Context, a *alert.Alert) error {
 	channel := s.routeChannel(a)
 	// explicitChannel is only set when a workload asks for a specific
 	// channel via annotation. Webhook mode must not send the per-severity
@@ -98,7 +98,7 @@ func (s *SlackSink) Send(ctx context.Context, a *alert.Alert) error {
 
 // sendBotToken posts via chat.postMessage. The bot must be a member of
 // the target channel (invite it with /invite @alertkube).
-func (s *SlackSink) sendBotToken(ctx context.Context, token, channel string, blocks []slack.Block, attachment slack.Attachment) error {
+func (s *slackSink) sendBotToken(ctx context.Context, token, channel string, blocks []slack.Block, attachment slack.Attachment) error {
 	api := slack.New(token, slack.OptionHTTPClient(s.httpClient))
 	return httpx.Retry(ctx, httpx.DefaultRetry, func(ctx context.Context) error {
 		_, _, err := api.PostMessageContext(ctx, channel,
@@ -111,7 +111,7 @@ func (s *SlackSink) sendBotToken(ctx context.Context, token, channel string, blo
 	})
 }
 
-func (s *SlackSink) routeChannel(a *alert.Alert) string {
+func (s *slackSink) routeChannel(a *alert.Alert) string {
 	if ch, ok := s.channels[a.Severity]; ok && ch != "" {
 		return ch
 	}

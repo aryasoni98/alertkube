@@ -14,18 +14,18 @@ import (
 // telegramAPIBase is a var so tests can point it at a local server.
 var telegramAPIBase = "https://api.telegram.org"
 
-// TelegramSink sends HTML-formatted messages via the Bot API.
+// telegramSink sends HTML-formatted messages via the Bot API.
 // Token and chat id are read on each Send so Secret rotation is honored.
-type TelegramSink struct{}
+type telegramSink struct{}
 
 func init() { Register("telegram", func(SinkConfig) Sink { return NewTelegram() }) }
 
-func NewTelegram() *TelegramSink { return &TelegramSink{} }
+func NewTelegram() Sink { return &telegramSink{} }
 
-func (*TelegramSink) Name() string                   { return "telegram" }
-func (*TelegramSink) Supports(_ alert.Severity) bool { return true }
+func (*telegramSink) Name() string                   { return "telegram" }
+func (*telegramSink) Supports(_ alert.Severity) bool { return true }
 
-func (t *TelegramSink) Send(ctx context.Context, a *alert.Alert) error {
+func (t *telegramSink) Send(ctx context.Context, a *alert.Alert) error {
 	token, ok := requireCred(ctx, "telegram", "TELEGRAM_BOT_TOKEN")
 	if !ok {
 		return nil

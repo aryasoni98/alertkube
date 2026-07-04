@@ -1,3 +1,0 @@
-# Pinned doc-site toolchain. Used by `make docs-serve` and the docs CI workflow.
-mkdocs-material>=9.6,<10
-pymdown-extensions>=10.11

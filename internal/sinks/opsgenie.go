@@ -12,23 +12,23 @@ import (
 	"alertkube/internal/textutil"
 )
 
-// OpsgenieSink creates and closes alerts via the Alert API v2. The alert
+// opsgenieSink creates and closes alerts via the Alert API v2. The alert
 // alias is the fingerprint, so Opsgenie dedupes re-fires and the resolve
 // closes the right alert. API key is read on each Send so Secret rotation
 // is honored. Set OPSGENIE_API_URL=https://api.eu.opsgenie.com for EU
 // accounts.
-type OpsgenieSink struct{}
+type opsgenieSink struct{}
 
 func init() { Register("opsgenie", func(SinkConfig) Sink { return NewOpsgenie() }) }
 
-func NewOpsgenie() *OpsgenieSink { return &OpsgenieSink{} }
+func NewOpsgenie() Sink { return &opsgenieSink{} }
 
-func (*OpsgenieSink) Name() string { return "opsgenie" }
+func (*opsgenieSink) Name() string { return "opsgenie" }
 
 // Critical and warning create Opsgenie alerts; info-tier noise does not
 // belong in an incident tool (route info elsewhere). Resolves bypass this
 // gate in Dispatch, so closes always go through.
-func (*OpsgenieSink) Supports(sev alert.Severity) bool {
+func (*opsgenieSink) Supports(sev alert.Severity) bool {
 	return sev == alert.SeverityCritical || sev == alert.SeverityWarning
 }
 
@@ -37,7 +37,7 @@ func ogPriority(s alert.Severity) string {
 	return severityTier(s, "P1", "P3", "P5")
 }
 
-func (*OpsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
+func (*opsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 	apiKey, ok := requireCred(ctx, "opsgenie", "OPSGENIE_API_KEY")
 	if !ok {
 		return nil

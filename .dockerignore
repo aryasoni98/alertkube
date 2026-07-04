@@ -16,12 +16,12 @@ coverage.out
 dist/
 
 # Tooling and generated output
-docs-site/
+docs/
+web/
 graphify-out/
 test/
 .pre-commit-config.yaml
 .golangci.yml
 helm/
 scripts/
-build.sh
-Makefile
+justfile

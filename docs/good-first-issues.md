@@ -48,8 +48,8 @@ it, and read [`CONTRIBUTING.md`](../CONTRIBUTING.md) first.
 
 ## Docs
 
-10. **Port a doc page to the new MkDocs site** under `docs-site/docs/` (pick one
-    from `docs/`). Scope: docs only. Hint: see `docs-site/mkdocs.yml` nav.
+10. **Port a doc page to the new MkDocs site** under `docs/docs/` (pick a topic
+    not yet covered). Scope: docs only. Hint: see `docs/mkdocs.yml` nav.
 11. **Add a "Reference: metrics" page** enumerating every `alertkube_*` metric
     with its type and labels. Hint: grep `internal/metrics/metrics.go`.
 12. **Add a Grafana dashboard panel** for `alertkube_dispatch_inflight` and
