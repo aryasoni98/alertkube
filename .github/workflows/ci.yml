@@ -37,6 +37,23 @@ jobs:
       - name: Build
         run: go build -v ./...
 
+      - name: Landing page version drift
+        # release-please bumps docs/ak-lib.jsx; this catches a manual release
+        # where the manifest moved but the landing page did not.
+        run: |
+          want="$(jq -r '."."' .release-please-manifest.json)"
+          got="$(grep -oE 'const AK_VERSION = "v[0-9]+\.[0-9]+\.[0-9]+"' docs/ak-lib.jsx | sed -E 's/.*"(v[^"]+)".*/\1/')"
+          echo "manifest=v${want#v} landing=${got}"
+          test "v${want}" = "$got" || {
+            echo "::error::docs/ak-lib.jsx AK_VERSION ($got) != .release-please-manifest.json ($want); run release-please or bump AK_VERSION" >&2
+            exit 1
+          }
+          html="$(grep -oE '"softwareVersion": "[0-9]+\.[0-9]+\.[0-9]+"' docs/index.html | sed -E 's/.*"([0-9.]+)".*/\1/')"
+          test "$want" = "$html" || {
+            echo "::error::docs/index.html softwareVersion ($html) != manifest ($want)" >&2
+            exit 1
+          }
+
       - name: Vet
         run: go vet ./...
 

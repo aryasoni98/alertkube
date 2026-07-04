@@ -4,11 +4,10 @@ const akFM = window.FramerMotion || {};
 /* --------------------------- VERSION ---------------------------- *
  * Single source of truth for the released version shown across the
  * landing page (nav badge, hero pill, install snippets, footer tag).
- * Bump these two lines on a release and every reference updates.
- * Keep AK_VERSION in sync with .release-please-manifest.json and
- * helm/Chart.yaml appVersion. */
-const AK_VERSION = "v1.1.0";
-const AK_VERSION_DATE = "2026-06-27";
+ * AK_VERSION is bumped automatically by release-please (see
+ * release-please-config.json). Update AK_VERSION_DATE in the release PR. */
+const AK_VERSION = "v1.2.0"; // x-release-please-version
+const AK_VERSION_DATE = "2026-07-03";
 // Helm chart version carries no leading "v" (semver per Chart.yaml).
 const AK_CHART_VERSION = AK_VERSION.replace(/^v/, "");
 const AK_REPO = "https://github.com/aryasoni98/alertkube";

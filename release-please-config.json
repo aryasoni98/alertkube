@@ -13,7 +13,11 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "yaml", "path": "helm/Chart.yaml", "jsonpath": "$.version" },
-        { "type": "yaml", "path": "helm/Chart.yaml", "jsonpath": "$.appVersion" }
+        { "type": "yaml", "path": "helm/Chart.yaml", "jsonpath": "$.appVersion" },
+        { "type": "generic", "path": "docs/ak-lib.jsx" },
+        { "type": "generic", "path": "docs/index.html" },
+        { "type": "generic", "path": "build.sh" },
+        { "type": "generic", "path": "SECURITY-INSIGHTS.yml" }
       ]
     }
   },

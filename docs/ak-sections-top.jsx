@@ -224,7 +224,7 @@ function AKHero({ live }) {
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                {AK_VERSION} - Silence CRD, maintenance windows, live console
+                {AK_VERSION} - Horizontal sharding, durable delivery, dead-letter observability
               </span>
             </Reveal>
             <Reveal delay={0.06}>
