@@ -194,6 +194,12 @@ func TestValidateCorrelationBounds(t *testing.T) {
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid correlation rejected: %v", err)
 	}
+	// Enabled with all-zero numerics ⇒ "use engine defaults" ⇒ must pass.
+	def := base()
+	def.Correlation = Correlation{Enabled: true}
+	if err := def.Validate(); err != nil {
+		t.Fatalf("enabled correlation with all-zero (defaults) rejected: %v", err)
+	}
 	bad := base()
 	bad.Correlation = Correlation{Enabled: true, MaxHops: 99}
 	if err := bad.Validate(); err == nil {
