@@ -176,7 +176,8 @@ type Alert struct {
 	// it by Fingerprint and dispatches once, but never adds it to the active
 	// set and never emits a synthetic resolve for it - a "security group was
 	// modified" notification has nothing to resolve.
-	Event bool
+	Event       bool
+	Correlation *Correlation
 }
 
 // Clone returns a deep copy whose Labels, Annotations, and Details maps are
@@ -189,6 +190,7 @@ func (a *Alert) Clone() *Alert {
 	cp.Labels = cloneStringMap(a.Labels)
 	cp.Annotations = cloneStringMap(a.Annotations)
 	cp.Details = cloneStringMap(a.Details)
+	cp.Correlation = a.Correlation.clone()
 	return &cp
 }
 
