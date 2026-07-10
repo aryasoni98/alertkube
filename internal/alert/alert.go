@@ -176,7 +176,9 @@ type Alert struct {
 	// it by Fingerprint and dispatches once, but never adds it to the active
 	// set and never emits a synthetic resolve for it - a "security group was
 	// modified" notification has nothing to resolve.
-	Event       bool
+	Event bool
+	// Correlation is derived context attached by the correlation engine; nil
+	// when correlation is disabled or the alert is standalone. Not persisted.
 	Correlation *Correlation
 }
 

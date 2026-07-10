@@ -24,3 +24,12 @@ func TestCorrelationCloneNil(t *testing.T) {
 		t.Fatal("nil Correlation must clone to nil")
 	}
 }
+
+func TestCorrelationCloneNilBlastRadius(t *testing.T) {
+	a := New(KindPod, "ns", "web-1", "X", SeverityInfo)
+	a.Correlation = &Correlation{GroupID: "g1", Role: RoleCause}
+	cp := a.Clone()
+	if cp.Correlation.BlastRadius != nil {
+		t.Fatal("nil BlastRadius must stay nil through clone")
+	}
+}
