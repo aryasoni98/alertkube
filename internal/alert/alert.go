@@ -66,6 +66,7 @@ const (
 	KindPod         Kind = "Pod"
 	KindNode        Kind = "Node"
 	KindDeployment  Kind = "Deployment"
+	KindReplicaSet  Kind = "ReplicaSet"
 	KindPVC         Kind = "PersistentVolumeClaim"
 	KindJob         Kind = "Job"
 	KindDaemonSet   Kind = "DaemonSet"
@@ -121,7 +122,7 @@ const (
 // (e.g. a poisoned persisted snapshot) before they enter the store.
 func (k Kind) Valid() bool {
 	switch k {
-	case KindPod, KindNode, KindDeployment, KindPVC, KindJob, KindDaemonSet,
+	case KindPod, KindNode, KindDeployment, KindReplicaSet, KindPVC, KindJob, KindDaemonSet,
 		KindStatefulSet, KindCronJob, KindHPA, KindExternal,
 		KindEKSCluster, KindCloudWatchAlarm, KindEC2Instance,
 		KindLoadBalancer, KindTargetGroup, KindRDSInstance,
