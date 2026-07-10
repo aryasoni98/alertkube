@@ -73,6 +73,7 @@ const (
 	KindStatefulSet Kind = "StatefulSet"
 	KindCronJob     Kind = "CronJob"
 	KindHPA         Kind = "HorizontalPodAutoscaler"
+	KindService     Kind = "Service"
 	// AWS cloud-source kinds. Unlike the workload kinds above (produced by
 	// informer-driven watchers), these are produced by the polled AWS
 	// sources in internal/sources/aws. Namespace carries the AWS region and
@@ -123,7 +124,7 @@ const (
 func (k Kind) Valid() bool {
 	switch k {
 	case KindPod, KindNode, KindDeployment, KindReplicaSet, KindPVC, KindJob, KindDaemonSet,
-		KindStatefulSet, KindCronJob, KindHPA, KindExternal,
+		KindStatefulSet, KindCronJob, KindHPA, KindService, KindExternal,
 		KindEKSCluster, KindCloudWatchAlarm, KindEC2Instance,
 		KindLoadBalancer, KindTargetGroup, KindRDSInstance,
 		KindDynamoDBTable, KindElastiCacheCluster, KindS3Bucket, KindCloudTrailEvent,

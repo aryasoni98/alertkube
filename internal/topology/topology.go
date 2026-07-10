@@ -39,7 +39,6 @@ type lister struct {
 	rs    appslisters.ReplicaSetLister
 	jobs  batchlisters.JobLister
 	svc   corelisters.ServiceLister
-	pvc   corelisters.PersistentVolumeClaimLister
 	ready bool
 }
 
@@ -57,14 +56,13 @@ func New(ctx context.Context, clientset kubernetes.Interface, watchNamespace str
 		rs:   f.Apps().V1().ReplicaSets().Lister(),
 		jobs: f.Batch().V1().Jobs().Lister(),
 		svc:  f.Core().V1().Services().Lister(),
-		pvc:  f.Core().V1().PersistentVolumeClaims().Lister(),
 	}
 	f.Start(ctx.Done())
 	syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 	for typ, ok := range f.WaitForCacheSync(syncCtx.Done()) {
 		if !ok {
-			klog.Warningf("correlation disabled: topology informer %v failed to sync (check RBAC for replicasets/services/persistentvolumeclaims); controller continues", typ)
+			klog.Warningf("correlation disabled: topology informer %v failed to sync (check RBAC for replicasets/services/jobs); controller continues", typ)
 			return &lister{} // inert; ready == false
 		}
 	}
