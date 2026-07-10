@@ -210,6 +210,10 @@ type Config struct {
 	// Derived) through the same dedupe/route/group/sink pipeline.
 	Rules []Rule `yaml:"rules"`
 
+	// Correlation configures the topology-aware alert correlation engine
+	// (internal/correlate). Disabled by default.
+	Correlation Correlation `yaml:"correlation"`
+
 	// Maintenance windows suppress matching alerts on a recurring daily
 	// schedule (e.g. a nightly backup window or a weekly patch window),
 	// complementing the one-shot `silences` (which expire at a single RFC3339
@@ -249,6 +253,17 @@ type RuleCount struct {
 type RuleAbsent struct {
 	Match      map[string]string `yaml:"match"`
 	ForSeconds int               `yaml:"forSeconds"`
+}
+
+// Correlation configures the topology-aware alert correlation engine
+// (internal/correlate). Disabled by default. Zero numeric values mean "use the
+// engine default". Enabling requires the extra list/watch RBAC in the chart; see
+// docs/superpowers/specs/2026-07-10-correlation-engine-design.md.
+type Correlation struct {
+	Enabled         bool `yaml:"enabled"`
+	IntervalSeconds int  `yaml:"intervalSeconds"`
+	MaxHops         int  `yaml:"maxHops"`
+	BlastRadiusCap  int  `yaml:"blastRadiusCap"`
 }
 
 // SinkRate is a per-sink token-bucket override.
@@ -524,6 +539,17 @@ func (c *Config) Validate() error {
 	for i, w := range c.Maintenance {
 		if err := w.validate(); err != nil {
 			return fmt.Errorf("maintenance[%d]: %w", i, err)
+		}
+	}
+	if c.Correlation.Enabled {
+		if v := c.Correlation.IntervalSeconds; v != 0 && v < 5 {
+			return fmt.Errorf("correlation.intervalSeconds (%d) must be >= 5", v)
+		}
+		if v := c.Correlation.MaxHops; v != 0 && (v < 1 || v > 5) {
+			return fmt.Errorf("correlation.maxHops (%d) must be in [1,5]", v)
+		}
+		if v := c.Correlation.BlastRadiusCap; v != 0 && (v < 1 || v > 500) {
+			return fmt.Errorf("correlation.blastRadiusCap (%d) must be in [1,500]", v)
 		}
 	}
 	return nil
