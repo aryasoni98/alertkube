@@ -57,6 +57,9 @@ func (s *Store) Export() *Snapshot {
 	for _, a := range s.active {
 		cp := *a
 		cp.Details = nil
+		// Correlation is derived and recomputed each interval; it must never be
+		// persisted (keeps the snapshot wire shape stable and bounds its size).
+		cp.Correlation = nil
 		snap.Active = append(snap.Active, &cp)
 	}
 	return snap

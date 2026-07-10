@@ -87,3 +87,19 @@ func TestGenerationTracksMutations(t *testing.T) {
 		t.Fatalf("sweep that resolves must bump generation")
 	}
 }
+
+func TestExportDropsCorrelation(t *testing.T) {
+	s := NewStore(time.Minute, time.Minute, nil)
+	a := New(KindPod, "ns", "web-1", "CrashLoopBackOff", SeverityCritical)
+	s.ShouldSend(a)
+	s.ApplyCorrelation(map[string]*Correlation{
+		a.Fingerprint: {GroupID: "g1", Role: RoleEffect, BlastRadius: []Ref{{Kind: "Node", Name: "n1"}}},
+	})
+	snap := s.Export()
+	if len(snap.Active) != 1 {
+		t.Fatalf("expected 1 active, got %d", len(snap.Active))
+	}
+	if snap.Active[0].Correlation != nil {
+		t.Fatal("Export must drop Correlation (derived, not persisted)")
+	}
+}
