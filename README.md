@@ -53,28 +53,18 @@ Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release
 - **Suppression:** fingerprint mute window, time-bounded silences, recurring maintenance windows, source/target inhibitions, optional storm grouping.
 - **State:** gzip-compressed ConfigMap persistence preserves active alerts, mute history, and the delivery outbox across restarts.
 - **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/deadletter`), per-sink circuit breakers.
-- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` — N replicas share watch/evaluate load; leader election still gates shared state and the API.
+- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` - N replicas share watch/evaluate load; leader election still gates shared state and the API.
 - **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and an Alertmanager-compatible webhook receiver.
 - **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
-- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer — [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
-- **Web console:** embedded single-binary UI on the metrics port — active alerts, config review, runtime silences, channel tests. No npm, no sidecar.
+- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer - [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
 
-## Web console
+## HTTP API
 
-The console lives at `/` on the metrics port (default `9090`). It shows active alerts and history, the effective config, suppression counts from `/metrics`, and accepts `POST /api/config/validate` for dry-run config checks before you commit to Git.
+Token-gated endpoints on the metrics port (default `9090`) or optional separate `apiAddr`:
 
-Durable config is **never applied live** — Git/ConfigMap stays the source of truth. The supported runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
-
-```bash
-kubectl -n <ns> port-forward deploy/alertkube 9090:9090
-open http://localhost:9090/   # paste ALERTKUBE_API_TOKEN (helm: api.token) when prompted
-```
-
-Auth model (writes **fail closed**; every mutation is audit-logged via `alertkube_runtime_mutations_total`):
-
-- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`, `GET /api/deadletter`) — `Authorization: Bearer <api.token>`.
-- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) — gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources.
-- **Channel test-fire** reuses loaded sink credentials (no Secret stored). Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time only.
+- **Read:** `GET /api/alerts`, `GET /api/config`, `GET /api/silences`, `GET /api/deadletter` - `Authorization: Bearer <api.token>`.
+- **Validate:** `POST /api/config/validate` for dry-run config checks before you commit to Git.
+- **Write:** `POST`/`DELETE /api/silences`, `POST /api/channels/test` - gated by `api.authMode` (`token` uses `api.writeToken`; `rbac` uses Kubernetes TokenReview/SubjectAccessReview).
 - Data endpoints serve from the elected leader only. Lock the port down with `networkPolicy.enabled=true`.
 
 ## Minimal config

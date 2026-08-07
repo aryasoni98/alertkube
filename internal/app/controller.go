@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -117,9 +116,6 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	)
 	store.SetOnChange(func(n int) {
 		metrics.ActiveAlerts.Set(float64(n))
-		// Notify any connected consoles (SSE) so they refresh live instead of
-		// waiting for their poll interval.
-		metrics.PublishChange()
 	})
 
 	persister := restoreState(ctx, clientset, cfg, store, silStore, disp)
@@ -372,47 +368,13 @@ func sanitizeField(s string) string {
 
 // exportState builds the durable snapshot: alert-store state, the runtime
 // silences (which live outside the store but share the state ConfigMap so a
-// UI-created mute survives a leader failover), and the dispatcher's outbox
+// runtime mute survives a leader failover), and the dispatcher's outbox
 // (undelivered deliveries, replayed on restart).
 func exportState(store *alert.Store, sil *silence.Store, disp *dispatcher) *alert.Snapshot {
 	snap := store.Export()
 	snap.RuntimeSilences = sil.List()
 	snap.Pending = disp.PendingSnapshot()
 	return snap
-}
-
-// overlayConfig renders a candidate config: it parses a JSON patch of the
-// form-editable sections (rules, routing, grouping) and overlays them onto a
-// copy of the live config, returning the full YAML. Only provided sections are
-// replaced; every other field is preserved, so form-based authoring never drops
-// config the UI does not model. Nothing is applied - the result is for the
-// operator to review, diff, and commit to Git (the GitOps source of truth).
-func overlayConfig(base *config.Config, patch []byte) ([]byte, error) {
-	var in struct {
-		Rules    *[]config.Rule  `json:"rules"`
-		Routing  *[]config.Route `json:"routing"`
-		Grouping *struct {
-			Enabled       bool     `json:"enabled"`
-			WindowSeconds int      `json:"windowSeconds"`
-			By            []string `json:"by"`
-		} `json:"grouping"`
-	}
-	if err := json.Unmarshal(patch, &in); err != nil {
-		return nil, err
-	}
-	out := *base // shallow copy; section assignments below replace slice/struct headers, never mutating base
-	if in.Rules != nil {
-		out.Rules = *in.Rules
-	}
-	if in.Routing != nil {
-		out.Routing = *in.Routing
-	}
-	if in.Grouping != nil {
-		out.Grouping.Enabled = in.Grouping.Enabled
-		out.Grouping.WindowSeconds = in.Grouping.WindowSeconds
-		out.Grouping.By = in.Grouping.By
-	}
-	return yaml.Marshal(&out)
 }
 
 // setupReceiver wires the optional Alertmanager-compatible webhook receiver
@@ -500,12 +462,10 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, dis
 	metrics.ClearAlertsHandler()
 	metrics.ClearConfigHandler()
 	metrics.ClearValidateHandler()
-	metrics.ClearRenderHandler()
 	metrics.ClearSilencesHandler()
 	metrics.ClearChannelsHandler()
 	metrics.ClearDeadLetterHandler()
 	metrics.ClearPprofHandler()
-	metrics.ClearEventsAuth()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()

@@ -125,7 +125,6 @@ func TestMuxRoutes(t *testing.T) {
 	receiverHandler.Store(nil)
 	configHandler.Store(nil)
 	validateHandler.Store(nil)
-	renderHandler.Store(nil)
 	silencesHandler.Store(nil)
 	channelsHandler.Store(nil)
 	mux := buildMux()
@@ -210,15 +209,6 @@ func TestMuxRoutes(t *testing.T) {
 			t.Fatalf("/api/v1/alerts installed: got %d, want 202", rec.Code)
 		}
 	})
-
-	t.Run("console served at root", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET / (console): got %d, want 200", rec.Code)
-		}
-	})
-
 	t.Run("config routes 503 until installed", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
@@ -238,12 +228,6 @@ func TestMuxRoutes(t *testing.T) {
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/validate", nil))
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("/api/config/validate uninstalled: got %d, want 503", rec.Code)
-		}
-
-		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/render", nil))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("/api/config/render uninstalled: got %d, want 503", rec.Code)
 		}
 	})
 
@@ -283,21 +267,11 @@ func TestMuxRoutes(t *testing.T) {
 		}
 	})
 
-	t.Run("events route 503 until installed", func(t *testing.T) {
-		ClearEventsAuth()
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/events", nil))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("/api/events uninstalled: got %d, want 503", rec.Code)
-		}
-	})
-
 	// Clean up globals so other packages' expectations are not affected.
 	alertsHandler.Store(nil)
 	receiverHandler.Store(nil)
 	configHandler.Store(nil)
 	validateHandler.Store(nil)
-	renderHandler.Store(nil)
 	silencesHandler.Store(nil)
 	channelsHandler.Store(nil)
 }

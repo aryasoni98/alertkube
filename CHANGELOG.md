@@ -13,20 +13,20 @@ across replicas. All changes are covered by unit + race tests.
 
 ### Added
 
-* **scaling:** horizontal scaling via static hash-based sharding — with `ALERTKUBE_SHARD_TOTAL` > 1 each replica owns objects where `hash(kind/ns/name) mod total == index`, so N replicas share load with exactly one owner per object (default single-replica behavior unchanged).
+* **scaling:** horizontal scaling via static hash-based sharding - with `ALERTKUBE_SHARD_TOTAL` > 1 each replica owns objects where `hash(kind/ns/name) mod total == index`, so N replicas share load with exactly one owner per object (default single-replica behavior unchanged).
 * **dispatch:** bounded async delivery worker pool that decouples sink delivery from the informer thread, so a slow sink can no longer stall Kubernetes event processing; tunable via `ALERTKUBE_DISPATCH_WORKERS` / `ALERTKUBE_DISPATCH_QUEUE`.
-* **reliability:** durable delivery outbox — enqueued-but-undelivered alerts are persisted and replayed on restart / leader failover (at-least-once).
+* **reliability:** durable delivery outbox - enqueued-but-undelivered alerts are persisted and replayed on restart / leader failover (at-least-once).
 * **reliability:** dead-letter capture for permanently-abandoned deliveries, surfaced via `alertkube_dead_letter_total` and a token-gated `GET /api/deadletter`.
 * **reliability:** bounded resolve-retry so a transiently-failed resolve no longer dangles a PagerDuty/Opsgenie incident.
 * **security:** optional separate data-plane listener (`apiAddr`) so `/api/*`, the console, and the Alertmanager receiver can be firewalled independently of `/metrics` + health probes.
 * **observability:** opt-in, read-token-gated `/debug/pprof` profiling (`ALERTKUBE_ENABLE_PPROF`); fail-closed without a token.
-* **observability:** new metrics — `alertkube_outbox_pending`, `alertkube_dead_letter_total`, `alertkube_dispatch_queue_depth`, `alertkube_dispatch_queue_full_total`, `alertkube_dispatch_resolve_retries_total`, `alertkube_sink_noop_total`, `alertkube_cloud_poll_truncated_total`.
+* **observability:** new metrics - `alertkube_outbox_pending`, `alertkube_dead_letter_total`, `alertkube_dispatch_queue_depth`, `alertkube_dispatch_queue_full_total`, `alertkube_dispatch_resolve_retries_total`, `alertkube_sink_noop_total`, `alertkube_cloud_poll_truncated_total`.
 * **extensibility:** sinks and cloud providers now self-register, so adding one is a single self-contained file.
 
 ### Fixed
 
-* **reliability:** no more silent alert loss when every routed sink's circuit breaker is open — the firing now retries instead of being muted undelivered.
-* **reliability:** meaningful liveness — a wedged leader (e.g. store-lock deadlock) now fails `/healthz` and is restarted instead of appearing healthy forever.
+* **reliability:** no more silent alert loss when every routed sink's circuit breaker is open - the firing now retries instead of being muted undelivered.
+* **reliability:** meaningful liveness - a wedged leader (e.g. store-lock deadlock) now fails `/healthz` and is restarted instead of appearing healthy forever.
 * **sources:** S3 `ListBuckets` is now paginated, so a publicly-exposed bucket beyond the first page is no longer missed; CloudTrail page-cap truncation is now observable.
 * **watchers:** deployment `ProgressDeadlineExceeded` now requires `Status=False`, avoiding a stale-condition false page.
 * **security:** chat sinks escape markdown/HTML and the Slack template escapes mrkdwn, defusing masked-link/mention injection from alert-derived text.

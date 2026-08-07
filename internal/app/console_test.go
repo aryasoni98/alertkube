@@ -158,12 +158,6 @@ func TestValidateAndRender(t *testing.T) {
 	if rec := do(v, http.MethodPost, "/api/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [nope]\n"); !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("invalid config should be ok:false: %s", rec.Body.String())
 	}
-
-	r := newRenderHandler(d)
-	rec := do(r, http.MethodPost, "/api/config/render", "", `{"grouping":{"enabled":true,"windowSeconds":60,"by":["kind"]}}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "windowSeconds: 60") {
-		t.Fatalf("render did not produce merged yaml: %d %s", rec.Code, rec.Body.String())
-	}
 }
 
 // --- write fail-closed (token mode) ---

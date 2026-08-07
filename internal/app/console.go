@@ -182,15 +182,9 @@ func installConsoleHandlers(d consoleDeps) {
 	metrics.SetAlertsHandler(newAlertsHandler(d))
 	metrics.SetConfigHandler(newConfigHandler(d))
 	metrics.SetValidateHandler(newValidateHandler(d))
-	metrics.SetRenderHandler(newRenderHandler(d))
 	metrics.SetSilencesHandler(newSilencesHandler(d))
 	metrics.SetChannelsHandler(newChannelsHandler(d))
 	metrics.SetDeadLetterHandler(newDeadLetterHandler(d))
-	// The SSE stream reuses the read token; install the same check the read
-	// endpoints use so a follower/pre-controller process serves 503.
-	metrics.SetEventsAuth(func(req *http.Request) bool {
-		return d.apiToken == "" || authz.BearerEqual(req.Header.Get("Authorization"), d.apiToken)
-	})
 	installPprof(d)
 }
 
@@ -325,32 +319,6 @@ func newValidateHandler(d consoleDeps) http.Handler {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
-	})
-}
-
-// newRenderHandler overlays form-built config sections onto the live config and
-// returns the full rendered YAML. Read-only - nothing is applied.
-func newRenderHandler(d consoleDeps) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if !d.readAuthorized(req, w) {
-			return
-		}
-		if req.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		body, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
-		if err != nil {
-			httpErr(w, http.StatusBadRequest, "read body")
-			return
-		}
-		rendered, err := overlayConfig(d.cfg, body)
-		if err != nil {
-			httpErr(w, http.StatusBadRequest, "invalid patch: "+err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"yaml": string(rendered)})
 	})
 }
 

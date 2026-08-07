@@ -18,7 +18,7 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `alertkube_enrichment_saturated_total` | counter | - | Pod alerts emitted without enrichment (previous container logs) because the bounded enrichment worker pool was full. A rising value during storms indicates the pool size should be increased. |
 | `alertkube_received_alerts_total` | counter | `status` | Alerts accepted by the Alertmanager webhook receiver, by status. |
 | `alertkube_sink_breaker_open` | gauge | `sink` | `1` while a sink's circuit breaker is open (delivery short-circuited after sustained failures), `0` otherwise. Stuck at `1` means that sink's endpoint is down. |
-| `alertkube_sink_noop_total` | counter | `sink` | Sends that no-oped because the sink's credential was not configured. A routed sink that no-ops silently drops the alert — alert on this if non-zero. |
+| `alertkube_sink_noop_total` | counter | `sink` | Sends that no-oped because the sink's credential was not configured. A routed sink that no-ops silently drops the alert - alert on this if non-zero. |
 | `alertkube_alerts_dropped_total` | counter | - | Alerts whose every routed sink failed delivery (dedupe rolled back for retry). |
 | `alertkube_dispatch_queue_depth` | gauge | - | Alerts buffered in the async dispatch worker-pool queue. Trending toward capacity means workers are not draining fast enough (slow sinks / rate limits). |
 | `alertkube_dispatch_queue_full_total` | counter | - | Enqueue attempts that blocked because the dispatch queue was full (backpressure). |

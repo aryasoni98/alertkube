@@ -26,7 +26,7 @@ SET_DATE=""
 
 usage() {
   cat <<'EOF'
-sync-version — keep Helm, landing page, README, and docs on one version.
+sync-version - keep Helm, landing page, README, and docs on one version.
 
   sync-version.sh [--check] [--set VERSION] [--date YYYY-MM-DD] [VERSION]
 

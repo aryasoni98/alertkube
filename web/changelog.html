@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Changelog - AlertKube</title>
+  <meta name="description" content="Full release history for AlertKube - every version, semantic versioning, Keep a Changelog format." />
+  <meta name="theme-color" content="#09090B" />
+  <link rel="canonical" href="https://aryasoni98.github.io/alertkube/changelog.html" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="AlertKube" />
+  <meta property="og:title" content="Changelog - AlertKube" />
+  <meta property="og:description" content="Full release history for AlertKube." />
+  <meta property="og:url" content="https://aryasoni98.github.io/alertkube/changelog.html" />
+  <meta property="og:image" content="https://aryasoni98.github.io/alertkube/assets/og-image.png" />
+
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="dns-prefetch" href="https://unpkg.com" />
+
+  <link rel="stylesheet" href="ds/colors_and_type.css?v=3" />
+  <link rel="stylesheet" href="ds/landing.css?v=5" />
+  <link rel="stylesheet" href="alertkube.css?v=11" />
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script src="https://unpkg.com/framer-motion@11.18.2/dist/framer-motion.js" integrity="sha384-MKgqXjmQ6Ua2YDo2EnYsoPUhz4NFfCUxfsvBuDgY8e8AmpTGyFAlWGxVBoHuCbfa" crossorigin="anonymous"></script>
+  <script>window.FramerMotion = window.Motion || window.FramerMotion || {};</script>
+</head>
+<body>
+  <div id="root"></div>
+  <noscript>
+    <section style="max-width:720px;margin:10vh auto;padding:0 24px;font-family:system-ui,-apple-system,sans-serif;line-height:1.6">
+      <h1>AlertKube changelog</h1>
+      <p>The full release history needs JavaScript to render. See
+        <a href="https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md">CHANGELOG.md</a> or the
+        <a href="https://github.com/aryasoni98/alertkube/releases">GitHub releases</a>.</p>
+    </section>
+  </noscript>
+
+  <script type="text/babel" data-presets="react" src="ds/wk-lib.jsx?v=6"></script>
+  <script type="text/babel" data-presets="react" src="ak-lib.jsx?v=5"></script>
+  <script type="text/babel" data-presets="react" src="ak-changelog-data.jsx?v=1"></script>
+
+  <script type="text/babel" data-presets="react">
+    function ChangelogPage() {
+      return (
+        <div className="ak-clog-page">
+          <header className="ak-clog-nav">
+            <div className="wk-wrap ak-clog-nav__inner">
+              <a href="index.html" className="ak-clog-nav__logo" aria-label="AlertKube home">
+                <AKLogo size={26} />
+              </a>
+              <Button variant="ghost" href="index.html" icon={<Icon name="arrow" size={16} style={{ transform: "rotate(180deg)" }} />} trailing={null}>
+                Back to home
+              </Button>
+            </div>
+          </header>
+
+          <main className="wk-section ak-clog-main">
+            <div className="wk-wrap">
+              <AKHead
+                eyebrow="Changelog"
+                title="Every version, in order"
+                sub="Semantic versioning, Keep a Changelog format. No surprise breaking changes."
+              />
+              <div className="ak-timeline">
+                {AK_RELEASES.map((r) => (
+                  <Reveal key={r.v} className={r.latest ? "ak-release ak-release--latest" : "ak-release"}>
+                    <span className="ak-release__dot"></span>
+                    <div className="ak-release__head">
+                      <span className="ak-release__v">{r.v}</span>
+                      <span className="ak-release__date">{r.date}</span>
+                      <span className="ak-tag" style={r.latest ? { color: "var(--wk-spark-text)", background: "var(--wk-spark-wash)", borderColor: "var(--wk-spark-wash-border)" } : {}}>{r.tag}</span>
+                    </div>
+                    <ul>
+                      {r.items.map((it) => (
+                        <li key={it}><Icon name="check" size={14} />{it}</li>
+                      ))}
+                    </ul>
+                  </Reveal>
+                ))}
+              </div>
+
+              <div className="ak-changelog-more">
+                <Button variant="ghost" href="https://github.com/aryasoni98/alertkube/releases" icon={<Icon name="github" size={16} />} trailing={<Icon name="arrow" size={16} />}>
+                  Full release notes on GitHub
+                </Button>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<ChangelogPage />);
+  </script>
+</body>
+</html>

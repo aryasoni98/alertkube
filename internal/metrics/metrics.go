@@ -8,8 +8,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/klog/v2"
-
-	"alertkube/internal/ui"
 )
 
 // ready is flipped to true once the informer caches have synced.
@@ -229,15 +227,11 @@ var (
 	alertsHandler   atomic.Pointer[http.Handler]
 	receiverHandler atomic.Pointer[http.Handler]
 	// configHandler (GET /api/config) and validateHandler (POST
-	// /api/config/validate) back the read-only console. Like alertsHandler they
+	// /api/config/validate) back the read-only API. Like alertsHandler they
 	// are leader-scoped: they read the loaded *config.Config, which only exists
-	// where the controller runs, so followers serve 503 and the console shows a
-	// standby banner.
+	// where the controller runs, so followers serve 503.
 	configHandler   atomic.Pointer[http.Handler]
 	validateHandler atomic.Pointer[http.Handler]
-	// renderHandler backs POST /api/config/render: overlays form-built config
-	// sections onto the live config and returns the rendered YAML (read-only).
-	renderHandler atomic.Pointer[http.Handler]
 	// silencesHandler backs /api/silences (GET list, POST create) and
 	// /api/silences/{id} (DELETE). Leader-scoped like the others: the runtime
 	// silence store lives where the controller runs.
@@ -268,9 +262,6 @@ func SetConfigHandler(h http.Handler) { configHandler.Store(&h) }
 // SetValidateHandler installs the POST /api/config/validate handler.
 func SetValidateHandler(h http.Handler) { validateHandler.Store(&h) }
 
-// SetRenderHandler installs the POST /api/config/render handler.
-func SetRenderHandler(h http.Handler) { renderHandler.Store(&h) }
-
 // SetSilencesHandler installs the /api/silences{,/{id}} handler.
 func SetSilencesHandler(h http.Handler) { silencesHandler.Store(&h) }
 
@@ -297,13 +288,10 @@ func ClearDeadLetterHandler() { deadLetterHandler.Store(nil) }
 func ClearAlertsHandler()   { alertsHandler.Store(nil) }
 func ClearReceiverHandler() { receiverHandler.Store(nil) }
 
-// ClearConfigHandler and ClearValidateHandler detach the console's read-only
+// ClearConfigHandler and ClearValidateHandler detach the read-only API
 // handlers on leader loss, mirroring ClearAlertsHandler.
 func ClearConfigHandler()   { configHandler.Store(nil) }
 func ClearValidateHandler() { validateHandler.Store(nil) }
-
-// ClearRenderHandler detaches the render route on leader loss.
-func ClearRenderHandler() { renderHandler.Store(nil) }
 
 // ClearSilencesHandler detaches the runtime-silence route on leader loss.
 func ClearSilencesHandler() { silencesHandler.Store(nil) }
@@ -376,17 +364,15 @@ func registerMetricsRoutes(mux *http.ServeMux) {
 	})
 }
 
-// registerAPIRoutes wires the sensitive data plane: the alert/console/config/
-// silence/channel APIs, the SSE stream, the Alertmanager receiver, and the
-// console SPA. These expose alert contents and accept alert injection, so when
-// APIAddr is set they move to their own listener for a NetworkPolicy to gate.
+// registerAPIRoutes wires the sensitive data plane: the alert/config/silence/
+// channel APIs and the Alertmanager receiver. These expose alert contents and
+// accept alert injection, so when APIAddr is set they move to their own
+// listener for a NetworkPolicy to gate.
 func registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/alerts", dynamic(&alertsHandler))
-	// Read-only console data endpoints (leader-scoped, token-gated by the
-	// installed handler).
+	// Read-only API endpoints (leader-scoped, token-gated by the installed handler).
 	mux.HandleFunc("/api/config", dynamic(&configHandler))
 	mux.HandleFunc("/api/config/validate", dynamic(&validateHandler))
-	mux.HandleFunc("/api/config/render", dynamic(&renderHandler))
 	// /api/silences (GET/POST) and /api/silences/{id} (DELETE) share one
 	// installed handler that routes internally by method and path.
 	mux.HandleFunc("/api/silences", dynamic(&silencesHandler))
@@ -398,15 +384,6 @@ func registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/test-ref", dynamic(&channelsHandler))
 	// GET /api/deadletter: permanently-abandoned deliveries (read-only).
 	mux.HandleFunc("/api/deadletter", dynamic(&deadLetterHandler))
-	// /api/events streams Server-Sent Events (a "change" ping on every
-	// active-set change) so the console updates live instead of polling. Token
-	// gate + leader-scoping are handled inside the handler via eventsAuth.
-	mux.HandleFunc("/api/events", eventsHandler())
-	// The embedded console SPA. Mounted on the catch-all "/" so any non-API
-	// path serves the app shell; the exact routes above are more specific and
-	// win. Static assets carry no secrets and are served without auth - the
-	// data they fetch is what the bearer token guards.
-	mux.Handle("/", ui.Handler())
 	// Wrap the receiver POST so its write budget is the tighter
 	// receiverWriteTimeout, not the generous server-wide writeTimeout that
 	// /metrics and /api/alerts need for their large responses.
@@ -424,7 +401,7 @@ func registerAPIRoutes(mux *http.ServeMux) {
 //     original single-port layout.
 //   - apiAddr set and distinct: metricsAddr serves only /metrics + probes
 //     (safe to expose for scraping/probing), and apiAddr serves the sensitive
-//     data plane (/api/*, console SPA, receiver) so it can be firewalled
+//     data plane (/api/*, receiver) so it can be firewalled
 //     independently.
 //
 // A "" address disables that listener. /readyz returns 503 until MarkReady.

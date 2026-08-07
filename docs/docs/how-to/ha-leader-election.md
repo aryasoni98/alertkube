@@ -75,7 +75,7 @@ Keep `persistence.enabled: true` in HA so handovers preserve pending resolves an
 ## Active/passive vs. active/active (sharding)
 
 Leader election above is **active/passive**: replicas give you *failover*, not
-more throughput — only the leader works. For very large clusters that need to
+more throughput - only the leader works. For very large clusters that need to
 spread the watch/evaluate/dispatch load across replicas, alertkube also supports
 **active/active sharding** (v1.2+).
 
@@ -86,7 +86,7 @@ ownership is a stable hash:
 owns(object) == fnv32a("kind/namespace/name") mod SHARD_TOTAL == SHARD_INDEX
 ```
 
-so at any instant exactly one replica owns a given object — no double-paging.
+so at any instant exactly one replica owns a given object - no double-paging.
 Enable it by giving each replica a distinct index out of a fixed total:
 
 ```

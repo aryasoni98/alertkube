@@ -35,7 +35,7 @@ These are set via environment variables (not the YAML config):
 | `ALERTKUBE_DISPATCH_QUEUE` | `2048` | Delivery queue capacity before enqueue applies backpressure. |
 | `ALERTKUBE_ENABLE_PPROF` | `false` | Serve `/debug/pprof` (read-token gated, fail-closed). |
 | `ALERTKUBE_SHARD_TOTAL` | `1` | Number of shards for horizontal scaling (`>1` enables sharding). |
-| `ALERTKUBE_SHARD_INDEX` | `0` | This replica's shard, `0..TOTAL-1` (must be unique/stable per replica — see [HA & sharding](../how-to/ha-leader-election.md)). |
+| `ALERTKUBE_SHARD_INDEX` | `0` | This replica's shard, `0..TOTAL-1` (must be unique/stable per replica - see [HA & sharding](../how-to/ha-leader-election.md)). |
 | `ALERTKUBE_CLIENT_QPS` / `ALERTKUBE_CLIENT_BURST` | `50` / `100` | Kubernetes REST client throttle. |
 
 ## `filters`
