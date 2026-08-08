@@ -5,7 +5,7 @@ set -euo pipefail
 # scanned (Trivy), and given SLSA provenance by .github/workflows/release.yml -
 # use the release pipeline for anything published, including the :latest tag.
 # Keep IMAGE/TAG in sync with helm/values.yaml.
-TAG="${TAG:-v1.2.1}" # x-release-please-version
+TAG="${TAG:-v1.3.0}" # x-release-please-version
 IMAGE="${IMAGE:-ghcr.io/aryasoni98/alertkube}"
 
 # By default this only builds (no registry push, no :latest tag - the release

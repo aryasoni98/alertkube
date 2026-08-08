@@ -7,7 +7,7 @@ header:
   last-updated: "2026-06-15"
   last-reviewed: "2026-06-15"
   project-url: https://github.com/aryasoni98/alertkube
-  project-release: v1.2.1 # x-release-please-version
+  project-release: v1.3.0 # x-release-please-version
   changelog: https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md
   license: https://github.com/aryasoni98/alertkube/blob/master/LICENSE
 
