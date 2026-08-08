@@ -15,11 +15,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/authz"
-	"alertkube/internal/config"
-	"alertkube/internal/silence"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // recSink is a Sink that records sends, for channel test-fire coverage.

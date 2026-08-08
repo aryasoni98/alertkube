@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // absentTick is how often Absent (heartbeat) rules are re-evaluated.

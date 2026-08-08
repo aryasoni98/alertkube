@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -16,12 +15,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/authz"
-	"alertkube/internal/config"
-	"alertkube/internal/metrics"
-	"alertkube/internal/silence"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // consoleDeps bundles everything the read-only console + control-plane handlers
@@ -52,6 +51,16 @@ type consoleDeps struct {
 	// single test send.
 	secretReader func(ctx context.Context, name, key string) (string, error)
 }
+
+const (
+	// channelTestTimeout bounds one console test-fire. It is generous enough to
+	// cover the sink's own retry budget (perSinkTimeout, 15s) so the operator
+	// sees the sink's real verdict rather than this deadline.
+	channelTestTimeout = 20 * time.Second
+	// secretReadTimeout bounds the single apiserver Secret read behind the
+	// Secret-reference channel test.
+	secretReadTimeout = 5 * time.Second
+)
 
 // channelCredEnv maps a channel type to the credential env var the matching sink
 // reads. Only types whose single credential fully drives a test send are listed;
@@ -179,12 +188,12 @@ func newWriteGate(writeToken string, rbacAuth *authz.RBACAuthorizer) func(*http.
 
 // installConsoleHandlers wires every console route into the metrics server.
 func installConsoleHandlers(d consoleDeps) {
-	metrics.SetAlertsHandler(newAlertsHandler(d))
-	metrics.SetConfigHandler(newConfigHandler(d))
-	metrics.SetValidateHandler(newValidateHandler(d))
-	metrics.SetSilencesHandler(newSilencesHandler(d))
-	metrics.SetChannelsHandler(newChannelsHandler(d))
-	metrics.SetDeadLetterHandler(newDeadLetterHandler(d))
+	metrics.AlertsHandler.Set(newAlertsHandler(d))
+	metrics.ConfigHandler.Set(newConfigHandler(d))
+	metrics.ValidateHandler.Set(newValidateHandler(d))
+	metrics.SilencesHandler.Set(newSilencesHandler(d))
+	metrics.ChannelsHandler.Set(newChannelsHandler(d))
+	metrics.DeadLetterHandler.Set(newDeadLetterHandler(d))
 	installPprof(d)
 }
 
@@ -196,7 +205,7 @@ func installConsoleHandlers(d consoleDeps) {
 // route stays 503, so a default install has no profiling surface.
 func installPprof(d consoleDeps) {
 	if h := newPprofHandler(d); h != nil {
-		metrics.SetPprofHandler(h)
+		metrics.PprofHandler.Set(h)
 		klog.Infof("pprof profiling enabled on /debug/pprof (read-token gated)")
 	}
 }
@@ -226,34 +235,38 @@ func newPprofHandler(d consoleDeps) http.Handler {
 	})
 }
 
-// newDeadLetterHandler serves the read-only list of permanently-abandoned
-// deliveries (token-gated). A nil ring (not wired) serves an empty list so the
-// endpoint is always well-formed.
-func newDeadLetterHandler(d consoleDeps) http.Handler {
+// readJSON builds a read-token-gated handler that encodes body()'s value as
+// JSON. The pure-read endpoints differ only in that function, so the auth check
+// and the encoding live here once.
+func (d consoleDeps) readJSON(body func() any) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if !d.readAuthorized(req, w) {
 			return
 		}
+		writeJSON(w, http.StatusOK, body())
+	})
+}
+
+// newDeadLetterHandler serves the read-only list of permanently-abandoned
+// deliveries (token-gated). A nil ring (not wired) serves an empty list so the
+// endpoint is always well-formed.
+func newDeadLetterHandler(d consoleDeps) http.Handler {
+	return d.readJSON(func() any {
 		var entries []deadLetterEntry
 		if d.deadLetter != nil {
 			entries = d.deadLetter.List()
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"deadLetter": entries})
+		return map[string]any{"deadLetter": entries}
 	})
 }
 
 // newAlertsHandler serves the read-only active + recent alert view.
 func newAlertsHandler(d consoleDeps) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if !d.readAuthorized(req, w) {
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+	return d.readJSON(func() any {
+		return map[string]any{
 			"active": d.store.ActiveList(),
 			"recent": d.store.Recent(),
-		})
+		}
 	})
 }
 
@@ -308,17 +321,11 @@ func newValidateHandler(d consoleDeps) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+		body, ok := readBody(w, req, configBodyLimit)
+		if !ok {
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		if verr := config.ParseAndValidate(body); verr != nil {
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": verr.Error()})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		writeVerdict(w, config.ParseAndValidate(body))
 	})
 }
 
@@ -331,17 +338,11 @@ func newSilencesHandler(d consoleDeps) http.Handler {
 			if !d.readAuthorized(req, w) {
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"runtime": d.silStore.List()})
+			writeJSON(w, http.StatusOK, map[string]any{"runtime": d.silStore.List()})
 
 		case http.MethodPost:
 			user, ok := d.writeGate(req, authz.ResourceAttributes{Group: "alertkube.io", Resource: "silences", Verb: "create"}, w)
 			if !ok {
-				return
-			}
-			body, err := io.ReadAll(io.LimitReader(req.Body, 64*1024))
-			if err != nil {
-				httpErr(w, http.StatusBadRequest, "read body")
 				return
 			}
 			var in struct {
@@ -349,8 +350,7 @@ func newSilencesHandler(d consoleDeps) http.Handler {
 				Until    string            `json:"until"`
 				Comment  string            `json:"comment"`
 			}
-			if err := json.Unmarshal(body, &in); err != nil {
-				httpErr(w, http.StatusBadRequest, "invalid JSON body")
+			if !decodeJSON(w, req, silenceBodyLimit, &in) {
 				return
 			}
 			if len(in.Matchers) == 0 {
@@ -375,9 +375,7 @@ func newSilencesHandler(d consoleDeps) http.Handler {
 			metrics.RuntimeMutations.WithLabelValues("silence_create").Inc()
 			klog.Infof("runtime silence created: id=%s matchers=%v until=%s by=%q",
 				sil.ID, sil.Matchers, sil.Until.Format(time.RFC3339), sil.CreatedBy)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(sil)
+			writeJSON(w, http.StatusCreated, sil)
 
 		case http.MethodDelete:
 			user, ok := d.writeGate(req, authz.ResourceAttributes{Group: "alertkube.io", Resource: "silences", Verb: "delete"}, w)
@@ -414,24 +412,17 @@ func newChannelsHandler(d consoleDeps) http.Handler {
 			if !d.readAuthorized(req, w) {
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"channels": d.reg.Names()})
+			writeJSON(w, http.StatusOK, map[string]any{"channels": d.reg.Names()})
 
 		case req.Method == http.MethodPost && req.URL.Path == "/api/channels/test":
 			user, ok := d.writeGate(req, authz.ResourceAttributes{Group: "alertkube.io", Resource: "channels", Verb: "create"}, w)
 			if !ok {
 				return
 			}
-			body, err := io.ReadAll(io.LimitReader(req.Body, 8*1024))
-			if err != nil {
-				httpErr(w, http.StatusBadRequest, "read body")
-				return
-			}
 			var in struct {
 				Sink string `json:"sink"`
 			}
-			if err := json.Unmarshal(body, &in); err != nil {
-				httpErr(w, http.StatusBadRequest, "invalid JSON body")
+			if !decodeJSON(w, req, channelBodyLimit, &in) {
 				return
 			}
 			if in.Sink == "" {
@@ -442,22 +433,18 @@ func newChannelsHandler(d consoleDeps) http.Handler {
 				httpErr(w, http.StatusBadRequest, "unknown sink: "+sanitizeField(in.Sink))
 				return
 			}
-			test := alert.New(alert.KindPod, "alertkube", "console-test", "AlertkubeConsoleTest", alert.SeverityInfo)
-			test.Cluster = d.cfg.Cluster
-			test.Summary = "Test alert from the AlertKube console - if you can read this, the channel is wired correctly."
-			test.Event = true // ephemeral: dispatched once, never tracked or resolved
-			testCtx, cancel := context.WithTimeout(req.Context(), 20*time.Second)
+			test := newConsoleTestAlert(d.cfg.Cluster,
+				"Test alert from the AlertKube console - if you can read this, the channel is wired correctly.")
+			testCtx, cancel := context.WithTimeout(req.Context(), channelTestTimeout)
 			defer cancel()
 			sendErr := d.reg.TestSend(testCtx, in.Sink, test)
 			metrics.RuntimeMutations.WithLabelValues("channel_test").Inc()
-			w.Header().Set("Content-Type", "application/json")
 			if sendErr != nil {
 				klog.Warningf("channel test-fire failed: sink=%s by=%q: %v", in.Sink, user, sendErr)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": sendErr.Error()})
-				return
+			} else {
+				klog.Infof("channel test-fire ok: sink=%s by=%q", in.Sink, user)
 			}
-			klog.Infof("channel test-fire ok: sink=%s by=%q", in.Sink, user)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			writeVerdict(w, sendErr)
 
 		case req.Method == http.MethodPost && req.URL.Path == "/api/channels/test-ref":
 			d.testChannelBySecretRef(w, req)
@@ -483,11 +470,6 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 		httpErr(w, http.StatusForbidden, "Secret-reference channel testing is disabled: set api.allowSecretRead=true (grants the controller secrets:get in its namespace)")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(req.Body, 8*1024))
-	if err != nil {
-		httpErr(w, http.StatusBadRequest, "read body")
-		return
-	}
 	var in struct {
 		Type      string `json:"type"`
 		SecretRef struct {
@@ -495,8 +477,7 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 			Key  string `json:"key"`
 		} `json:"secretRef"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
-		httpErr(w, http.StatusBadRequest, "invalid JSON body")
+	if !decodeJSON(w, req, channelBodyLimit, &in) {
 		return
 	}
 	envName, known := channelCredEnv[in.Type]
@@ -512,7 +493,7 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 		httpErr(w, http.StatusBadRequest, "unknown sink: "+sanitizeField(in.Type))
 		return
 	}
-	readCtx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+	readCtx, cancel := context.WithTimeout(req.Context(), secretReadTimeout)
 	val, err := d.secretReader(readCtx, in.SecretRef.Name, in.SecretRef.Key)
 	cancel()
 	if err != nil {
@@ -524,20 +505,16 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 		httpErr(w, http.StatusBadRequest, "referenced secret key is empty")
 		return
 	}
-	test := alert.New(alert.KindPod, "alertkube", "console-test", "AlertkubeConsoleTest", alert.SeverityInfo)
-	test.Cluster = d.cfg.Cluster
-	test.Summary = "Test alert from the AlertKube console (Secret reference) - if you can read this, the channel credential is valid."
-	test.Event = true
-	sendCtx, cancel2 := context.WithTimeout(sinks.WithCreds(req.Context(), map[string]string{envName: val}), 20*time.Second)
+	test := newConsoleTestAlert(d.cfg.Cluster,
+		"Test alert from the AlertKube console (Secret reference) - if you can read this, the channel credential is valid.")
+	sendCtx, cancel2 := context.WithTimeout(sinks.WithCreds(req.Context(), map[string]string{envName: val}), channelTestTimeout)
 	defer cancel2()
 	sendErr := d.reg.TestSend(sendCtx, in.Type, test)
 	metrics.RuntimeMutations.WithLabelValues("channel_test_ref").Inc()
-	w.Header().Set("Content-Type", "application/json")
 	if sendErr != nil {
 		klog.Warningf("channel secret-ref test failed: type=%s secret=%s/%s by=%q: %v", in.Type, in.SecretRef.Name, in.SecretRef.Key, user, sendErr)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": sendErr.Error()})
-		return
+	} else {
+		klog.Infof("channel secret-ref test ok: type=%s secret=%s/%s by=%q", in.Type, in.SecretRef.Name, in.SecretRef.Key, user)
 	}
-	klog.Infof("channel secret-ref test ok: type=%s secret=%s/%s by=%q", in.Type, in.SecretRef.Name, in.SecretRef.Key, user)
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	writeVerdict(w, sendErr)
 }

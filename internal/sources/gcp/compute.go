@@ -6,8 +6,8 @@ import (
 
 	compute "google.golang.org/api/compute/v1"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceGCE = "gcp-compute"
@@ -36,15 +36,12 @@ func (l *apiGCELister) List(ctx context.Context, project string) ([]*compute.Ins
 	return out, nil
 }
 
-type gceSource struct {
-	projects []string
-	lister   gceLister
-}
+// gceSource alerts on Compute Engine instance health across every configured
+// project's zones.
+type gceSource = projectSource[*compute.Instance, gceLister]
 
-func (s *gceSource) Name() string { return sourceGCE }
-
-func (s *gceSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByProject(ctx, sourceGCE, s.projects, s.lister, emit, evaluateGCEInstance)
+func newGCESource(projects []string, lister gceLister) *gceSource {
+	return newProjectSource(sourceGCE, projects, lister, evaluateGCEInstance)
 }
 
 // evaluateGCEInstance alerts on instances in REPAIRING (critical). Other states

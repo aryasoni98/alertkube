@@ -7,7 +7,7 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func nodegroup(name string, status ekstypes.NodegroupStatus) *ekstypes.Nodegroup {

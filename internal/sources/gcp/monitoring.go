@@ -8,8 +8,8 @@ import (
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	"google.golang.org/api/iterator"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceGCPMonitoring = "gcp-monitoring"
@@ -48,15 +48,10 @@ func (l *apiPolicyLister) List(ctx context.Context, project string) ([]*monitori
 // AWS CloudWatch and Azure Monitor sources this is a posture signal ("is this
 // monitoring switched on?"), not a fired-alert feed. It is a deliberate,
 // documented limitation rather than a faked incident stream.
-type gcpMonitoringSource struct {
-	projects []string
-	lister   policyLister
-}
+type gcpMonitoringSource = projectSource[*monitoringpb.AlertPolicy, policyLister]
 
-func (s *gcpMonitoringSource) Name() string { return sourceGCPMonitoring }
-
-func (s *gcpMonitoringSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByProject(ctx, sourceGCPMonitoring, s.projects, s.lister, emit, evaluateAlertPolicy)
+func newMonitoringSource(projects []string, lister policyLister) *gcpMonitoringSource {
+	return newProjectSource(sourceGCPMonitoring, projects, lister, evaluateAlertPolicy)
 }
 
 func evaluateAlertPolicy(project string, p *monitoringpb.AlertPolicy, emit sources.Emit) {

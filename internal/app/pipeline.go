@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sinks"
-	"alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/watchers"
 )
 
 // statefulSinks open/close incidents keyed by alert fingerprint. They

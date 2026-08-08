@@ -3,8 +3,8 @@ package sources
 import (
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // Shared helpers for the polled cloud providers (AWS/Azure/GCP). Each provider
@@ -56,6 +56,20 @@ func StrVal(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// Compact drops the nil entries a disabled source toggle leaves behind, so a
+// provider's Build can list every candidate source unconditionally - one line
+// per service, in a fixed order - and filter once at the end instead of
+// guarding each append.
+func Compact(srcs []Source) []Source {
+	out := make([]Source, 0, len(srcs))
+	for _, s := range srcs {
+		if s != nil {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // Scope joins a provider parent scope (Azure subscription, GCP project) with a

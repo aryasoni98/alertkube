@@ -5,8 +5,8 @@ import (
 
 	sqladmin "google.golang.org/api/sqladmin/v1"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceCloudSQL = "gcp-cloudsql"
@@ -37,15 +37,12 @@ func (l *apiSQLLister) List(ctx context.Context, project string) ([]*sqladmin.Da
 	}
 }
 
-type cloudSQLSource struct {
-	projects []string
-	lister   sqlLister
-}
+// cloudSQLSource alerts on Cloud SQL instance state across every configured
+// project.
+type cloudSQLSource = projectSource[*sqladmin.DatabaseInstance, sqlLister]
 
-func (s *cloudSQLSource) Name() string { return sourceCloudSQL }
-
-func (s *cloudSQLSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByProject(ctx, sourceCloudSQL, s.projects, s.lister, emit, evaluateCloudSQL)
+func newCloudSQLSource(projects []string, lister sqlLister) *cloudSQLSource {
+	return newProjectSource(sourceCloudSQL, projects, lister, evaluateCloudSQL)
 }
 
 // evaluateCloudSQL maps a Cloud SQL instance's state onto a firing/resolve.

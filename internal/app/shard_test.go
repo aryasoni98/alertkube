@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/shard"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/shard"
 )
 
 func TestShardGateForwardsOnlyOwned(t *testing.T) {

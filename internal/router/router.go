@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/metrics"
-	"alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/silence"
 )
 
 // Router decides which sinks an alert goes to, applies inhibitions and silences.

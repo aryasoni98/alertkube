@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -50,9 +51,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 // provider labels every AWS alert so routing/severityOverrides can target the
@@ -179,145 +180,73 @@ type vpnAPI interface {
 // a region; the caller logs it and continues without AWS so a cloud-auth
 // problem never takes down the Kubernetes watchers.
 func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
-	var (
-		eksRegions    []eksRegion
-		cwRegions     []cwRegion
-		ec2Regions    []ec2Region
-		elbv2Regions  []elbv2Region
-		rdsRegions    []rdsRegion
-		dynRegions    []dynRegion
-		ecRegions     []ecRegion
-		ctRegions     []cloudTrailRegion
-		asgRegions    []asgRegion
-		kmsRegions    []kmsRegion
-		ebsRegions    []ebsRegion
-		auroraRegions []auroraRegion
-		natRegions    []natRegion
-		efsRegions    []efsRegion
-		acmRegions    []acmRegion
-		vpnRegions    []vpnRegion
-	)
-	var s3Src *s3Source
-	var r53Src *route53Source
+	regions := make([]regionConfig, 0, len(cfg.AWS.Regions))
 	for _, region := range cfg.AWS.Regions {
 		awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 		if err != nil {
 			return nil, fmt.Errorf("aws: load config for region %s: %w", region, err)
 		}
-		if cfg.AWS.EKS {
-			eksRegions = append(eksRegions, eksRegion{region: region, client: eks.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.CloudWatch {
-			cwRegions = append(cwRegions, cwRegion{region: region, client: cloudwatch.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.EC2 {
-			ec2Regions = append(ec2Regions, ec2Region{region: region, client: ec2.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.ELBV2 {
-			elbv2Regions = append(elbv2Regions, elbv2Region{region: region, client: elbv2.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.RDS {
-			rdsRegions = append(rdsRegions, rdsRegion{region: region, client: rds.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.DynamoDB {
-			dynRegions = append(dynRegions, dynRegion{region: region, client: dynamodb.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.ElastiCache {
-			ecRegions = append(ecRegions, ecRegion{region: region, client: elasticache.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.CloudTrail {
-			ctRegions = append(ctRegions, cloudTrailRegion{region: region, client: cloudtrail.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.ASG {
-			asgRegions = append(asgRegions, asgRegion{region: region, client: autoscaling.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.KMS {
-			kmsRegions = append(kmsRegions, kmsRegion{region: region, client: kms.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.EBS {
-			ebsRegions = append(ebsRegions, ebsRegion{region: region, client: ec2.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.Aurora {
-			auroraRegions = append(auroraRegions, auroraRegion{region: region, client: rds.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.NAT {
-			natRegions = append(natRegions, natRegion{region: region, client: ec2.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.EFS {
-			efsRegions = append(efsRegions, efsRegion{region: region, client: efs.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.ACM {
-			acmRegions = append(acmRegions, acmRegion{region: region, client: acm.NewFromConfig(awscfg)})
-		}
-		if cfg.AWS.VPN {
-			vpnRegions = append(vpnRegions, vpnRegion{region: region, client: ec2.NewFromConfig(awscfg)})
-		}
-		// Route53 is global: build one source from the first region's config.
-		if cfg.AWS.Route53 && r53Src == nil {
-			r53Src = &route53Source{client: route53.NewFromConfig(awscfg)}
-		}
-		// S3 is global: build one source from the first region's config so we
-		// do not re-alert every bucket once per configured region.
-		if cfg.AWS.S3 && s3Src == nil {
-			s3Src = &s3Source{client: s3.NewFromConfig(awscfg)}
-		}
+		regions = append(regions, regionConfig{region: region, cfg: awscfg})
 	}
-	var srcs []sources.Source
-	if len(eksRegions) > 0 {
-		srcs = append(srcs, &eksSource{regions: eksRegions})
-	}
-	if len(cwRegions) > 0 {
-		srcs = append(srcs, &cloudWatchSource{regions: cwRegions})
-	}
-	if len(ec2Regions) > 0 {
-		srcs = append(srcs, &ec2Source{regions: ec2Regions})
-	}
-	if len(elbv2Regions) > 0 {
-		srcs = append(srcs, &elbv2Source{regions: elbv2Regions})
-	}
-	if len(rdsRegions) > 0 {
-		srcs = append(srcs, &rdsSource{regions: rdsRegions})
-	}
-	if len(dynRegions) > 0 {
-		srcs = append(srcs, &dynamoDBSource{regions: dynRegions})
-	}
-	if len(ecRegions) > 0 {
-		srcs = append(srcs, &elastiCacheSource{regions: ecRegions})
-	}
-	if s3Src != nil {
-		srcs = append(srcs, s3Src)
-	}
-	if len(ctRegions) > 0 {
-		srcs = append(srcs, newCloudTrailSource(ctRegions, cfg))
-	}
-	if len(asgRegions) > 0 {
-		srcs = append(srcs, &asgSource{regions: asgRegions})
-	}
-	if len(kmsRegions) > 0 {
-		srcs = append(srcs, &kmsSource{regions: kmsRegions})
-	}
-	if len(ebsRegions) > 0 {
-		srcs = append(srcs, &ebsSource{regions: ebsRegions})
-	}
-	if len(auroraRegions) > 0 {
-		srcs = append(srcs, &auroraSource{regions: auroraRegions})
-	}
-	if len(natRegions) > 0 {
-		srcs = append(srcs, &natSource{regions: natRegions})
-	}
-	if len(efsRegions) > 0 {
-		srcs = append(srcs, &efsSource{regions: efsRegions})
-	}
-	if len(acmRegions) > 0 {
-		srcs = append(srcs, &acmSource{regions: acmRegions})
-	}
-	if len(vpnRegions) > 0 {
-		srcs = append(srcs, &vpnSource{regions: vpnRegions})
-	}
-	if r53Src != nil {
-		srcs = append(srcs, r53Src)
-	}
-	return srcs, nil
+	// One line per service: its config toggle, the client constructor, and the
+	// Source that owns the resulting per-region clients. A disabled service
+	// yields nil and Compact drops it, so adding a service means adding one
+	// entry here and nothing else.
+	a := cfg.AWS
+	return sources.Compact([]sources.Source{
+		regionalSource(a.EKS, regions,
+			func(c awssdk.Config) eksAPI { return eks.NewFromConfig(c) },
+			func(rs []eksRegion) sources.Source { return &eksSource{regions: rs} }),
+		regionalSource(a.CloudWatch, regions,
+			func(c awssdk.Config) cloudwatchAPI { return cloudwatch.NewFromConfig(c) },
+			func(rs []cwRegion) sources.Source { return &cloudWatchSource{regions: rs} }),
+		regionalSource(a.EC2, regions,
+			func(c awssdk.Config) ec2API { return ec2.NewFromConfig(c) },
+			func(rs []ec2Region) sources.Source { return &ec2Source{regions: rs} }),
+		regionalSource(a.ELBV2, regions,
+			func(c awssdk.Config) elbv2API { return elbv2.NewFromConfig(c) },
+			func(rs []elbv2Region) sources.Source { return &elbv2Source{regions: rs} }),
+		regionalSource(a.RDS, regions,
+			func(c awssdk.Config) rdsAPI { return rds.NewFromConfig(c) },
+			func(rs []rdsRegion) sources.Source { return &rdsSource{regions: rs} }),
+		regionalSource(a.DynamoDB, regions,
+			func(c awssdk.Config) dynamoDBAPI { return dynamodb.NewFromConfig(c) },
+			func(rs []dynRegion) sources.Source { return &dynamoDBSource{regions: rs} }),
+		regionalSource(a.ElastiCache, regions,
+			func(c awssdk.Config) elastiCacheAPI { return elasticache.NewFromConfig(c) },
+			func(rs []ecRegion) sources.Source { return &elastiCacheSource{regions: rs} }),
+		globalSource(a.S3, regions,
+			func(c awssdk.Config) sources.Source { return &s3Source{client: s3.NewFromConfig(c)} }),
+		regionalSource(a.CloudTrail, regions,
+			func(c awssdk.Config) cloudTrailAPI { return cloudtrail.NewFromConfig(c) },
+			func(rs []cloudTrailRegion) sources.Source { return newCloudTrailSource(rs, cfg) }),
+		regionalSource(a.ASG, regions,
+			func(c awssdk.Config) autoscalingAPI { return autoscaling.NewFromConfig(c) },
+			func(rs []asgRegion) sources.Source { return &asgSource{regions: rs} }),
+		regionalSource(a.KMS, regions,
+			func(c awssdk.Config) kmsAPI { return kms.NewFromConfig(c) },
+			func(rs []kmsRegion) sources.Source { return &kmsSource{regions: rs} }),
+		regionalSource(a.EBS, regions,
+			func(c awssdk.Config) ebsAPI { return ec2.NewFromConfig(c) },
+			func(rs []ebsRegion) sources.Source { return &ebsSource{regions: rs} }),
+		regionalSource(a.Aurora, regions,
+			func(c awssdk.Config) auroraAPI { return rds.NewFromConfig(c) },
+			func(rs []auroraRegion) sources.Source { return &auroraSource{regions: rs} }),
+		regionalSource(a.NAT, regions,
+			func(c awssdk.Config) natAPI { return ec2.NewFromConfig(c) },
+			func(rs []natRegion) sources.Source { return &natSource{regions: rs} }),
+		regionalSource(a.EFS, regions,
+			func(c awssdk.Config) efsAPI { return efs.NewFromConfig(c) },
+			func(rs []efsRegion) sources.Source { return &efsSource{regions: rs} }),
+		regionalSource(a.ACM, regions,
+			func(c awssdk.Config) acmAPI { return acm.NewFromConfig(c) },
+			func(rs []acmRegion) sources.Source { return &acmSource{regions: rs} }),
+		regionalSource(a.VPN, regions,
+			func(c awssdk.Config) vpnAPI { return ec2.NewFromConfig(c) },
+			func(rs []vpnRegion) sources.Source { return &vpnSource{regions: rs} }),
+		globalSource(a.Route53, regions,
+			func(c awssdk.Config) sources.Source { return &route53Source{client: route53.NewFromConfig(c)} }),
+	}), nil
 }
 
 // emitFiring publishes a firing cloud alert. Identity is (kind, region, name);

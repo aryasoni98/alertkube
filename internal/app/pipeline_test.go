@@ -9,11 +9,11 @@ import (
 
 	"k8s.io/client-go/rest"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/group"
-	"alertkube/internal/router"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/group"
+	"github.com/aryasoni98/alertkube/internal/router"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // recordingSink captures every alert it is sent, for asserting pipeline outcomes.

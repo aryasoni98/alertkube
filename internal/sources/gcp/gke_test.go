@@ -6,8 +6,8 @@ import (
 
 	"cloud.google.com/go/container/apiv1/containerpb"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 func collect() (sources.Emit, *[]*alert.Alert) {
@@ -83,7 +83,7 @@ func TestGKESourcePoll(t *testing.T) {
 			gkeCluster("broken", "us-east1", containerpb.Cluster_ERROR),
 		},
 	}}
-	src := &gkeSource{projects: []string{"proj-1"}, lister: fake}
+	src := newGKESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 

@@ -3,7 +3,7 @@ package alert
 import (
 	"time"
 
-	"alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/silence"
 )
 
 // SnapshotVersion identifies the serialized state schema. Bump when the

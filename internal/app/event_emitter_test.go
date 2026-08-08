@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/router"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/router"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // captureSink records every alert it receives; safe for the concurrent

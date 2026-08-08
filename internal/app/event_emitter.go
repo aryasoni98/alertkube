@@ -3,12 +3,12 @@ package app
 import (
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/group"
-	"alertkube/internal/metrics"
-	"alertkube/internal/router"
-	"alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/group"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/router"
+	"github.com/aryasoni98/alertkube/internal/watchers"
 )
 
 func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {

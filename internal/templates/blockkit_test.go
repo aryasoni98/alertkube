@@ -6,7 +6,7 @@ import (
 
 	"github.com/slack-go/slack"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func TestBuildResolvedHeader(t *testing.T) {

@@ -29,9 +29,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const provider = "azure"
@@ -92,6 +92,45 @@ func pollBySubscription[T any, L listerFor[T]](ctx context.Context, source strin
 	}
 }
 
+// sourceBuilder defers one service's construction so NewProvider can list every
+// service in a single table and run them all through one error check. buildSub
+// binds the generic lister type at the call site, leaving a monomorphic closure.
+type sourceBuilder func() (sources.Source, error)
+
+// buildSub returns a builder that constructs one lister per configured
+// subscription for an enabled service and wraps them in that service's Source.
+// A disabled service builds nil, which sources.Compact drops. It replaces the
+// declare-slice / append-under-toggle / append-source-if-non-empty trio every
+// service repeated, so wiring a new one is a single table entry.
+func buildSub[L any](
+	enabled bool,
+	subs []string,
+	newLister func(subscription string) (L, error),
+	newSource func([]subLister[L]) sources.Source,
+) sourceBuilder {
+	return func() (sources.Source, error) {
+		if !enabled || len(subs) == 0 {
+			return nil, nil
+		}
+		listers := make([]subLister[L], 0, len(subs))
+		for _, sub := range subs {
+			l, err := newLister(sub)
+			if err != nil {
+				return nil, err
+			}
+			listers = append(listers, subLister[L]{subscription: sub, lister: l})
+		}
+		return newSource(listers), nil
+	}
+}
+
+// clientErr wraps an ARM client-construction failure with the service and
+// subscription it was for, so a misconfigured subscription is identifiable in
+// the single line the controller logs before continuing without Azure.
+func clientErr(service, subscription string, err error) error {
+	return fmt.Errorf("azure: %s client for subscription %s: %w", service, subscription, err)
+}
+
 // aksLister lists managed clusters in one subscription. The real adapter drains
 // the SDK pager; tests provide a fake returning a canned slice.
 type aksLister interface {
@@ -130,80 +169,74 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 	if err != nil {
 		return nil, fmt.Errorf("azure: default credential: %w", err)
 	}
-	var aksSubs []aksSubscription
-	var monSubs []azureMonitorSubscription
-	var vmSubs []azureVMSubscription
-	var storageSubs []azureStorageSubscription
-	var sqlSubs []azureSQLSubscription
-	var redisSubs []azureRedisSubscription
-	for _, sub := range cfg.Azure.Subscriptions {
-		if cfg.Azure.AKS {
+	// One entry per service: its config toggle, the per-subscription lister
+	// constructor, and the Source that owns the resulting listers. A disabled
+	// service builds nil and Compact drops it, so adding a service means adding
+	// one entry here and nothing else.
+	subs, z := cfg.Azure.Subscriptions, cfg.Azure
+	builders := []sourceBuilder{
+		buildSub(z.AKS, subs, func(sub string) (aksLister, error) {
 			client, err := armcontainerservice.NewManagedClustersClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: managed-clusters client for subscription %s: %w", sub, err)
+				return nil, clientErr("managed-clusters", sub, err)
 			}
-			aksSubs = append(aksSubs, aksSubscription{subscription: sub, lister: &armAKSLister{client: client}})
-		}
-		if cfg.Azure.Monitor {
+			return &armAKSLister{client: client}, nil
+		}, func(ls []aksSubscription) sources.Source { return &aksSource{subs: ls} }),
+
+		buildSub(z.Monitor, subs, func(sub string) (alertsLister, error) {
 			client, err := armalertsmanagement.NewAlertsClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: alerts client for subscription %s: %w", sub, err)
+				return nil, clientErr("alerts", sub, err)
 			}
-			monSubs = append(monSubs, azureMonitorSubscription{subscription: sub, lister: &armAlertsLister{client: client}})
-		}
-		if cfg.Azure.VMs {
+			return &armAlertsLister{client: client}, nil
+		}, func(ls []azureMonitorSubscription) sources.Source { return &azureMonitorSource{subs: ls} }),
+
+		buildSub(z.VMs, subs, func(sub string) (vmLister, error) {
 			client, err := armcompute.NewVirtualMachinesClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: virtual-machines client for subscription %s: %w", sub, err)
+				return nil, clientErr("virtual-machines", sub, err)
 			}
-			vmSubs = append(vmSubs, azureVMSubscription{subscription: sub, lister: &armVMLister{client: client}})
-		}
-		if cfg.Azure.Storage {
+			return &armVMLister{client: client}, nil
+		}, func(ls []azureVMSubscription) sources.Source { return &azureVMSource{subs: ls} }),
+
+		buildSub(z.Storage, subs, func(sub string) (storageLister, error) {
 			client, err := armstorage.NewAccountsClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: storage-accounts client for subscription %s: %w", sub, err)
+				return nil, clientErr("storage-accounts", sub, err)
 			}
-			storageSubs = append(storageSubs, azureStorageSubscription{subscription: sub, lister: &armStorageLister{client: client}})
-		}
-		if cfg.Azure.SQL {
-			serversClient, err := armsql.NewServersClient(sub, cred, nil)
+			return &armStorageLister{client: client}, nil
+		}, func(ls []azureStorageSubscription) sources.Source { return &azureStorageSource{subs: ls} }),
+
+		buildSub(z.SQL, subs, func(sub string) (sqlLister, error) {
+			servers, err := armsql.NewServersClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: sql servers client for subscription %s: %w", sub, err)
+				return nil, clientErr("sql servers", sub, err)
 			}
-			databasesClient, err := armsql.NewDatabasesClient(sub, cred, nil)
+			databases, err := armsql.NewDatabasesClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: sql databases client for subscription %s: %w", sub, err)
+				return nil, clientErr("sql databases", sub, err)
 			}
-			sqlSubs = append(sqlSubs, azureSQLSubscription{subscription: sub, lister: &armSQLLister{servers: serversClient, databases: databasesClient}})
-		}
-		if cfg.Azure.Redis {
+			return &armSQLLister{servers: servers, databases: databases}, nil
+		}, func(ls []azureSQLSubscription) sources.Source { return &azureSQLSource{subs: ls} }),
+
+		buildSub(z.Redis, subs, func(sub string) (redisLister, error) {
 			client, err := armredis.NewClient(sub, cred, nil)
 			if err != nil {
-				return nil, fmt.Errorf("azure: redis client for subscription %s: %w", sub, err)
+				return nil, clientErr("redis", sub, err)
 			}
-			redisSubs = append(redisSubs, azureRedisSubscription{subscription: sub, lister: &armRedisLister{client: client}})
+			return &armRedisLister{client: client}, nil
+		}, func(ls []azureRedisSubscription) sources.Source { return &azureRedisSource{subs: ls} }),
+	}
+
+	srcs := make([]sources.Source, 0, len(builders))
+	for _, build := range builders {
+		s, err := build()
+		if err != nil {
+			return nil, err
 		}
+		srcs = append(srcs, s)
 	}
-	var srcs []sources.Source
-	if len(aksSubs) > 0 {
-		srcs = append(srcs, &aksSource{subs: aksSubs})
-	}
-	if len(monSubs) > 0 {
-		srcs = append(srcs, &azureMonitorSource{subs: monSubs})
-	}
-	if len(vmSubs) > 0 {
-		srcs = append(srcs, &azureVMSource{subs: vmSubs})
-	}
-	if len(storageSubs) > 0 {
-		srcs = append(srcs, &azureStorageSource{subs: storageSubs})
-	}
-	if len(sqlSubs) > 0 {
-		srcs = append(srcs, &azureSQLSource{subs: sqlSubs})
-	}
-	if len(redisSubs) > 0 {
-		srcs = append(srcs, &azureRedisSource{subs: redisSubs})
-	}
-	return srcs, nil
+	return sources.Compact(srcs), nil
 }
 
 // emitFiring publishes a firing cloud alert. Identity is (kind, scope, name)

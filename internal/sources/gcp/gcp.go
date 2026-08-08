@@ -24,9 +24,9 @@ import (
 	compute "google.golang.org/api/compute/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const provider = "gcp"
@@ -39,29 +39,6 @@ func init() {
 		PollSeconds: func(c *config.Config) int { return c.GCP.PollSeconds },
 		Build:       NewProvider,
 	})
-}
-
-// projectLister lists items of type T for one project. Every GCP source's
-// lister satisfies this shape, so pollByProject can drive any of them.
-type projectLister[T any] interface {
-	List(ctx context.Context, project string) ([]T, error)
-}
-
-// pollByProject lists items per project - recording a poll error and skipping
-// that project on failure - then runs eval for each item. It replaces the
-// identical projects/list/pollErr/iterate loop every GCP source duplicated, so
-// that shape lives in exactly one place.
-func pollByProject[T any, L projectLister[T]](ctx context.Context, source string, projects []string, lister L, emit sources.Emit, eval func(project string, item T, emit sources.Emit)) {
-	for _, project := range projects {
-		items, err := lister.List(ctx, project)
-		if err != nil {
-			pollErr(source, project, err)
-			continue
-		}
-		for i := range items {
-			eval(project, items[i], emit)
-		}
-	}
 }
 
 // gkeLister lists clusters in one project across all locations. The real
@@ -90,36 +67,54 @@ func (l *apiGKELister) List(ctx context.Context, project string) ([]*containerpb
 // caller logs it and continues without GCP so a cloud-auth problem never takes
 // down the Kubernetes watchers.
 func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
-	var srcs []sources.Source
-	if cfg.GCP.GKE {
-		client, err := container.NewClusterManagerClient(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("gcp: cluster manager client: %w", err)
-		}
-		srcs = append(srcs, &gkeSource{projects: cfg.GCP.Projects, lister: &apiGKELister{client: client}})
+	// One entry per service: its config toggle and the constructor for its API
+	// client plus the Source that polls with it. A disabled service builds nil
+	// - without touching credentials - and Compact drops it, so adding a
+	// service means adding one entry here and nothing else.
+	projects, g := cfg.GCP.Projects, cfg.GCP
+	builders := []sourceBuilder{
+		buildProject(g.GKE, projects, func() (sources.Source, error) {
+			client, err := container.NewClusterManagerClient(ctx)
+			if err != nil {
+				return nil, clientErr("cluster manager", err)
+			}
+			return newGKESource(projects, &apiGKELister{client: client}), nil
+		}),
+
+		buildProject(g.Monitoring, projects, func() (sources.Source, error) {
+			client, err := monitoring.NewAlertPolicyClient(ctx)
+			if err != nil {
+				return nil, clientErr("alert policy", err)
+			}
+			return newMonitoringSource(projects, &apiPolicyLister{client: client}), nil
+		}),
+
+		buildProject(g.Compute, projects, func() (sources.Source, error) {
+			svc, err := compute.NewService(ctx)
+			if err != nil {
+				return nil, clientErr("compute", err)
+			}
+			return newGCESource(projects, &apiGCELister{svc: svc}), nil
+		}),
+
+		buildProject(g.CloudSQL, projects, func() (sources.Source, error) {
+			svc, err := sqladmin.NewService(ctx)
+			if err != nil {
+				return nil, clientErr("sqladmin", err)
+			}
+			return newCloudSQLSource(projects, &apiSQLLister{svc: svc}), nil
+		}),
 	}
-	if cfg.GCP.Monitoring {
-		client, err := monitoring.NewAlertPolicyClient(ctx)
+
+	srcs := make([]sources.Source, 0, len(builders))
+	for _, build := range builders {
+		s, err := build()
 		if err != nil {
-			return nil, fmt.Errorf("gcp: alert policy client: %w", err)
+			return nil, err
 		}
-		srcs = append(srcs, &gcpMonitoringSource{projects: cfg.GCP.Projects, lister: &apiPolicyLister{client: client}})
+		srcs = append(srcs, s)
 	}
-	if cfg.GCP.Compute {
-		svc, err := compute.NewService(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("gcp: compute service: %w", err)
-		}
-		srcs = append(srcs, &gceSource{projects: cfg.GCP.Projects, lister: &apiGCELister{svc: svc}})
-	}
-	if cfg.GCP.CloudSQL {
-		svc, err := sqladmin.NewService(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("gcp: sqladmin service: %w", err)
-		}
-		srcs = append(srcs, &cloudSQLSource{projects: cfg.GCP.Projects, lister: &apiSQLLister{svc: svc}})
-	}
-	return srcs, nil
+	return sources.Compact(srcs), nil
 }
 
 // emitFiring publishes a firing cloud alert. Identity is (kind, scope, name)
