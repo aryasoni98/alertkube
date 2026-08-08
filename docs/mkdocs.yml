@@ -87,6 +87,7 @@ nav:
       - how-to/add-a-silence.md
       - how-to/configure-inhibition.md
       - how-to/tune-mute-and-grouping.md
+      - how-to/deployment-topologies.md
       - how-to/ha-leader-election.md
       - how-to/troubleshoot-with-metrics.md
   - Reference:
@@ -94,7 +95,10 @@ nav:
       - reference/watcher-conditions.md
       - reference/sink-credentials.md
       - reference/metrics.md
+      - reference/interfaces.md
+      - reference/data-model.md
   - Explanation:
+      - explanation/security-architecture.md
       - explanation/what-makes-alertkube-deterministic.md
       - explanation/fingerprint-and-dedup.md
       - explanation/silence-vs-inhibition-vs-mute.md
