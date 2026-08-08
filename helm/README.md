@@ -48,9 +48,9 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
 | api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
-| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
+| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/v1/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
 | api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
-| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref). |
+| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET, console data) (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
 | api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences from the console). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
 | api.writeTokenSecretKeyRef | object | `{}` | Secret reference for the API write token (`{key, name}`). |
@@ -170,7 +170,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | prometheusRule.labels | object | `{}` | Extra labels so your Prometheus selects the rule. |
 | rbac.scope | string | `"cluster"` | RBAC scope: `cluster` (all namespaces + nodes) or `namespace`. |
 | receiver.allowAnonymous | bool | `false` | Run the receiver without a token. Required to enable the receiver with no token; otherwise startup fails closed (an open endpoint accepts unauthenticated alert injection). Only set true when the port is locked down by a NetworkPolicy. |
-| receiver.enabled | bool | `false` | Accept Alertmanager webhooks on `/api/v1/alerts`. |
+| receiver.enabled | bool | `false` | Accept Alertmanager webhooks on `/api/v1/receiver/alerts`. |
 | receiver.token | string | `""` | Optional bearer token guarding the receiver (inline; prefer the Secret ref). |
 | receiver.tokenSecretKeyRef | object | `{}` | Secret reference for the receiver token (`{key, name}`). |
 | replicaCount | int | `1` | Replica count (>1 requires `leaderElection.enabled`). |

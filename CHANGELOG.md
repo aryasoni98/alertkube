@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠ BREAKING CHANGES
+
+* **module path:** the Go module is now `github.com/aryasoni98/alertkube`
+  (was `alertkube`, which was not a resolvable import path). Anything importing
+  these packages must update its imports. The build's `-ldflags -X` version
+  target moved with it.
+* **HTTP API:** native routes moved under `/api/v1/` (`/api/v1/alerts`,
+  `/api/v1/config`, `/api/v1/silences`, `/api/v1/channels`,
+  `/api/v1/deadletter`). The pre-v1 paths still answer with a **308** redirect
+  for one minor release. 308, not 301, because several of these are `DELETE` or
+  `POST` and a 301 lets a client downgrade the method to `GET`.
+* **Alertmanager receiver:** moved from `POST /api/v1/alerts` to
+  `POST /api/v1/receiver/alerts`. It collided with the natural versioned name
+  for the read-only alert view - one path, two opposite meanings. A `POST` to
+  the old path 308-redirects to the new one rather than being answered `200` by
+  the read handler, which would have silently discarded the batch. **Update
+  your Alertmanager `webhook_config` url.**
+* **`ALERTKUBE_DISPATCH_QUEUE`** is now the process-wide total, split across
+  workers, rather than a single shared queue's depth. Raising
+  `ALERTKUBE_DISPATCH_WORKERS` no longer multiplies the memory ceiling.
+
+### Bug Fixes
+
+* **sharding:** scope the leader-election Lease to the shard index
+  (`alertkube-shard-<i>`). Previously every shard contended for one Lease named
+  `alertkube`, so exactly one shard led and the rest watched nothing - while all
+  pods reported `Ready`, because a leader-election follower is Ready by design.
+* **sharding:** scope the persisted-state ConfigMap to the shard index
+  (`alertkube-state-<i>`), and refuse to start when an explicitly-configured
+  name is shared across shards. Previously every shard's save overwrote the
+  others' mute history and delivery outbox.
+* **sharding:** gate outbox replay on shard ownership. A restart after a
+  rebalance replayed records for objects this replica no longer owns,
+  double-paging alongside the new owner. Dropped records are counted on
+  `alertkube_outbox_replay_foreign_total`.
+* **dispatch:** serialize deliveries per fingerprint. Workers drained one shared
+  queue, so a slow `FIRE` could complete after its `RESOLVE` and leave a
+  stateful sink (PagerDuty/Opsgenie) holding an incident that never closed.
+* **docs:** correct the sharding guidance, which prescribed a configuration
+  that silently disabled N-1 shards.
+
+### Features
+
+* **breaker:** trip on sustained slow-but-successful sends, not only failures.
+  A sink answering `200` in 20s never incremented the failure counter while
+  occupying a dispatch worker for the whole call.
+* **persist:** extract a `persist.Store` interface so a state backend other than
+  the ConfigMap (whose ~1MiB object limit caps state at roughly 8k-15k active
+  alerts) can be added without touching the controller.
+* **watchers:** self-registration registry mirroring `sinks.Register`. Adding a
+  resource kind is now one self-contained file instead of an edit in the app
+  package.
+* **metrics:** `alertkube_dispatch_enqueue_blocked_seconds`,
+  `alertkube_outbox_replay_foreign_total`.
+* **tracing:** opt-in OpenTelemetry spans across the delivery path
+  (`alertkube.enqueue` → `alertkube.dispatch`), joined by trace linkage carried
+  on the queued job. Enable with `ALERTKUBE_TRACING_ENABLED=true` and the
+  standard `OTEL_EXPORTER_OTLP_*` variables. Off by default - the controller
+  never hard-depends on a collector being reachable.
+* **api:** publish typed `Silence` CRD types under `api/v1alpha1`, and decode
+  the dynamic informer's objects through them. The informer is unchanged
+  (ADR-0004); the schema now exists as Go types an integrator can import.
+* **test:** add an envtest integration tier (`test/integration`, `integration`
+  build tag) covering per-shard Lease contention, per-shard state isolation, and
+  concurrent-save conflict handling. These are the failures a fake clientset
+  cannot model and the single-deployment e2e never touches.
+* **docs:** add `docs/OPERATIONS.md` (SLOs, capacity planning, HA runbook,
+  troubleshooting) - it was linked from four places but had never existed.
+  Also `ROADMAP.md`, `RELEASE.md`, ADR-0005 (config immutability), Mermaid
+  architecture diagrams, interface contracts, security architecture, data
+  model, deployment topologies, and four annotated `examples/` configs.
+* **ci:** add Dependabot for gomod, GitHub Actions, and Docker; add an
+  envtest integration job.
+
 ## [1.2.0](https://github.com/aryasoni98/alertkube/compare/v1.1.0...v1.2.0) (2026-07-03)
 
 Scalability, reliability, and delivery-hardening release. Delivery is now

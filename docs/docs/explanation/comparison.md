@@ -95,14 +95,14 @@ receiver:
   enabled: true
 ```
 
-With the receiver on, `POST /api/v1/alerts` accepts Alertmanager webhook payloads
+With the receiver on, `POST /api/v1/receiver/alerts` accepts Alertmanager webhook payloads
 (version 4) and runs them through alertkube's *own* dedupe, grouping, routing, and
 sink pipeline. Upstream fingerprints are preserved so dedupe stays aligned, and
 resolves forget local state to avoid emitting duplicate synthetic resolves. You
 point an Alertmanager `webhook_config` at it:
 
 ```yaml
-url: http://alertkube.monitoring:9090/api/v1/alerts
+url: http://alertkube.monitoring:9090/api/v1/receiver/alerts
 ```
 
 The reason this matters: Alertmanager is excellent at *metrics-based* alerting but

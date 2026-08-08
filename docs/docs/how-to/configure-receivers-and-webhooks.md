@@ -2,8 +2,8 @@
 
 alertkube exposes two HTTP endpoints on `metricsAddr`:
 
-- **`POST /api/v1/alerts`** - Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
-- **`GET /api/alerts`** - Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
+- **`POST /api/v1/receiver/alerts`** - Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
+- **`GET /api/v1/alerts`** - Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
 
 Both return `503` until the controller installs their handlers.
 
@@ -48,7 +48,7 @@ route:
 receivers:
   - name: 'alertkube'
     webhook_configs:
-      - url: 'http://alertkube.monitoring:9090/api/v1/alerts'
+      - url: 'http://alertkube.monitoring:9090/api/v1/receiver/alerts'
         send_resolved: true
         # If you set receiver.token:
         headers:
@@ -57,17 +57,17 @@ receivers:
 
 Receiver alerts use `kind: External`, so routing can treat them separately.
 
-## Query `/api/alerts`
+## Query `/api/v1/alerts`
 
-`/api/alerts` returns active alerts and recent history as JSON.
+`/api/v1/alerts` returns active alerts and recent history as JSON.
 
 ```bash
 # Without authentication
-curl http://localhost:9090/api/alerts
+curl http://localhost:9090/api/v1/alerts
 
 # With bearer token authentication (if api.token is set)
 curl -H "Authorization: Bearer your-secret-token-here" \
-  http://localhost:9090/api/alerts
+  http://localhost:9090/api/v1/alerts
 ```
 
 Response shape:
@@ -122,16 +122,16 @@ Protect it with a bearer token or NetworkPolicy. When `api.token` is empty, the 
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
-| `receiver.enabled` | bool | `false` | Enable the Alertmanager webhook receiver on `POST /api/v1/alerts`. |
+| `receiver.enabled` | bool | `false` | Enable the Alertmanager webhook receiver on `POST /api/v1/receiver/alerts`. |
 | `receiver.allowAnonymous` | bool | `false` | Allow requests without a bearer token (only safe if the port is NetworkPolicy-locked). |
-| `api.token` | string | `""` | Optional bearer token for `/api/alerts` (empty = unauthenticated). |
+| `api.token` | string | `""` | Optional bearer token for `/api/v1/alerts` (empty = unauthenticated). |
 
 Environment variables and Helm values:
 
 | Env var | Helm value | Key | Notes |
 | --- | --- | --- | --- |
 | `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token for the receiver. Read on every request. |
-| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token for `/api/alerts`. Read on every request. |
+| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token for `/api/v1/alerts`. Read on every request. |
 
 ## Test an External Alert
 
@@ -147,7 +147,7 @@ helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
 kubectl port-forward svc/alertkube 9090:9090 &
 
 # 3. Send a test Alertmanager webhook
-curl -X POST http://localhost:9090/api/v1/alerts \
+curl -X POST http://localhost:9090/api/v1/receiver/alerts \
   -H "Authorization: Bearer my-secure-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -167,7 +167,7 @@ curl -X POST http://localhost:9090/api/v1/alerts \
 
 # 4. Query the API
 curl -H "Authorization: Bearer my-api-token" \
-  http://localhost:9090/api/alerts | jq '.active[] | select(.kind == "External")'
+  http://localhost:9090/api/v1/alerts | jq '.active[] | select(.kind == "External")'
 ```
 
 ## See Also

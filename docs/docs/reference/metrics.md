@@ -25,7 +25,9 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `alertkube_dispatch_resolve_retries_total` | counter | - | Resolves re-queued after a failed delivery (a lost resolve would dangle a stateful incident). |
 | `alertkube_dispatch_dropped_total` | counter | - | Alerts dropped because they were enqueued after dispatcher shutdown (shutdown-drain race only). |
 | `alertkube_outbox_pending` | gauge | - | Undelivered deliveries tracked in the durable outbox (persisted + replayed on restart). Stuck high means delivery is falling behind. |
-| `alertkube_dead_letter_total` | counter | - | Deliveries permanently abandoned with no retry path (exhausted resolve, or a failed fire-once event/summary/escalation). Inspect `GET /api/deadletter`. |
+| `alertkube_outbox_replay_foreign_total` | counter | - | Outbox records dropped on startup because another shard owns them. A one-time bump after a shard rebalance (`ALERTKUBE_SHARD_TOTAL` rollout) is expected and correct - it is the mechanism that stops a moved object being double-paged. A continuously rising value means shard assignment is unstable. |
+| `alertkube_dispatch_enqueue_blocked_seconds` | histogram | - | Time an enqueue spent parked on a full dispatch queue. The queue exists so a slow sink cannot stall Kubernetes event processing; once it fills, the calling informer handler blocks and that decoupling is gone. `alertkube_dispatch_queue_full_total` says it happened, this says how bad it got. Sustained values above ~1s mean the worker pool is the bottleneck. |
+| `alertkube_dead_letter_total` | counter | - | Deliveries permanently abandoned with no retry path (exhausted resolve, or a failed fire-once event/summary/escalation). Inspect `GET /api/v1/deadletter`. |
 | `alertkube_cloud_poll_errors_total` | counter | `source` | Failed cloud-provider API calls, by source (e.g. `aws-eks`). |
 | `alertkube_cloud_poll_truncated_total` | counter | `source` | Cloud polls that hit a pagination cap and dropped remaining items (e.g. CloudTrail's per-event page limit). |
 | `alertkube_state_snapshot_bytes` | gauge | - | Size of the last (compressed) state snapshot serialized for persistence. Watch against the ConfigMap object limit. |
@@ -58,12 +60,12 @@ Served on `metricsAddr`. Server timeouts: 5s read-header, 10s read, 10s write,
 | `/metrics` | GET | Prometheus exposition of all `alertkube_*` metrics. |
 | `/healthz` | GET | Liveness. `200` normally; a **leader** whose sweep heartbeat has gone stale (e.g. a store-lock deadlock) returns `503` so the kubelet restarts the wedged pod. Followers and the initial-sync window stay `200`. |
 | `/readyz` | GET | Readiness. Returns `503` until informer caches have synced (`MarkReady`); used so the kubelet does not mark the pod Ready while the controller is blind. On leader-election followers, flipped back to not-ready when the lease is not held. |
-| `/api/alerts` | GET | JSON of active alerts plus recent history. Returns `503` until the handler is installed (after the controller and its store exist). |
-| `/api/deadletter` | GET | JSON of recently dead-lettered deliveries (permanently abandoned). Token-gated (read token); returns `503` until installed. |
-| `/api/v1/alerts` | POST | Alertmanager webhook receiver (when `receiver.enabled`). Runs payloads through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth via `ALERTKUBE_RECEIVER_TOKEN`. Returns `503` until the handler is installed. |
+| `/api/v1/alerts` | GET | JSON of active alerts plus recent history. Returns `503` until the handler is installed (after the controller and its store exist). |
+| `/api/v1/deadletter` | GET | JSON of recently dead-lettered deliveries (permanently abandoned). Token-gated (read token); returns `503` until installed. |
+| `/api/v1/receiver/alerts` | POST | Alertmanager webhook receiver (when `receiver.enabled`). Runs payloads through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth via `ALERTKUBE_RECEIVER_TOKEN`. Returns `503` until the handler is installed. |
 | `/debug/pprof/` | GET | Go profiling, **opt-in** via `ALERTKUBE_ENABLE_PPROF` and gated by the read token (fail-closed without one). `503` when disabled. |
 
-!!! note "`/api/alerts` and `/api/v1/alerts` return 503 before the controller starts"
+!!! note "`/api/v1/alerts` and `/api/v1/receiver/alerts` return 503 before the controller starts"
     The HTTP server boots in `main()` before the controller (and its alert
     store) exists; on leader-election followers the controller never starts at
     all. Until each handler is installed, its route returns `503`.

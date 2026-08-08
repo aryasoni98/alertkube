@@ -7,7 +7,7 @@ Check rollout:
 
 Query the HTTP API (metrics port, guarded by api.token):
   kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "alertkube.fullname" . }} {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
-  curl -H "Authorization: Bearer $TOKEN" http://localhost:{{ .Values.metrics.port }}/api/alerts
+  curl -H "Authorization: Bearer $TOKEN" http://localhost:{{ .Values.metrics.port }}/api/v1/alerts
 {{- if .Values.api.token }}
   Read token (inline): the value you set in api.token.
 {{- else if .Values.api.tokenSecretKeyRef.name }}
@@ -15,7 +15,7 @@ Query the HTTP API (metrics port, guarded by api.token):
     kubectl -n {{ .Release.Namespace }} get secret {{ .Values.api.tokenSecretKeyRef.name }} \
       -o jsonpath='{.data.{{ .Values.api.tokenSecretKeyRef.key | default "apiToken" }}}' | base64 -d; echo
 {{- else }}
-  No read token is set - /api/alerts is unauthenticated (open introspection).
+  No read token is set - /api/v1/alerts is unauthenticated (open introspection).
 {{- end }}
   Exposes active alerts, loaded config, silences, and dead-letter entries.
   Runtime silences (time-boxed mutes) require api.writeToken or api.authMode=rbac.
@@ -25,7 +25,7 @@ Query the HTTP API (metrics port, guarded by api.token):
 {{- if and (not .Values.api.token) (not .Values.api.tokenSecretKeyRef.name) }}
 {{- $warn = true }}
 
-[!] /api/alerts is UNAUTHENTICATED.
+[!] /api/v1/alerts is UNAUTHENTICATED.
     No api.token is set, so the read-only introspection endpoint on the
     metrics port (:{{ .Values.metrics.port }}) exposes active and recent alert
     contents (namespaces, workload names, summaries) to anyone who can reach
@@ -36,7 +36,7 @@ Query the HTTP API (metrics port, guarded by api.token):
 {{- $warn = true }}
 
 [!] No NetworkPolicy.
-    networkPolicy.enabled=false, so /metrics and /api/alerts are reachable
+    networkPolicy.enabled=false, so /metrics and /api/v1/alerts are reachable
     from anywhere the pod network allows. Enable it (with
     networkPolicy.apiServer.cidrs set) to limit who can scrape the metrics
     port and to bound controller egress to your sinks.
@@ -59,14 +59,14 @@ Query the HTTP API (metrics port, guarded by api.token):
 
 [!] Secret read is ENABLED (api.allowSecretRead).
     The controller has `get` on Secrets in namespace {{ .Release.Namespace }} so
-    POST /api/channels/test-ref can read a channel credential from a Secret. The value
+    POST /api/v1/channels/test-ref can read a channel credential from a Secret. The value
     is read at send-time only and never returned to the client, but this is the
     one place the zero-secrets-read posture bends. Set api.allowSecretRead=false
     if you do not use Secret-reference channel testing.
 {{- end }}
 {{- if not $warn }}
 
-No default-posture security warnings. /api/alerts is token-guarded,
+No default-posture security warnings. /api/v1/alerts is token-guarded,
 NetworkPolicy is enabled, and no inline credentials were detected.
 {{- end }}
 ===============================================================================

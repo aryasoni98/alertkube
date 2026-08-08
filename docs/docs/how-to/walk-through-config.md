@@ -84,7 +84,7 @@ persistence:
 
 | Section | Purpose |
 | --- | --- |
-| `cluster`, `metricsAddr` | Name alerts and expose `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, `/api/v1/alerts`. |
+| `cluster`, `metricsAddr` | Name alerts and expose `/metrics`, `/healthz`, `/readyz`, `/api/v1/alerts`, `/api/v1/receiver/alerts`. |
 | `filters` | Limit watched namespaces and pod name prefixes. Namespace filters apply to all watchers; pod filters apply to Pods. |
 | `behavior` | Dedupe, resolve timing, restart handling, startup grace, PVC pending threshold, log enrichment, annotation silences. |
 | `channels` | Slack channel names by severity. Modern Slack apps need bot-token mode for this to work. |
@@ -93,7 +93,7 @@ persistence:
 | `sinkRates` | Per-sink token-bucket limits; defaults are conservative. |
 | `grouping` | Storm folding. First alert dispatches immediately; later same-group alerts summarize. |
 | `escalations` | Re-dispatch still-unresolved alerts to extra sinks after a delay. |
-| `receiver` | Accept Alertmanager webhooks on `POST /api/v1/alerts`. |
+| `receiver` | Accept Alertmanager webhooks on `POST /api/v1/receiver/alerts`. |
 | `inhibitions` | Suppress target alerts while a matching source alert is active. |
 | `silences` | Suppress matching alerts until an RFC3339 timestamp. |
 | `persistence` | Snapshot active alerts and mute history to a ConfigMap. |

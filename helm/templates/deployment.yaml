@@ -8,7 +8,7 @@ spec:
   {{- fail "replicaCount > 1 requires leaderElection.enabled=true, otherwise every replica fires duplicate alerts" }}
   {{- end }}
   {{- /*
-    Fail closed on read-auth: /api/alerts and the console data endpoints expose
+    Fail closed on read-auth: /api/v1/alerts and the console data endpoints expose
     active alert contents (and the alerting topology). With no read token AND no
     NetworkPolicy, the metrics port is an open introspection surface. Require an
     explicit opt-out (api.allowUnauthenticatedRead=true) so an unguarded install
@@ -17,7 +17,7 @@ spec:
   */}}
   {{- $hasToken := or .Values.api.token .Values.api.tokenSecretKeyRef.name }}
   {{- if and (not $hasToken) (not .Values.networkPolicy.enabled) (not .Values.api.allowUnauthenticatedRead) }}
-  {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept an open /api/alerts and console" }}
+  {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept an open /api/v1/alerts and console" }}
   {{- end }}
   replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
