@@ -7,14 +7,12 @@ function AKNav({ theme, setTheme }) {
   // In-page section anchors. "Docs" is a real destination (the MkDocs manual
   // deployed at /alertkube/manual/), kept separate from the anchors below.
   const links = [
+    { label: "Features", href: "#features" },
     { label: "Pipeline", href: "#pipeline" },
     { label: "Architecture", href: "#architecture" },
-    { label: "Severity", href: "#severity" },
     { label: "Watchers", href: "#watchers" },
-    { label: "Cloud", href: "#cloud" },
     { label: "Sinks", href: "#sinks" },
     { label: "Install", href: "#install" },
-    { label: "Changelog", href: "#changelog" },
   ];
   // Relative so it tracks the canonical base (https://aryasoni98.github.io/alertkube/);
   // resolves to /alertkube/manual/ on the deployed site.
@@ -86,7 +84,7 @@ function AKNav({ theme, setTheme }) {
           </button>
           <a className="ak-iconbtn" href="https://github.com/aryasoni98/alertkube" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><Icon name="github" size={17} /></a>
           <span className="wk-nav__divider"></span>
-          <Button size="sm" variant="grad" href="#install">Install</Button>
+          <Button size="sm" variant="shine" href="#install">Install</Button>
           {/* Hamburger - visible only below 880px via CSS */}
           <button
             ref={hamburgerRef}
@@ -163,7 +161,7 @@ function AKNav({ theme, setTheme }) {
           </a>
         </nav>
         <div className="ak-drawer__footer">
-          <Button size="md" variant="grad" href="#install" onClick={closeDrawer} trailing={<Icon name="arrow" size={15} />}>
+          <Button size="md" variant="shine" href="#install" onClick={closeDrawer} trailing={<Icon name="arrow" size={15} />}>
             Install with Helm
           </Button>
         </div>
@@ -216,36 +214,38 @@ function AKHero({ live }) {
   }, [live, reduce]);
 
   return (
-    <header id="top" className="wk-hero" data-screen-label="Hero">
+    <header id="top" className="wk-hero wk-hero--cinema" data-screen-label="Hero">
       <div className="wk-wrap">
         <div className="wk-hero__grid">
-          <div>
+          <div className="wk-hero__intro">
             <Reveal>
               <span className="wk-hero__pill">
                 <span className="shimmer"></span>
                 <span className="ak-live" style={{ width: 7, height: 7 }}></span>
-                {AK_VERSION} - Horizontal sharding, durable delivery, dead-letter observability
+                {AK_VERSION} shipped
+                <a className="wk-hero__pill-link" href={AK_RELEASE_URL} target="_blank" rel="noopener noreferrer">
+                  Release notes <Icon name="arrow" size={12} />
+                </a>
               </span>
             </Reveal>
             <Reveal delay={0.06}>
               <h1 className="wk-hero__title">
-                Alerts that know<br />
-                what <span className="wk-text-gradient wk-text-gradient--animate">matters.</span>
+                Kubernetes alerts<br />
+                that know <span className="wk-text-gradient wk-text-gradient--animate">what matters.</span>
               </h1>
             </Reveal>
             <Reveal delay={0.12}>
               <p className="wk-hero__sub">
-                AlertKube watches nine Kubernetes resource kinds, dedupes the
-                storms, and gives responders a browser console for live alerts,
-                config review, runtime silences, and channel tests.
+                AlertKube watches nine resource kinds, dedupes the storms, routes by severity,
+                and gives responders a live console for silences, config, and channel tests.
               </p>
             </Reveal>
             <Reveal delay={0.18}>
               <div className="wk-hero__ctas">
-                <Button size="lg" variant="grad" href="#install" trailing={<Icon name="arrow" size={16} />}>
+                <Button size="lg" variant="shine" href="#install" trailing={<Icon name="arrow" size={16} />}>
                   Install with Helm
                 </Button>
-                <Button size="lg" variant="ghost" href="#pipeline">See the pipeline</Button>
+                <Button size="lg" variant="ghost" href="#features">Explore features</Button>
               </div>
             </Reveal>
             <Reveal delay={0.26}>
@@ -263,13 +263,9 @@ function AKHero({ live }) {
           </div>
 
           <div className="wk-hero__visual">
-            <div className="wk-hero__orbs" aria-hidden="true">
-              <span className="wk-hero__orb" style={{ background: "var(--wk-blue-300)", top: "-6%", left: "-8%" }}></span>
-              <span className="wk-hero__orb" style={{ background: "var(--wk-green-300)", bottom: "-10%", right: "-12%" }}></span>
-              <span className="wk-hero__orb" style={{ background: "var(--wk-spark-300)", width: 160, height: 160, top: "42%", left: "46%", opacity: 0.35 }}></span>
-            </div>
-
-            <div className="wk-hero__frame">
+            <div className="wk-hero__glow" aria-hidden="true"></div>
+            <div className="wk-hero__frame-wrap">
+              <div className="wk-hero__frame">
               <div className="wk-hero__frame-bar">
                 <span className="dots"><span></span><span></span><span></span></span>
                 <span className="url">alertkube.monitoring.svc:9090/feed</span>
@@ -301,40 +297,8 @@ function AKHero({ live }) {
                   )}
                 </div>
               </div>
+              </div>
             </div>
-
-            {mT && (
-              <mT.div
-                className="wk-hero__notif"
-                style={{ top: 56, right: -18 }}
-                animate={reduce ? {} : { y: [0, -9, 0] }}
-                transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <span className="av" style={{ background: "var(--wk-gradient)", display: "grid", placeItems: "center", color: "#fff" }}>
-                  <Icon name="msg" size={15} />
-                </span>
-                <span>
-                  <span className="t" style={{ display: "block" }}>#alerts-critical</span>
-                  <span className="s">CrashLoopBackOff · payments/api</span>
-                </span>
-              </mT.div>
-            )}
-            {mT && (
-              <mT.div
-                className="wk-hero__notif"
-                style={{ bottom: 34, left: -26 }}
-                animate={reduce ? {} : { y: [0, 8, 0] }}
-                transition={{ duration: 6.5, repeat: Infinity, ease: "easeInOut", delay: 1.2 }}
-              >
-                <span className="av" style={{ background: "var(--wk-spark-wash)", display: "grid", placeItems: "center", color: "var(--wk-spark-500)" }}>
-                  <Icon name="bell" size={15} />
-                </span>
-                <span>
-                  <span className="t" style={{ display: "block" }}>PagerDuty - paged Mia</span>
-                  <span className="s">critical only · dedupKey a3f29c41b07e</span>
-                </span>
-              </mT.div>
-            )}
           </div>
         </div>
       </div>
@@ -350,6 +314,87 @@ function AKMarquee() {
     <section className="wk-marquee" data-screen-label="Marquee" aria-label="Integrations">
       <div className="wk-marquee__reel">
         {reel.map((n, i) => <span key={i} className="wk-marquee__logo">{n}</span>)}
+      </div>
+    </section>
+  );
+}
+
+/* ----------------------------- BENTO FEATURES ----------------------------- */
+const AK_BENTO_STAGES = ["Fingerprint", "Mute", "Silence", "Inhibit", "Route", "Resolve"];
+const AK_BENTO_SINKS = ["Slack", "PagerDuty", "Teams", "Opsgenie", "Discord", "Telegram", "Webhook", "stdout"];
+
+const AK_BENTO = [
+  {
+    area: "pipeline", tone: "indigo", icon: "layers",
+    title: "Six-stage alert pipeline",
+    desc: "Every hop is inspectable - fingerprint, mute, silence, inhibit, route, resolve - with Prometheus metrics at each stage.",
+  },
+  {
+    area: "dedupe", tone: "emerald", icon: "shield",
+    title: "Dedupe by design",
+    desc: "SHA-256 fingerprints collapse duplicate fires before they hit Slack.",
+  },
+  {
+    area: "route", tone: "rose", icon: "bell",
+    title: "Severity routing",
+    desc: "Critical pages PagerDuty. Warnings stay in-channel.",
+  },
+  {
+    area: "console", tone: "violet", icon: "grid",
+    title: "Web console",
+    desc: "Live alerts, runtime silences, config review, and channel tests - no kubectl for day-two ops.",
+  },
+  {
+    area: "sinks", tone: "amber", icon: "zap",
+    title: "8 notification sinks",
+    desc: "One interface. Register a new sink in ~30 lines.",
+  },
+  {
+    area: "metrics", tone: "sky", icon: "chart",
+    title: "Prometheus-native observability",
+    desc: "ServiceMonitor-ready metrics, Grafana dashboard, dead-letter and outbox counters for durable delivery.",
+  },
+];
+
+function AKBentoFeatures() {
+  return (
+    <section id="features" className="wk-section ak-bento-section" data-screen-label="Features">
+      <div className="wk-wrap">
+        <AKHead
+          eyebrow="Why AlertKube"
+          title="Built for SRE teams who hate alert noise"
+          sub="Deterministic routing, no AI black boxes - one small binary in your cluster."
+        />
+        <Reveal>
+          <div className="wk-bento">
+            {AK_BENTO.map((f) => (
+              <article key={f.title} className={`tile tile--${f.tone} tile--${f.area}`}>
+                <div className="tile__top">
+                  <span className="ic-chip"><Icon name={f.icon} size={18} /></span>
+                  <h3>{f.title}</h3>
+                  <p>{f.desc}</p>
+                </div>
+                {f.area === "pipeline" && (
+                  <ol className="ak-bento-stages" aria-label="Pipeline stages">
+                    {AK_BENTO_STAGES.map((s, i) => (
+                      <li key={s}><span className="ak-bento-stages__n">{String(i + 1).padStart(2, "0")}</span>{s}</li>
+                    ))}
+                  </ol>
+                )}
+                {f.area === "sinks" && (
+                  <div className="ak-bento-chips" aria-label="Supported sinks">
+                    {AK_BENTO_SINKS.map((s) => <span key={s} className="ak-bento-chip">{s}</span>)}
+                  </div>
+                )}
+                {f.area === "metrics" && (
+                  <div className="ak-bento-metrics" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span><span></span>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -535,4 +580,4 @@ function AKSeverity() {
   );
 }
 
-Object.assign(window, { AKNav, AKHero, AKMarquee, AKPipeline, AKSeverity });
+Object.assign(window, { AKNav, AKHero, AKMarquee, AKBentoFeatures, AKPipeline, AKSeverity });

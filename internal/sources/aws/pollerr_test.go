@@ -7,7 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // TestPollErrIncrementsMetric asserts a cloud poll failure is observable on the

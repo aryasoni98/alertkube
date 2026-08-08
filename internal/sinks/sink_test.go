@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 // stubSink is a controllable Sink implementation for Dispatch tests.

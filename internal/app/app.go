@@ -17,9 +17,11 @@ import (
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/config"
-	"alertkube/internal/env"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/shard"
+	"github.com/aryasoni98/alertkube/internal/trace"
 )
 
 const (
@@ -28,7 +30,7 @@ const (
 )
 
 // version is overridden at build time via
-// -ldflags "-X alertkube/internal/app.version=...".
+// -ldflags "-X github.com/aryasoni98/alertkube/internal/app.version=...".
 // Logged at startup so the running image version is observable in pod logs
 // without exec-ing into the container.
 var version = "dev"
@@ -65,6 +67,24 @@ func Run() {
 		klog.Fatalf("config: %v", err)
 	}
 
+	// The shard identity is resolved here, before anything that depends on it:
+	// the leader Lease name, the persisted-state ConfigMap name, and the
+	// emit-path ownership gate all derive from it, and the first two are needed
+	// before the controller body starts. A bad shard set is fatal - a replica
+	// that owns nothing looks healthy while silently paging for nothing.
+	sharder, err := shard.FromEnv()
+	if err != nil {
+		klog.Fatalf("%v", err)
+	}
+	if err := cfg.ApplyShardScope(sharder.Index(), sharder.Enabled()); err != nil {
+		klog.Fatalf("config: %v", err)
+	}
+	if sharder.Enabled() {
+		klog.Infof("sharding enabled: shard %d of %d (this replica owns objects where hash(kind/ns/name) mod %d == %d); leader Lease %q, state ConfigMap %q; scaling requires a rollout of %s",
+			sharder.Index(), sharder.Total(), sharder.Total(), sharder.Index(),
+			leaseName(sharder), cfg.Persistence.ConfigMapName, shard.EnvTotal)
+	}
+
 	// Install the shutdown signal handler before any blocking startup work:
 	// buildClient can retry for up to kubeconfigRetryBudget when the
 	// apiserver is unavailable at boot, and a SIGTERM during that window
@@ -75,6 +95,18 @@ func Run() {
 		waitForSignal()
 		klog.Infof("%s received shutdown signal", appName)
 		cancel()
+	}()
+
+	// Opt-in tracing. Started before the controller so producer spans exist from
+	// the first watch event, and shut down last so queued spans are flushed.
+	// A failure here is never fatal: losing traces must not stop alerting.
+	traceShutdown := trace.Init(ctx, version)
+	defer func() {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := traceShutdown(flushCtx); err != nil {
+			klog.Warningf("tracing shutdown: %v", err)
+		}
+		flushCancel()
 	}()
 
 	clientset := buildClient(ctx, flags.kubeconfig)
@@ -99,9 +131,9 @@ func Run() {
 	srvs := metrics.Serve(cfg.MetricsAddr, cfg.APIAddr)
 
 	if flags.leaderElect {
-		runWithLeaderElection(ctx, clientset, dynClient, cfg, flags)
+		runWithLeaderElection(ctx, clientset, dynClient, cfg, flags, sharder)
 	} else {
-		runController(ctx, clientset, dynClient, cfg, flags.watchNamespace)
+		runController(ctx, clientset, dynClient, cfg, flags.watchNamespace, sharder)
 	}
 
 	for _, srv := range srvs {

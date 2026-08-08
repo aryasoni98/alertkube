@@ -6,7 +6,7 @@ import (
 
 	"cloud.google.com/go/container/apiv1/containerpb"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func nodePool(name string, status containerpb.NodePool_Status) *containerpb.NodePool {
@@ -53,7 +53,7 @@ func TestGKESourcePollIncludesNodePools(t *testing.T) {
 	fake := &fakeGKELister{byProject: map[string][]*containerpb.Cluster{
 		"proj-1": {gkeClusterWithPools("cl", "us-east1", containerpb.Cluster_RUNNING, nodePool("np", containerpb.NodePool_ERROR))},
 	}}
-	src := &gkeSource{projects: []string{"proj-1"}, lister: fake}
+	src := newGKESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 

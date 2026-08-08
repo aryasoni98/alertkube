@@ -177,3 +177,38 @@ func TestLoadMalformedYAMLFails(t *testing.T) {
 		t.Fatal("expected parse error, got nil")
 	}
 }
+
+func TestValidateCorrelationBounds(t *testing.T) {
+	base := func() *Config {
+		c := &Config{Cluster: "c"}
+		c.Behavior.MuteSeconds = InformerResyncSeconds + 1
+		c.Behavior.ResolveTTLSeconds = InformerResyncSeconds + 1
+		// Validate() unconditionally requires this to be positive (not gated
+		// behind any Enabled flag), and this test builds *Config directly
+		// rather than through Load/applyEnvDefaults, so it must be set here.
+		c.Behavior.PVCPendingSeconds = 1
+		return c
+	}
+	ok := base()
+	ok.Correlation = Correlation{Enabled: true, IntervalSeconds: 15, MaxHops: 3, BlastRadiusCap: 50}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid correlation rejected: %v", err)
+	}
+	// Enabled with all-zero numerics ⇒ "use engine defaults" ⇒ must pass.
+	def := base()
+	def.Correlation = Correlation{Enabled: true}
+	if err := def.Validate(); err != nil {
+		t.Fatalf("enabled correlation with all-zero (defaults) rejected: %v", err)
+	}
+	bad := base()
+	bad.Correlation = Correlation{Enabled: true, MaxHops: 99}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("maxHops 99 should be rejected")
+	}
+	// Disabled with junk values must not fail (unused).
+	off := base()
+	off.Correlation = Correlation{Enabled: false, IntervalSeconds: 1, MaxHops: 99}
+	if err := off.Validate(); err != nil {
+		t.Fatalf("disabled correlation must skip bounds: %v", err)
+	}
+}

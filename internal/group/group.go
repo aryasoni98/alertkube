@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 // DefaultBy is the group identity when config does not override it.

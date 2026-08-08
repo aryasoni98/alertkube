@@ -1,8 +1,8 @@
 package sinks
 
 import (
-	"alertkube/internal/alert"
-	"alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/templates"
 )
 
 // NewTeams posts Adaptive Cards to a Microsoft Teams webhook.

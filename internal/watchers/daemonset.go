@@ -7,8 +7,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewDaemonSet fires when scheduled pods are unavailable on nodes that
@@ -32,3 +32,5 @@ func evaluateDaemonSet(ds *appsv1.DaemonSet, emit Emit) {
 		emit(a)
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewDaemonSet(o.Config) }) }

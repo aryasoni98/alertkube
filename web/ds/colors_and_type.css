@@ -5,18 +5,21 @@
 
 /* ---------- WEBFONTS ---------- */
 /* Inter (display + body). 400/500/600/700. Geometric sans matching brand brief. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
   /* ===== COLOR - primary palette =====
-     Blue stroke (left side of the W) */
-  --wk-blue-50:  #EAF1FE;
-  --wk-blue-100: #C7DAFC;
-  --wk-blue-200: #8FB6F9;
-  --wk-blue-300: #4A9CFF;   /* light brand blue */
-  --wk-blue-500: #1E64E6;   /* deep brand blue */
-  --wk-blue-700: #1547B0;
-  --wk-blue-900: #0B2768;
+     Indigo-forward (2026 devtools trend) + legacy blue aliases */
+  --wk-indigo-400: #818CF8;
+  --wk-indigo-500: #6366F1;
+  --wk-indigo-600: #4F46E5;
+  --wk-blue-50:  #EEF2FF;
+  --wk-blue-100: #E0E7FF;
+  --wk-blue-200: #A5B4FC;
+  --wk-blue-300: #818CF8;
+  --wk-blue-500: #6366F1;
+  --wk-blue-700: #4338CA;
+  --wk-blue-900: #1E1B4B;
 
   /* Green stroke (right side of the W) */
   --wk-green-50:  #E8FBEF;
@@ -74,10 +77,13 @@
   --wk-spark-text: #C2410C;
 
   /* ===== SIGNATURE GRADIENT ===== */
-  --wk-gradient: linear-gradient(135deg, #1E64E6 0%, #22C55E 100%);
-  --wk-gradient-soft: linear-gradient(135deg, rgba(30,100,230,0.12) 0%, rgba(34,197,94,0.12) 100%);
-  --wk-gradient-text: linear-gradient(135deg, #1E64E6 0%, #22C55E 100%);
-  --wk-gradient-conic: conic-gradient(from 180deg at 50% 50%, #1E64E6, #22C55E, #4A9CFF, #1E64E6);
+  --wk-gradient: linear-gradient(135deg, #6366F1 0%, #059669 100%);
+  --wk-gradient-soft: linear-gradient(135deg, rgba(99,102,241,0.14) 0%, rgba(5,150,105,0.12) 100%);
+  --wk-gradient-text: linear-gradient(135deg, #6366F1 0%, #34D399 55%, #818CF8 100%);
+  --wk-gradient-conic: conic-gradient(from 180deg at 50% 50%, #6366F1, #059669, #818CF8, #6366F1);
+  --wk-gradient-hero: linear-gradient(to bottom, #ffffff 0%, #ffffff 42%, rgba(255,255,255,0.55) 100%);
+  --wk-glow-indigo: rgba(99,102,241,0.45);
+  --wk-glow-emerald: rgba(5,150,105,0.35);
 
   /* ===== RADII ===== */
   --r-pill:  999px;
@@ -128,18 +134,19 @@
 
 /* ---------- DARK THEME - intentional, not inverted ---------- */
 .theme-dark, [data-theme="dark"] {
-  --bg:          #0B1220;            /* matches theme-color meta, deep blue-ink */
-  --bg-elevated: #111c2e;            /* one step up from bg */
-  --bg-muted:    #0d1729;            /* slightly lighter than bg for subtle contrast */
+  --bg:          #09090B;
+  --bg-elevated: #111118;
+  --bg-muted:    #0C0C10;
   --bg-inverse:  var(--wk-paper);
-  --fg:          #E8EEF8;            /* cooler white - reads clearly on deep blue */
-  --fg-muted:    rgba(232,238,248,0.65);
-  --fg-subtle:   rgba(232,238,248,0.38);
-  --border:      rgba(232,238,248,0.10);
-  --border-soft: rgba(232,238,248,0.06);
-  --border-strong: rgba(232,238,248,0.22);
+  --fg:          #FAFAFA;
+  --fg-muted:    rgba(250,250,250,0.62);
+  --fg-subtle:   rgba(250,250,250,0.38);
+  --border:      rgba(255,255,255,0.08);
+  --border-soft: rgba(255,255,255,0.05);
+  --border-strong: rgba(255,255,255,0.16);
 
-  --wk-gradient-soft: linear-gradient(135deg, rgba(74,156,255,0.16) 0%, rgba(74,222,128,0.16) 100%);
+  --wk-gradient-hero: linear-gradient(to bottom, #ffffff 0%, #ffffff 38%, rgba(255,255,255,0.52) 100%);
+  --wk-gradient-soft: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(5,150,105,0.14) 100%);
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.40);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.44), 0 1px 2px rgba(0,0,0,0.30);

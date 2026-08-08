@@ -13,11 +13,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/env"
-	"alertkube/internal/sinks"
-	"alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/watchers"
 )
 
 // kubeconfigRetryBudget bounds how long buildClient retries transient
@@ -141,21 +141,16 @@ func buildSinks(cfg *config.Config) *sinks.Registry {
 	return reg
 }
 
+// buildWatchers constructs the watcher set from the self-registered builders
+// (each watcher registers itself in its own init; see watchers.Register).
+// Adding a resource kind is therefore a single self-contained file rather than
+// an edit here, matching how sinks and cloud providers already wire themselves.
+// Scope-specific exclusions - notably the cluster-scoped node watcher under a
+// namespace-scoped install - are decided by the builders themselves.
 func buildWatchers(c kubernetes.Interface, cfg *config.Config, watchNamespace string) []watchers.Watcher {
-	ws := []watchers.Watcher{
-		watchers.NewPod(c, cfg),
-		watchers.NewDeployment(cfg),
-		watchers.NewPVC(cfg),
-		watchers.NewJob(cfg),
-		watchers.NewDaemonSet(cfg),
-		watchers.NewStatefulSet(cfg),
-		watchers.NewCronJob(cfg),
-		watchers.NewHPA(cfg),
-	}
-	// Nodes are cluster-scoped: a namespace-scoped factory cannot sync a
-	// node informer and a namespace Role cannot grant it.
-	if watchNamespace == "" {
-		ws = append(ws, watchers.NewNode())
-	}
-	return ws
+	return watchers.Build(watchers.Opts{
+		Client:         c,
+		Config:         cfg,
+		WatchNamespace: watchNamespace,
+	})
 }

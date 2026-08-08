@@ -7,8 +7,8 @@ import (
 
 	"github.com/slack-go/slack"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
 // Build composes a Slack message using Block Kit blocks tailored to severity + kind.

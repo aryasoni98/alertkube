@@ -7,18 +7,18 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"alertkube/internal/metrics"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 // TestSourceNames pins the Name() of every GCP source so a rename that would
 // break metric labels / docs is caught.
 func TestSourceNames(t *testing.T) {
 	cases := []struct{ got, want string }{
-		{(&gkeSource{}).Name(), sourceGKE},
-		{(&gceSource{}).Name(), sourceGCE},
-		{(&cloudSQLSource{}).Name(), sourceCloudSQL},
-		{(&gcpMonitoringSource{}).Name(), sourceGCPMonitoring},
+		{newGKESource(nil, nil).Name(), sourceGKE},
+		{newGCESource(nil, nil).Name(), sourceGCE},
+		{newCloudSQLSource(nil, nil).Name(), sourceCloudSQL},
+		{newMonitoringSource(nil, nil).Name(), sourceGCPMonitoring},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -41,10 +41,10 @@ func TestPollErrIncrementsMetric(t *testing.T) {
 func TestSourcesRecordListErrors(t *testing.T) {
 	boom := errors.New("ListFailed")
 	srcs := []sources.Source{
-		&gkeSource{projects: []string{"p"}, lister: &fakeGKELister{err: boom}},
-		&gceSource{projects: []string{"p"}, lister: &fakeGCELister{err: boom}},
-		&cloudSQLSource{projects: []string{"p"}, lister: &fakeSQLLister{err: boom}},
-		&gcpMonitoringSource{projects: []string{"p"}, lister: &fakePolicyLister{err: boom}},
+		newGKESource([]string{"p"}, &fakeGKELister{err: boom}),
+		newGCESource([]string{"p"}, &fakeGCELister{err: boom}),
+		newCloudSQLSource([]string{"p"}, &fakeSQLLister{err: boom}),
+		newMonitoringSource([]string{"p"}, &fakePolicyLister{err: boom}),
 	}
 	for _, s := range srcs {
 		t.Run(s.Name(), func(t *testing.T) {

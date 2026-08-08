@@ -10,9 +10,9 @@ import (
 	"github.com/slack-go/slack"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
-	"alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/httpx"
+	"github.com/aryasoni98/alertkube/internal/templates"
 )
 
 // channelOverridePattern restricts annotation-supplied channel names to the

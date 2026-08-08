@@ -6,7 +6,7 @@ import (
 	"io"
 	"runtime"
 
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // dispatchSubcommand handles the optional first-positional subcommands

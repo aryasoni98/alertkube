@@ -12,9 +12,9 @@ import (
 	"regexp"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/authz"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // fingerprintOK constrains the upstream-supplied fingerprint to a safe

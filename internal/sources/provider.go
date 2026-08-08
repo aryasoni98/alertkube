@@ -3,7 +3,7 @@ package sources
 import (
 	"context"
 
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // Provider describes a cloud provider's source set (AWS, Azure, GCP, ...). Each

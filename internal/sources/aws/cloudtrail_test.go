@@ -10,9 +10,9 @@ import (
 	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // alwaysPagingCloudTrail always returns a next token, so the lookup never

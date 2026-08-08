@@ -2,41 +2,35 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/authz"
-	"alertkube/internal/config"
-	"alertkube/internal/crd"
-	"alertkube/internal/env"
-	"alertkube/internal/group"
-	"alertkube/internal/metrics"
-	"alertkube/internal/persist"
-	"alertkube/internal/receiver"
-	"alertkube/internal/router"
-	"alertkube/internal/rules"
-	"alertkube/internal/shard"
-	"alertkube/internal/silence"
-	"alertkube/internal/sources"
-	"alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/crd"
+	"github.com/aryasoni98/alertkube/internal/group"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/persist"
+	"github.com/aryasoni98/alertkube/internal/receiver"
+	"github.com/aryasoni98/alertkube/internal/router"
+	"github.com/aryasoni98/alertkube/internal/rules"
+	"github.com/aryasoni98/alertkube/internal/shard"
+	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/watchers"
 
 	// Cloud providers self-register into the sources registry via init; the
 	// blank imports pull them in so startCloudSources can iterate the registry.
-	_ "alertkube/internal/sources/aws"
-	_ "alertkube/internal/sources/azure"
-	_ "alertkube/internal/sources/gcp"
+	_ "github.com/aryasoni98/alertkube/internal/sources/aws"
+	_ "github.com/aryasoni98/alertkube/internal/sources/azure"
+	_ "github.com/aryasoni98/alertkube/internal/sources/gcp"
 )
 
 // informerResyncPeriod is how often cached objects are re-delivered as
@@ -60,7 +54,7 @@ const informerResyncPeriod = config.InformerResyncSeconds * time.Second
 // observable in the logs (e.g. when diagnosing leader flap).
 var controllerRuns atomic.Uint64
 
-func runController(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, cfg *config.Config, watchNamespace string) {
+func runController(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, cfg *config.Config, watchNamespace string, sharder *shard.Sharder) {
 	if n := controllerRuns.Add(1); n > 1 {
 		klog.Infof("controller starting (leadership acquisition #%d): rebuilding informers/store/grouper; startup grace re-applies to this sync", n)
 	}
@@ -117,12 +111,9 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	)
 	store.SetOnChange(func(n int) {
 		metrics.ActiveAlerts.Set(float64(n))
-		// Notify any connected consoles (SSE) so they refresh live instead of
-		// waiting for their poll interval.
-		metrics.PublishChange()
 	})
 
-	persister := restoreState(ctx, clientset, cfg, store, silStore, disp)
+	persister := restoreState(ctx, clientset, cfg, store, silStore, disp, sharder)
 
 	// The rule engine observes the firing stream and emits derived alerts back
 	// through emit. ruleEngine is captured by emit's observe callback (assigned
@@ -145,7 +136,6 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	// producer paths (watchers + cloud sources); the receiver and rule engine
 	// keep the ungated emit (received alerts are handled by whichever replica
 	// gets them, and derived alerts are low volume). Default (total=1) = no-op.
-	sharder := buildSharder()
 	shardedEmit := shardGate(emit, sharder)
 
 	ws := startInformers(ctx, clientset, cfg, watchNamespace, shardedEmit)
@@ -194,24 +184,6 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	<-ctx.Done()
 	klog.Infof("%s shutting down", appName)
 	shutdown(ws, grouperStop, &wg, disp, persister, store, silStore)
-}
-
-// buildSharder configures static hash-based sharding from the environment.
-// ALERTKUBE_SHARD_TOTAL <= 1 (default) disables it (this replica owns
-// everything, unchanged single-replica behavior). When enabled,
-// ALERTKUBE_SHARD_INDEX must be in [0, total); an invalid pair is fatal so a
-// misconfigured shard set fails fast rather than silently owning nothing/all.
-func buildSharder() *shard.Sharder {
-	total := env.IntOr("ALERTKUBE_SHARD_TOTAL", 1)
-	index := env.IntOr("ALERTKUBE_SHARD_INDEX", 0)
-	s, ok := shard.New(index, total)
-	if !ok {
-		klog.Fatalf("invalid sharding config: ALERTKUBE_SHARD_INDEX=%d must be in [0,%d)", index, total)
-	}
-	if s.Enabled() {
-		klog.Infof("sharding enabled: shard %d of %d (this replica owns objects where hash(kind/ns/name) mod %d == %d); scaling requires a rollout of ALERTKUBE_SHARD_TOTAL", s.Index(), s.Total(), s.Total(), s.Index())
-	}
-	return s
 }
 
 // shardGate wraps emit so only alerts for objects this replica owns proceed;
@@ -277,7 +249,12 @@ func buildGrouper(cfg *config.Config, r *router.Router, enqueue enqueueFunc) *gr
 // leaving PagerDuty incidents dangling. Returns the persister for the sweeper
 // and the final shutdown save, or nil when persistence is disabled. A load
 // failure starts cold rather than blocking startup.
-func restoreState(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, store *alert.Store, silStore *silence.Store, disp *dispatcher) *persist.ConfigMapStore {
+// The returned Store is nil when persistence is disabled. It must be returned
+// as an untyped nil (a bare `return nil`), never as a nil *ConfigMapStore
+// assigned to the interface: the latter is a non-nil interface holding a nil
+// pointer, and every `if persister != nil` guard downstream would pass and then
+// dereference it.
+func restoreState(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, store *alert.Store, silStore *silence.Store, disp *dispatcher, sharder *shard.Sharder) persist.Store {
 	if !cfg.Persistence.Enabled {
 		return nil
 	}
@@ -293,7 +270,12 @@ func restoreState(ctx context.Context, clientset kubernetes.Interface, cfg *conf
 		silStore.Replace(snap.RuntimeSilences)
 		// Replay the durable outbox so deliveries that were enqueued but not
 		// acknowledged before the restart resume instead of being lost.
-		replayed := disp.ReplayPending(snap.Pending)
+		// Gate the replay on this replica's ownership: the snapshot may predate
+		// a shard rebalance, and a record whose object now belongs elsewhere
+		// must not be re-delivered from here.
+		replayed := disp.ReplayPending(snap.Pending, func(a *alert.Alert) bool {
+			return sharder.Owns(shardKey(a))
+		}, store.MarkFailed)
 		klog.Infof("restored state: %d active alerts, %d mute records, %d runtime silences, %d pending deliveries replayed (saved %s)",
 			len(snap.Active), len(snap.LastSent), len(snap.RuntimeSilences), replayed, snap.SavedAt.Format(time.RFC3339))
 	}
@@ -327,92 +309,15 @@ func startCloudSources(ctx context.Context, wg *sync.WaitGroup, cfg *config.Conf
 	}
 }
 
-// writeAuthorized gates a control-plane mutation. It fails closed: an empty
-// write token means runtime mutation is disabled entirely (403), so a default
-// install never exposes a write path. With a token set, the request must carry
-// it as a bearer (constant-time compared). It writes the rejection response and
-// returns false when not authorized.
-func writeAuthorized(req *http.Request, writeToken string, w http.ResponseWriter) bool {
-	if writeToken == "" {
-		httpErr(w, http.StatusForbidden, "runtime mutation is disabled: set ALERTKUBE_API_WRITE_TOKEN (helm: api.writeToken)")
-		return false
-	}
-	if !authz.BearerEqual(req.Header.Get("Authorization"), writeToken) {
-		w.WriteHeader(http.StatusUnauthorized)
-		return false
-	}
-	return true
-}
-
-// httpErr writes a small JSON error body with the given status.
-func httpErr(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
-// sanitizeField strips control characters (defeating log injection from the
-// comment / user header, which are echoed into klog) and bounds the length.
-func sanitizeField(s string) string {
-	s = strings.Map(func(r rune) rune {
-		switch {
-		case r == '\n', r == '\r', r == '\t':
-			return ' '
-		case r < 0x20:
-			return -1
-		default:
-			return r
-		}
-	}, s)
-	if len(s) > 200 {
-		s = s[:200]
-	}
-	return strings.TrimSpace(s)
-}
-
 // exportState builds the durable snapshot: alert-store state, the runtime
 // silences (which live outside the store but share the state ConfigMap so a
-// UI-created mute survives a leader failover), and the dispatcher's outbox
+// runtime mute survives a leader failover), and the dispatcher's outbox
 // (undelivered deliveries, replayed on restart).
 func exportState(store *alert.Store, sil *silence.Store, disp *dispatcher) *alert.Snapshot {
 	snap := store.Export()
 	snap.RuntimeSilences = sil.List()
 	snap.Pending = disp.PendingSnapshot()
 	return snap
-}
-
-// overlayConfig renders a candidate config: it parses a JSON patch of the
-// form-editable sections (rules, routing, grouping) and overlays them onto a
-// copy of the live config, returning the full YAML. Only provided sections are
-// replaced; every other field is preserved, so form-based authoring never drops
-// config the UI does not model. Nothing is applied - the result is for the
-// operator to review, diff, and commit to Git (the GitOps source of truth).
-func overlayConfig(base *config.Config, patch []byte) ([]byte, error) {
-	var in struct {
-		Rules    *[]config.Rule  `json:"rules"`
-		Routing  *[]config.Route `json:"routing"`
-		Grouping *struct {
-			Enabled       bool     `json:"enabled"`
-			WindowSeconds int      `json:"windowSeconds"`
-			By            []string `json:"by"`
-		} `json:"grouping"`
-	}
-	if err := json.Unmarshal(patch, &in); err != nil {
-		return nil, err
-	}
-	out := *base // shallow copy; section assignments below replace slice/struct headers, never mutating base
-	if in.Rules != nil {
-		out.Rules = *in.Rules
-	}
-	if in.Routing != nil {
-		out.Routing = *in.Routing
-	}
-	if in.Grouping != nil {
-		out.Grouping.Enabled = in.Grouping.Enabled
-		out.Grouping.WindowSeconds = in.Grouping.WindowSeconds
-		out.Grouping.By = in.Grouping.By
-	}
-	return yaml.Marshal(&out)
 }
 
 // setupReceiver wires the optional Alertmanager-compatible webhook receiver
@@ -432,7 +337,7 @@ func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, d
 	case receiverToken == "":
 		klog.Warningf("receiver enabled with receiver.allowAnonymous: POST /api/v1/alerts on %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
 	}
-	metrics.SetReceiverHandler(receiver.New(
+	metrics.ReceiverHandler.Set(receiver.New(
 		receiverToken,
 		func(a *alert.Alert) { emit(a) },
 		func(a *alert.Alert) {
@@ -490,22 +395,13 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 // grouper flush, sweeper escalations, cloud sources, rules) has stopped
 // enqueuing before the queue is closed, and before the final save so a
 // delivery failure's dedupe rollback is reflected in the saved snapshot.
-func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, disp *dispatcher, persister *persist.ConfigMapStore, store *alert.Store, silStore *silence.Store) {
+func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, disp *dispatcher, persister persist.Store, store *alert.Store, silStore *silence.Store) {
 	// Stop serving the leader-scoped routes first. The HTTP server outlives
 	// leader election, so a demoted leader would otherwise keep accepting
 	// receiver POSTs (202) into the store we are about to abandon - silently
 	// dropping them - and keep dumping a stale active set on /api/alerts.
 	// 503 makes both fail loudly until the next leader reinstalls them.
-	metrics.ClearReceiverHandler()
-	metrics.ClearAlertsHandler()
-	metrics.ClearConfigHandler()
-	metrics.ClearValidateHandler()
-	metrics.ClearRenderHandler()
-	metrics.ClearSilencesHandler()
-	metrics.ClearChannelsHandler()
-	metrics.ClearDeadLetterHandler()
-	metrics.ClearPprofHandler()
-	metrics.ClearEventsAuth()
+	metrics.ClearLeaderHandlers()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()

@@ -2,8 +2,6 @@
 const midFM = window.FramerMotion || {};
 
 /* ----------------------------- ARCHITECTURE ----------------------------- */
-const AK_ARCH_IMAGE = "https://raw.githubusercontent.com/aryasoni98/alertkube/master/.github/alertkube.png";
-
 const AK_ARCH_RESOURCES = ["Pods", "Nodes", "Deployments", "PVCs", "Jobs", "CronJobs", "StatefulSets", "DaemonSets", "HPA"];
 const AK_ARCH_CLOUD = ["AWS", "Azure", "GCP"];
 const AK_ARCH_STEPS = [
@@ -15,6 +13,12 @@ const AK_ARCH_STEPS = [
 ];
 const AK_ARCH_SINKS = ["Slack", "Discord", "PagerDuty", "Opsgenie", "Teams", "Telegram", "Webhook", "stdout"];
 const AK_ARCH_STATE = ["ConfigMap state snapshot", "ConfigMap config", "Secret sink credentials", "Prometheus metrics"];
+const AK_ARCH_SECURITY = [
+  { icon: "shield", text: "Least-privilege read-only RBAC for watches" },
+  { icon: "shield", text: "Bearer token webhook auth with constant-time compare" },
+  { icon: "shield", text: "Sink credentials stay in Kubernetes Secrets" },
+  { icon: "chart", text: "Prometheus metrics expose controller health" },
+];
 
 function AKArchNode({ icon, title, sub, tone = "info", compact = false }) {
   return (
@@ -35,7 +39,7 @@ function AKArchitecture() {
         <AKHead
           eyebrow="Architecture"
           title="Watch, route, dispatch - with state and security built in"
-          sub="The diagram is now a live landing-page workflow: Kubernetes signals enter through read-only watches, pass through AlertKube's routing core, and leave through controlled sink dispatch."
+          sub="Kubernetes signals enter through read-only watches, pass through AlertKube's routing core, and leave through controlled sink dispatch."
         />
         <Reveal>
           <div className="ak-arch-layout">
@@ -115,24 +119,15 @@ function AKArchitecture() {
               <span className="ak-arch-packet ak-arch-packet--three" aria-hidden="true"></span>
             </div>
 
-            <aside className="ak-arch-side" aria-label="Architecture reference and posture">
-              <div className="ak-arch-ref">
-                <div className="ak-arch-ref__bar">
-                  <span>Reference blueprint</span>
-                  <a href={AK_ARCH_IMAGE} target="_blank" rel="noopener noreferrer">Open image</a>
+            <div className="ak-arch-posture-grid" aria-label="Security posture">
+              <p className="ak-arch-posture-grid__label">Security posture</p>
+              {AK_ARCH_SECURITY.map((item) => (
+                <div key={item.text} className="ak-arch-posture-card">
+                  <span className="ak-arch-posture-card__icon"><Icon name={item.icon} size={16} /></span>
+                  <span>{item.text}</span>
                 </div>
-                <img src={AK_ARCH_IMAGE} alt="AlertKube architecture diagram reference" loading="lazy" />
-              </div>
-              <div className="ak-arch-posture">
-                <h3>Security posture</h3>
-                <ul>
-                  <li><Icon name="shield" size={15} />Least-privilege read-only RBAC for watches</li>
-                  <li><Icon name="shield" size={15} />Bearer token webhook auth with constant-time compare</li>
-                  <li><Icon name="shield" size={15} />Sink credentials stay in Kubernetes Secrets</li>
-                  <li><Icon name="chart" size={15} />Prometheus metrics expose controller health</li>
-                </ul>
-              </div>
-            </aside>
+              ))}
+            </div>
           </div>
         </Reveal>
       </div>

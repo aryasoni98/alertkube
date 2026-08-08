@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/httpx"
 )
 
 // webhookHTTPSink POSTs the Alert struct as JSON to a generic endpoint.

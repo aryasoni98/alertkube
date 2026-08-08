@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/silence"
 )
 
 func TestRouteMatch(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"html"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/templates"
-	"alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
 // NewGoogleChat posts a card to a Google Chat space via an incoming webhook.

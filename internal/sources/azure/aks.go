@@ -5,8 +5,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v6"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceAKS = "azure-aks"

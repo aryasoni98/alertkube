@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceS3 = "aws-s3"

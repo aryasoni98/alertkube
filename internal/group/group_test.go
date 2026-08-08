@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func podAlert(name string) *alert.Alert {

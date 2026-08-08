@@ -6,7 +6,7 @@ import (
 
 	compute "google.golang.org/api/compute/v1"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 type fakeGCELister struct {
@@ -78,7 +78,7 @@ func TestGCESourcePoll(t *testing.T) {
 			gceInstance("bad", "us-east1-b", "REPAIRING"),
 		},
 	}}
-	src := &gceSource{projects: []string{"proj-1"}, lister: fake}
+	src := newGCESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

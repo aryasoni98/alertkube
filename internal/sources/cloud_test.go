@@ -1,12 +1,13 @@
 package sources
 
 import (
+	"context"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 func TestEmitFiring(t *testing.T) {
@@ -71,5 +72,17 @@ func TestStrVal(t *testing.T) {
 	s := "x"
 	if StrVal(&s) != "x" {
 		t.Error("deref wrong")
+	}
+}
+
+func TestCompactDropsNilSources(t *testing.T) {
+	a := funcSource{name: "a", poll: func(context.Context, Emit) {}}
+	b := funcSource{name: "b", poll: func(context.Context, Emit) {}}
+	got := Compact([]Source{nil, a, nil, b, nil})
+	if len(got) != 2 || got[0].Name() != "a" || got[1].Name() != "b" {
+		t.Fatalf("Compact = %v, want the two non-nil sources in order", got)
+	}
+	if len(Compact(nil)) != 0 {
+		t.Fatal("Compact(nil) must be empty, not nil-panicking")
 	}
 }

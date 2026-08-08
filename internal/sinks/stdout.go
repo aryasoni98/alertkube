@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 // stdoutSink prints alerts to klog - useful for local development.

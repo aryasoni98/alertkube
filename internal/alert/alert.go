@@ -66,12 +66,14 @@ const (
 	KindPod         Kind = "Pod"
 	KindNode        Kind = "Node"
 	KindDeployment  Kind = "Deployment"
+	KindReplicaSet  Kind = "ReplicaSet"
 	KindPVC         Kind = "PersistentVolumeClaim"
 	KindJob         Kind = "Job"
 	KindDaemonSet   Kind = "DaemonSet"
 	KindStatefulSet Kind = "StatefulSet"
 	KindCronJob     Kind = "CronJob"
 	KindHPA         Kind = "HorizontalPodAutoscaler"
+	KindService     Kind = "Service"
 	// AWS cloud-source kinds. Unlike the workload kinds above (produced by
 	// informer-driven watchers), these are produced by the polled AWS
 	// sources in internal/sources/aws. Namespace carries the AWS region and
@@ -121,8 +123,8 @@ const (
 // (e.g. a poisoned persisted snapshot) before they enter the store.
 func (k Kind) Valid() bool {
 	switch k {
-	case KindPod, KindNode, KindDeployment, KindPVC, KindJob, KindDaemonSet,
-		KindStatefulSet, KindCronJob, KindHPA, KindExternal,
+	case KindPod, KindNode, KindDeployment, KindReplicaSet, KindPVC, KindJob, KindDaemonSet,
+		KindStatefulSet, KindCronJob, KindHPA, KindService, KindExternal,
 		KindEKSCluster, KindCloudWatchAlarm, KindEC2Instance,
 		KindLoadBalancer, KindTargetGroup, KindRDSInstance,
 		KindDynamoDBTable, KindElastiCacheCluster, KindS3Bucket, KindCloudTrailEvent,
@@ -177,6 +179,9 @@ type Alert struct {
 	// set and never emits a synthetic resolve for it - a "security group was
 	// modified" notification has nothing to resolve.
 	Event bool
+	// Correlation is derived context attached by the correlation engine; nil
+	// when correlation is disabled or the alert is standalone. Not persisted.
+	Correlation *Correlation
 }
 
 // Clone returns a deep copy whose Labels, Annotations, and Details maps are
@@ -189,6 +194,7 @@ func (a *Alert) Clone() *Alert {
 	cp.Labels = cloneStringMap(a.Labels)
 	cp.Annotations = cloneStringMap(a.Annotations)
 	cp.Details = cloneStringMap(a.Details)
+	cp.Correlation = a.Correlation.clone()
 	return &cp
 }
 

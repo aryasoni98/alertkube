@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 func collect() (Emit, *[]*alert.Alert) {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"alertkube/internal/metrics"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 // TestSourceNames pins the Name() of every Azure source so a rename that would

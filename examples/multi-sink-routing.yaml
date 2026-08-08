@@ -1,0 +1,69 @@
+# Severity-based routing to multiple sinks, plus inhibitions and silences.
+#
+# The shape most teams end up with: pages go to an on-call system, everything
+# else goes to chat, and dependent alerts are suppressed so one node failure
+# does not produce fifty pod pages.
+
+cluster: prod-us-east-1
+
+behavior:
+  muteSeconds: 900
+  resolveTTLSeconds: 900
+  startupGraceSeconds: 60
+  # Ignore pods that have restarted fewer than this many times. Raise it on
+  # clusters with known-flappy workloads.
+  ignoreRestartCount: 2
+
+routing:
+  # Order matters: first match wins, so put the narrowest rules first.
+  # Database namespaces page regardless of severity.
+  - match: {namespace: databases}
+    sinks: [pagerduty, slack]
+
+  - match: {severity: critical}
+    sinks: [pagerduty, slack]
+
+  - match: {severity: warning}
+    sinks: [slack]
+
+  # Info is high-volume; keep it out of the channel humans watch.
+  - match: {severity: info}
+    sinks: [stdout]
+
+inhibitions:
+  # A NotReady node makes every pod on it look broken. Suppress the pod alerts
+  # for 10 minutes so the node alert is the one that pages.
+  # `equal` is what scopes this to the *same* node rather than all pods.
+  - source: {kind: Node, reason: NodeNotReady}
+    target: {kind: Pod}
+    equal: [node]
+    duration: 10m
+
+  # A failing Deployment produces per-pod noise; page on the workload instead.
+  - source: {kind: Deployment, reason: DeploymentUnavailable}
+    target: {kind: Pod}
+    equal: [namespace]
+    duration: 15m
+
+silences:
+  # Time-bounded and explicit. For anything recurring use `maintenance`;
+  # for anything ad-hoc use the Silence CRD or POST /api/v1/silences.
+  - matchers: {namespace: kube-system}
+    until: "2026-12-31T00:00:00Z"
+
+grouping:
+  # Fold a storm into one summary per window instead of N separate messages.
+  # Summaries never route to stateful sinks (PagerDuty/Opsgenie): those dedupe
+  # by fingerprint themselves and a summary has no resolve to close it.
+  enabled: true
+  windowSeconds: 30
+  by: [kind, namespace, reason, severity]
+
+sinkRates:
+  # Slack rate-limits aggressively; stay under it rather than getting 429s.
+  slack:
+    perSecond: 1
+    burst: 5
+
+persistence:
+  enabled: true

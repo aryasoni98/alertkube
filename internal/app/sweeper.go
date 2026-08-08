@@ -8,14 +8,14 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/metrics"
-	"alertkube/internal/persist"
-	"alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/persist"
+	"github.com/aryasoni98/alertkube/internal/silence"
 )
 
-func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister *persist.ConfigMapStore, disp *dispatcher, cfg *config.Config) {
+func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister persist.Store, disp *dispatcher, cfg *config.Config) {
 	defer wg.Done()
 	// The sweeper is the controller's liveness heartbeat source: it runs only
 	// on the leader (or the sole process), touches the store's global mutex

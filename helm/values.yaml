@@ -204,11 +204,11 @@ escalations: []
   #   afterMinutes: 15
   #   sinks: [pagerduty]
 
-# Accept Alertmanager webhook payloads on /api/v1/alerts (metrics port)
+# Accept Alertmanager webhook payloads on /api/v1/receiver/alerts (metrics port)
 # and run them through the same dedupe/grouping/routing pipeline.
 # Optional bearer auth: set receiver.token (stored in the chart Secret).
 receiver:
-  # -- Accept Alertmanager webhooks on `/api/v1/alerts`.
+  # -- Accept Alertmanager webhooks on `/api/v1/receiver/alerts`.
   enabled: false
   # -- Run the receiver without a token. Required to enable the receiver with
   # no token; otherwise startup fails closed (an open endpoint accepts
@@ -222,12 +222,12 @@ receiver:
     # key: receiverToken
     # name: alertkube-receiver
 
-# api guards the read-only /api/alerts introspection endpoint (active +
+# api guards the read-only /api/v1/alerts introspection endpoint (active +
 # recent alert contents) served on the metrics port. Set a token to require
 # bearer auth; left empty the endpoint is open, so restrict the metrics port
 # with networkPolicy instead.
 api:
-  # -- Optional bearer token guarding read endpoints (`/api/alerts`, `/api/config`, `/api/silences` GET, console data) (inline; prefer the Secret ref).
+  # -- Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET, console data) (inline; prefer the Secret ref).
   token: ""
   # -- Secret reference for the API (read) token (`{key, name}`).
   tokenSecretKeyRef: {}
@@ -254,7 +254,7 @@ api:
   # send-time only and never returned to the client. Leave false unless you need
   # in-UI channel credential validation.
   allowSecretRead: false
-  # -- Accept an UNAUTHENTICATED read API (/api/alerts + console data) when no
+  # -- Accept an UNAUTHENTICATED read API (/api/v1/alerts + console data) when no
   # api.token and no networkPolicy are set. The chart fails closed by default:
   # an install with neither a token nor a NetworkPolicy is rejected unless this
   # is explicitly true, so an open introspection surface is always a deliberate

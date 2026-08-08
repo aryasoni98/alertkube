@@ -26,7 +26,7 @@ package sources
 import (
 	"context"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 // Emit publishes an alert into the controller pipeline. It is structurally

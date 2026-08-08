@@ -3,8 +3,10 @@ package aws
 import (
 	"context"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 // regionClient pairs an AWS region with the service client scoped to it. Every
@@ -25,6 +27,47 @@ func pollByRegion[C any](ctx context.Context, regions []regionClient[C], emit so
 	for _, rc := range regions {
 		pollOne(ctx, rc, emit)
 	}
+}
+
+// regionConfig pairs a configured region with the SDK config resolved for it.
+// NewProvider resolves credentials once per region and every service client
+// for that region is minted from the same config.
+type regionConfig struct {
+	region string
+	cfg    awssdk.Config
+}
+
+// regionalSource builds one client per configured region for an enabled service
+// and wraps them in that service's Source. It returns nil when the service is
+// toggled off or no region is configured; NewProvider filters those out with
+// sources.Compact. This replaces the declare-slice / append-under-toggle /
+// append-source-if-non-empty trio that each of the regional services repeated,
+// so wiring a new service is one line that cannot reference the wrong slice.
+func regionalSource[C any](
+	enabled bool,
+	regions []regionConfig,
+	newClient func(awssdk.Config) C,
+	newSource func([]regionClient[C]) sources.Source,
+) sources.Source {
+	if !enabled || len(regions) == 0 {
+		return nil
+	}
+	clients := make([]regionClient[C], 0, len(regions))
+	for _, rc := range regions {
+		clients = append(clients, regionClient[C]{region: rc.region, client: newClient(rc.cfg)})
+	}
+	return newSource(clients)
+}
+
+// globalSource builds a Source for an account-wide service from the first
+// region's config. S3 and Route53 list the whole account regardless of the
+// client's region, so building one per region would re-alert every bucket /
+// health check once per configured region.
+func globalSource(enabled bool, regions []regionConfig, newSource func(awssdk.Config) sources.Source) sources.Source {
+	if !enabled || len(regions) == 0 {
+		return nil
+	}
+	return newSource(regions[0].cfg)
 }
 
 // forEachPage drives a token-paginated AWS list call for one region: page is

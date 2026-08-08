@@ -15,11 +15,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/authz"
-	"alertkube/internal/config"
-	"alertkube/internal/silence"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // recSink is a Sink that records sends, for channel test-fire coverage.
@@ -157,12 +157,6 @@ func TestValidateAndRender(t *testing.T) {
 	// Unknown sink must fail validation.
 	if rec := do(v, http.MethodPost, "/api/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [nope]\n"); !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("invalid config should be ok:false: %s", rec.Body.String())
-	}
-
-	r := newRenderHandler(d)
-	rec := do(r, http.MethodPost, "/api/config/render", "", `{"grouping":{"enabled":true,"windowSeconds":60,"by":["kind"]}}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "windowSeconds: 60") {
-		t.Fatalf("render did not produce merged yaml: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

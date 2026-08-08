@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func TestWebhookEmptyURLNoop(t *testing.T) {

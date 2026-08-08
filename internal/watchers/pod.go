@@ -10,11 +10,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/collectors"
-	"alertkube/internal/config"
-	"alertkube/internal/filter"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/collectors"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/filter"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // enrichWorkers bounds concurrent enrichment API calls (events, logs).
@@ -300,3 +300,6 @@ func mergeAnnotations(pod *v1.Pod) map[string]string {
 	}
 	return out
 }
+
+// Registered here so adding a resource kind is one self-contained file.
+func init() { Register(func(o Opts) Watcher { return NewPod(o.Client, o.Config) }) }

@@ -26,7 +26,7 @@ SET_DATE=""
 
 usage() {
   cat <<'EOF'
-sync-version — keep Helm, landing page, README, and docs on one version.
+sync-version - keep Helm, landing page, README, and docs on one version.
 
   sync-version.sh [--check] [--set VERSION] [--date YYYY-MM-DD] [VERSION]
 
@@ -203,7 +203,7 @@ apply_sync() {
   perl -i -pe '
     my $v = $ENV{VERSION};
     my $vt = $ENV{VTAG};
-    s/const AK_VERSION = "v[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)"; \/\/ x-release-please-version/const AK_VERSION = "$vt"; \/\/ x-release-please-version/;
+    s/const AK_VERSION = "v[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)?"; \/\/ x-release-please-version/const AK_VERSION = "$vt"; \/\/ x-release-please-version/;
     if ($ENV{SET_DATE}) {
       s/const AK_VERSION_DATE = "[0-9]{4}-[0-9]{2}-[0-9]{2}";/const AK_VERSION_DATE = "$ENV{SET_DATE}";/;
     }
@@ -211,7 +211,7 @@ apply_sync() {
 
   perl -i -pe '
     my $v = $ENV{VERSION};
-    s/"softwareVersion": "[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)", <!-- x-release-please-version -->/"softwareVersion": "$v", <!-- x-release-please-version -->/;
+    s/"softwareVersion": "[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)?", <!-- x-release-please-version -->/"softwareVersion": "$v", <!-- x-release-please-version -->/;
     if ($ENV{SET_DATE}) {
       s/"datePublished": "[0-9]{4}-[0-9]{2}-[0-9]{2}"/"datePublished": "$ENV{SET_DATE}"/;
     }
@@ -256,7 +256,9 @@ apply_sync() {
     perl -i -pe '
       my $v = $ENV{VERSION};
       s/!\[Version: [0-9]+\.[0-9]+\.[0-9]+(-[^\]]+)?\]/![Version: $v]/g;
+      s/badge\/Version-[0-9]+\.[0-9]+\.[0-9]+(-[^\-\/]+)?/badge\/Version-$v/g;
       s/AppVersion: [0-9]+\.[0-9]+\.[0-9]+(-[^\]]+)?/AppVersion: $v/g;
+      s/badge\/AppVersion-[0-9]+\.[0-9]+\.[0-9]+(-[^\-\/]+)?/badge\/AppVersion-$v/g;
       s/--version [0-9]+\.[0-9]+\.[0-9]+(-[^\s\\]+)?/--version $v/g;
     ' "$ROOT/helm/README.md"
     echo "Updated helm/README.md (install helm-docs for full regen: just helm-docs)"

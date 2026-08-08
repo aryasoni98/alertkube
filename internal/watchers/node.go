@@ -7,8 +7,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/collectors"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/collectors"
 )
 
 // NodeWatcher reacts to NotReady, MemoryPressure, DiskPressure, PIDPressure transitions.
@@ -70,4 +70,16 @@ func conditionStatus(node *v1.Node, t v1.NodeConditionType) v1.ConditionStatus {
 		}
 	}
 	return v1.ConditionUnknown
+}
+
+// Nodes are cluster-scoped: a namespace-scoped informer factory cannot sync a
+// node informer and a namespace Role cannot grant the access it needs, so this
+// watcher declines rather than crash the cache sync.
+func init() {
+	Register(func(o Opts) Watcher {
+		if o.WatchNamespace != "" {
+			return nil
+		}
+		return NewNode()
+	})
 }

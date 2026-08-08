@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewDeployment fires when unavailableReplicas > 0 or progress fails.
@@ -44,3 +44,5 @@ func evaluateDeployment(dep *appsv1.Deployment, emit Emit) {
 		}
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewDeployment(o.Config) }) }

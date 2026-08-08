@@ -13,7 +13,7 @@ const devMode =
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
   "liveFeed": true,
-  "blobCursor": true
+  "blobCursor": false
 }/*EDITMODE-END*/;
 
 function AKApp() {
@@ -30,8 +30,10 @@ function AKApp() {
       {t.blobCursor && <BlobCursor />}
 
       <AKNav theme={t.theme} setTheme={(v) => setTweak("theme", v)} />
+      <div className="wk-nav-spacer" aria-hidden="true"></div>
       <AKHero live={t.liveFeed} />
       <AKMarquee />
+      <AKBentoFeatures />
       <AKPipeline />
       <AKArchitecture />
       <AKSeverity />

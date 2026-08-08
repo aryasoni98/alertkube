@@ -6,7 +6,7 @@ import (
 
 	sqladmin "google.golang.org/api/sqladmin/v1"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 type fakeSQLLister struct {
@@ -74,7 +74,7 @@ func TestCloudSQLSourcePoll(t *testing.T) {
 			sqlInstance("bad", "us-east1", "FAILED"),
 		},
 	}}
-	src := &cloudSQLSource{projects: []string{"proj-1"}, lister: fake}
+	src := newCloudSQLSource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

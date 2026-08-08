@@ -1,0 +1,29 @@
+# Smallest working AlertKube config.
+#
+# One cluster label, one route, one sink. Persistence is off, so a restart
+# forgets mute history and pending resolves - fine for a trial, not for
+# production (see ha-leader-election.yaml).
+#
+#   helm upgrade --install alertkube ./helm \
+#     --set-file config=examples/minimal.yaml \
+#     --set slack.webhookUrl=https://hooks.slack.com/services/...
+
+# Labels every alert so one Slack channel can serve several clusters.
+cluster: dev
+
+behavior:
+  # Both windows MUST exceed the 300s informer resync, or a standing condition
+  # expires between resyncs and re-pages every cycle. Config validation
+  # enforces this and refuses to start otherwise.
+  muteSeconds: 600
+  resolveTTLSeconds: 600
+  # Suppress the alert storm from pods still starting up after a rollout.
+  startupGraceSeconds: 30
+
+routing:
+  # First match wins. A single catch-all rule sends everything to one sink.
+  - match: {}
+    sinks: [slack]
+
+persistence:
+  enabled: false

@@ -1,0 +1,48 @@
+# Active/passive HA: N replicas, one leader, automatic failover.
+#
+# This is the recommended production topology. Replicas give you *failover*,
+# not throughput - only the leader evaluates. For horizontal scale see
+# sharded.yaml.
+#
+#   helm upgrade --install alertkube ./helm \
+#     --set-file config=examples/ha-leader-election.yaml \
+#     --set replicaCount=2 \
+#     --set leaderElection.enabled=true
+#
+# Followers report Ready by design: a follower is one lease transition away
+# from leading, and if it reported NotReady a RollingUpdate with
+# maxUnavailable: 0 would deadlock. A Ready pod showing zero active alerts is
+# a follower, not a fault.
+
+cluster: prod-us-east-1
+
+behavior:
+  muteSeconds: 900
+  resolveTTLSeconds: 900
+  startupGraceSeconds: 60
+
+routing:
+  - match: {severity: critical}
+    sinks: [pagerduty, slack]
+  - match: {severity: warning}
+    sinks: [slack]
+  - match: {severity: info}
+    sinks: [slack]
+
+persistence:
+  # Required in HA. Without it a failover loses pending resolves - which leaves
+  # PagerDuty/Opsgenie incidents dangling with nothing left to close them - and
+  # loses mute history, so the new leader re-pages every standing condition.
+  enabled: true
+  # Leave configMapName empty: it defaults to "alertkube-state", and is scoped
+  # automatically if you later enable sharding.
+  configMapName: ""
+  # Defaults to POD_NAMESPACE (set via the Downward API by the chart).
+  namespace: ""
+
+escalations:
+  # Re-dispatch an alert that nobody has resolved. Each rule fires at most once
+  # per alert lifetime; the mark clears when the alert resolves.
+  - afterMinutes: 30
+    match: {severity: critical}
+    sinks: [pagerduty]

@@ -3,7 +3,6 @@ package metrics
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -23,26 +22,60 @@ func TestReadinessToggle(t *testing.T) {
 	}
 }
 
-func TestDynamicHandler(t *testing.T) {
-	var p atomic.Pointer[http.Handler]
-	h := dynamic(&p)
+func TestHandlerSlot(t *testing.T) {
+	var slot HandlerSlot
 
-	// Nothing installed yet → 503.
+	// The zero value is an empty slot → 503.
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	slot.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("uninstalled handler: got %d, want 503", rec.Code)
+		t.Fatalf("empty slot: got %d, want 503", rec.Code)
 	}
 
 	// Install a handler → it is invoked.
-	var installed http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	slot.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
-	})
-	p.Store(&installed)
+	}))
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	slot.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("installed handler: got %d, want 418", rec.Code)
+	}
+
+	// Clear → back to 503, so a demoted leader stops serving the route.
+	slot.Clear()
+	rec = httptest.NewRecorder()
+	slot.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cleared slot: got %d, want 503", rec.Code)
+	}
+}
+
+// TestClearLeaderHandlersCoversEveryAPIRoute pins the leaderSlots list to the
+// routes registerAPIRoutes actually serves: a new data-plane slot that is wired
+// into the mux but forgotten in leaderSlots would keep serving a demoted
+// leader's abandoned state, so fail here instead.
+func TestClearLeaderHandlersCoversEveryAPIRoute(t *testing.T) {
+	for _, s := range leaderSlots {
+		s.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+	}
+	ClearLeaderHandlers()
+
+	mux := http.NewServeMux()
+	registerAPIRoutes(mux)
+	for _, p := range []string{
+		"/api/v1/alerts", "/api/v1/config", "/api/v1/config/validate",
+		"/api/v1/silences", "/api/v1/silences/abc", "/api/v1/channels",
+		"/api/v1/channels/test", "/api/v1/channels/test-ref", "/api/v1/deadletter",
+		"/api/v1/receiver/alerts", "/debug/pprof/",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s after ClearLeaderHandlers: got %d, want 503 (slot missing from leaderSlots?)", p, rec.Code)
+		}
 	}
 }
 
@@ -95,7 +128,7 @@ func TestMetricsMuxExcludesDataPlane(t *testing.T) {
 		}
 	}
 	// Data endpoints are absent (404), not merely 503.
-	for _, p := range []string{"/api/alerts", "/api/v1/alerts", "/api/silences"} {
+	for _, p := range []string{"/api/v1/alerts", "/api/v1/receiver/alerts", "/api/v1/silences"} {
 		rec := httptest.NewRecorder()
 		m.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
 		if rec.Code != http.StatusNotFound {
@@ -109,25 +142,19 @@ func TestAPIMuxServesDataPlane(t *testing.T) {
 	// installed, i.e. the route exists) but not /metrics.
 	a := http.NewServeMux()
 	registerAPIRoutes(a)
-	alertsHandler.Store(nil)
-	t.Cleanup(func() { alertsHandler.Store(nil) })
+	AlertsHandler.Clear()
+	t.Cleanup(func() { AlertsHandler.Clear() })
 
 	rec := httptest.NewRecorder()
-	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/alerts", nil))
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/alerts", nil))
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("/api/alerts on the api mux should be 503 (route present, handler not installed), got %d", rec.Code)
+		t.Fatalf("/api/v1/alerts on the api mux should be 503 (route present, handler not installed), got %d", rec.Code)
 	}
 }
 
 func TestMuxRoutes(t *testing.T) {
-	// Reset dynamic handlers so this test is independent of order.
-	alertsHandler.Store(nil)
-	receiverHandler.Store(nil)
-	configHandler.Store(nil)
-	validateHandler.Store(nil)
-	renderHandler.Store(nil)
-	silencesHandler.Store(nil)
-	channelsHandler.Store(nil)
+	// Reset the handler slots so this test is independent of order.
+	ClearLeaderHandlers()
 	mux := buildMux()
 
 	t.Run("healthz reflects leader heartbeat", func(t *testing.T) {
@@ -187,117 +214,87 @@ func TestMuxRoutes(t *testing.T) {
 
 	t.Run("api routes 503 until installed", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/alerts", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/alerts", nil))
 		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("/api/alerts uninstalled: got %d, want 503", rec.Code)
+			t.Fatalf("/api/v1/alerts uninstalled: got %d, want 503", rec.Code)
 		}
 
-		SetAlertsHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		AlertsHandler.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/alerts", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/alerts", nil))
 		if rec.Code != http.StatusOK {
-			t.Fatalf("/api/alerts installed: got %d, want 200", rec.Code)
+			t.Fatalf("/api/v1/alerts installed: got %d, want 200", rec.Code)
 		}
 
-		SetReceiverHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		ReceiverHandler.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}))
 		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/alerts", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/receiver/alerts", nil))
 		if rec.Code != http.StatusAccepted {
 			t.Fatalf("/api/v1/alerts installed: got %d, want 202", rec.Code)
 		}
 	})
-
-	t.Run("console served at root", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET / (console): got %d, want 200", rec.Code)
-		}
-	})
-
 	t.Run("config routes 503 until installed", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("/api/config uninstalled: got %d, want 503", rec.Code)
 		}
-		SetConfigHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		ConfigHandler.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("/api/config installed: got %d, want 200", rec.Code)
 		}
 
 		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/validate", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/config/validate", nil))
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("/api/config/validate uninstalled: got %d, want 503", rec.Code)
-		}
-
-		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/render", nil))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("/api/config/render uninstalled: got %d, want 503", rec.Code)
 		}
 	})
 
 	t.Run("silences routes 503 until installed", func(t *testing.T) {
-		for _, p := range []string{"/api/silences", "/api/silences/abc"} {
+		for _, p := range []string{"/api/v1/silences", "/api/v1/silences/abc"} {
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("%s uninstalled: got %d, want 503", p, rec.Code)
 			}
 		}
-		SetSilencesHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		SilencesHandler.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/silences/abc", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/v1/silences/abc", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("/api/silences/{id} installed: got %d, want 200", rec.Code)
 		}
 	})
 
 	t.Run("channels routes 503 until installed", func(t *testing.T) {
-		for _, p := range []string{"/api/channels", "/api/channels/test", "/api/channels/test-ref"} {
+		for _, p := range []string{"/api/v1/channels", "/api/v1/channels/test", "/api/v1/channels/test-ref"} {
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("%s uninstalled: got %d, want 503", p, rec.Code)
 			}
 		}
-		SetChannelsHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		ChannelsHandler.Set(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/channels/test", nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/channels/test", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("/api/channels/test installed: got %d, want 200", rec.Code)
 		}
 	})
 
-	t.Run("events route 503 until installed", func(t *testing.T) {
-		ClearEventsAuth()
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/events", nil))
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("/api/events uninstalled: got %d, want 503", rec.Code)
-		}
-	})
-
 	// Clean up globals so other packages' expectations are not affected.
-	alertsHandler.Store(nil)
-	receiverHandler.Store(nil)
-	configHandler.Store(nil)
-	validateHandler.Store(nil)
-	renderHandler.Store(nil)
-	silencesHandler.Store(nil)
-	channelsHandler.Store(nil)
+	ClearLeaderHandlers()
 }

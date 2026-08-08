@@ -1,0 +1,51 @@
+# Active/active sharding: N replicas each own a slice of the cluster.
+#
+# Use this only when a single active replica cannot keep up. Sharding buys
+# watch/evaluate/dispatch throughput; it does NOT reduce memory - every replica
+# still watches every object, only *acting* is sharded.
+#
+# Requires a build with shard-scoped Lease and state. On earlier builds both
+# were cluster-wide, so shards either fought over one Lease (only one ran) or
+# overwrote each other's persisted state. Verify after deploying:
+#
+#   kubectl get lease -n kube-system | grep alertkube-shard   # one per shard
+#   kubectl get cm -n <ns> | grep alertkube-state             # one per shard
+#
+# Each replica needs a UNIQUE, STABLE shard index. A plain Deployment cannot
+# give stable ordinals - run a StatefulSet and map the pod ordinal, or N
+# separate Deployments, one per index:
+#
+#   ALERTKUBE_SHARD_TOTAL=3     # same on every replica
+#   ALERTKUBE_SHARD_INDEX=0     # 0..TOTAL-1, unique and stable per replica
+#
+# Rebalancing is a rollout: change ALERTKUBE_SHARD_TOTAL everywhere and
+# redeploy. Expect a one-time bump in alertkube_outbox_replay_foreign_total -
+# that is moved objects' queued deliveries being dropped by their old owner
+# rather than double-paged. The new owner re-evaluates on its next watch event.
+
+cluster: prod-us-east-1
+
+behavior:
+  muteSeconds: 900
+  resolveTTLSeconds: 900
+  startupGraceSeconds: 60
+
+routing:
+  - match: {severity: critical}
+    sinks: [pagerduty, slack]
+  - match: {severity: warning}
+    sinks: [slack]
+
+persistence:
+  enabled: true
+  # Leave empty. With sharding on it becomes "alertkube-state-<index>"
+  # automatically. If you set it explicitly it MUST end with this replica's
+  # shard index, or startup fails - a shared state object means every shard
+  # overwrites the others' mute history and delivery outbox on every save.
+  configMapName: ""
+
+# NOTE: correlation rules under-count when sharded.
+# A count/all rule sees only its own shard's alert stream, so a rule that
+# counts across the whole cluster will miss the other shards' contributions.
+# Keep those on a single active replica (leader election, no sharding).
+rules: []

@@ -1,12 +1,10 @@
 package gcp
 
 import (
-	"context"
-
 	"cloud.google.com/go/container/apiv1/containerpb"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceGKE = "gcp-gke"
@@ -15,18 +13,17 @@ const sourceGKE = "gcp-gke"
 // their health. ERROR/DEGRADED is critical; transient states (PROVISIONING/
 // RECONCILING/STOPPING) are warnings; RUNNING resolves. This is the brief's GKE
 // "cluster discovery + cluster health monitoring".
-type gkeSource struct {
-	projects []string
-	lister   gkeLister
+type gkeSource = projectSource[*containerpb.Cluster, gkeLister]
+
+func newGKESource(projects []string, lister gkeLister) *gkeSource {
+	return newProjectSource(sourceGKE, projects, lister, evaluateGKE)
 }
 
-func (s *gkeSource) Name() string { return sourceGKE }
-
-func (s *gkeSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByProject(ctx, sourceGKE, s.projects, s.lister, emit, func(project string, c *containerpb.Cluster, emit sources.Emit) {
-		evaluateGKECluster(project, c, emit)
-		evaluateGKENodePools(project, c, emit)
-	})
+// evaluateGKE runs both levels of GKE evaluation for one cluster. Node pools
+// are embedded in the Cluster object, so both come off the same list call.
+func evaluateGKE(project string, c *containerpb.Cluster, emit sources.Emit) {
+	evaluateGKECluster(project, c, emit)
+	evaluateGKENodePools(project, c, emit)
 }
 
 func evaluateGKECluster(project string, c *containerpb.Cluster, emit sources.Emit) {

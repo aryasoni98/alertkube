@@ -148,7 +148,7 @@ The enrichment worker pool is full. The alert still sends; only log/event enrich
 
 ### Receiver is rejecting Alertmanager webhooks
 
-**Symptom:** Alertmanager sends webhooks to `/api/v1/alerts`, but they are rejected with `401 Unauthorized` or `503 Service Unavailable`.
+**Symptom:** Alertmanager sends webhooks to `/api/v1/receiver/alerts`, but they are rejected with `401 Unauthorized` or `503 Service Unavailable`.
 
 Check:
 
@@ -161,7 +161,7 @@ Check:
 2. If a token is configured, Alertmanager must send `Authorization: Bearer <token>`.
 
     ```bash
-    curl -X POST http://localhost:9090/api/v1/alerts \
+    curl -X POST http://localhost:9090/api/v1/receiver/alerts \
       -H "Authorization: Bearer $(kubectl get secret alertkube -o jsonpath='{.data.receiverToken}' | base64 -d)" \
       -H "Content-Type: application/json" \
       -d '{"alerts": []}'
@@ -199,11 +199,11 @@ curl -s http://localhost:9090/healthz
 ### Are the API endpoints accessible?
 
 ```bash
-# /api/alerts (read-only alerts introspection)
-curl -s http://localhost:9090/api/alerts | jq .
+# /api/v1/alerts (read-only alerts introspection)
+curl -s http://localhost:9090/api/v1/alerts | jq .
 
-# /api/v1/alerts (Alertmanager webhook receiver)
-curl -X POST http://localhost:9090/api/v1/alerts \
+# /api/v1/receiver/alerts (Alertmanager webhook receiver)
+curl -X POST http://localhost:9090/api/v1/receiver/alerts \
   -H "Content-Type: application/json" \
   -d '{"alerts": []}'
 ```

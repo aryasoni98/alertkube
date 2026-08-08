@@ -32,10 +32,12 @@ These are set via environment variables (not the YAML config):
 | Env var | Default | Description |
 | --- | --- | --- |
 | `ALERTKUBE_DISPATCH_WORKERS` | `16` | Delivery worker-pool size (async fan-out decoupled from the informer thread). |
-| `ALERTKUBE_DISPATCH_QUEUE` | `2048` | Delivery queue capacity before enqueue applies backpressure. |
+| `ALERTKUBE_DISPATCH_QUEUE` | `2048` | Process-wide delivery queue capacity before enqueue applies backpressure. Split evenly across `ALERTKUBE_DISPATCH_WORKERS`, so raising the worker count does not multiply the memory ceiling. |
+| `ALERTKUBE_TRACING_ENABLED` | `false` | Export OpenTelemetry traces for the alert pipeline (`enqueue` → `dispatch` spans). Off by default; the controller never hard-depends on a collector. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OTLP collector endpoint, e.g. `http://otel-collector:4318`. Standard OTEL variable; all `OTEL_EXPORTER_OTLP_*` and `OTEL_TRACES_SAMPLER` settings are honoured. Only read when tracing is enabled. |
 | `ALERTKUBE_ENABLE_PPROF` | `false` | Serve `/debug/pprof` (read-token gated, fail-closed). |
 | `ALERTKUBE_SHARD_TOTAL` | `1` | Number of shards for horizontal scaling (`>1` enables sharding). |
-| `ALERTKUBE_SHARD_INDEX` | `0` | This replica's shard, `0..TOTAL-1` (must be unique/stable per replica — see [HA & sharding](../how-to/ha-leader-election.md)). |
+| `ALERTKUBE_SHARD_INDEX` | `0` | This replica's shard, `0..TOTAL-1` (must be unique/stable per replica - see [HA & sharding](../how-to/ha-leader-election.md)). |
 | `ALERTKUBE_CLIENT_QPS` / `ALERTKUBE_CLIENT_BURST` | `50` / `100` | Kubernetes REST client throttle. |
 
 ## `filters`
@@ -155,7 +157,7 @@ Each rule fires at most once per alert lifetime.
 
 ## `receiver`
 
-Alertmanager webhook receiver on `POST /api/v1/alerts` (served on the metrics
+Alertmanager webhook receiver on `POST /api/v1/receiver/alerts` (served on the metrics
 address).
 
 | Path | Type | Default | Validation | Description |

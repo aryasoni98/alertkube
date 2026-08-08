@@ -261,6 +261,19 @@ func (s *Store) ActiveList() []*Alert {
 	return out
 }
 
+// ApplyCorrelation sets each active alert's Correlation from corr (keyed by
+// fingerprint), clearing it on any active alert absent from corr so a recompute
+// that drops a linkage also drops the stale annotation. It deliberately does NOT
+// bump gen: correlation is derived, not persisted, so it must not trigger a
+// ConfigMap save every correlation interval.
+func (s *Store) ApplyCorrelation(corr map[string]*Correlation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for fp, a := range s.active {
+		a.Correlation = corr[fp] // nil (absent key) clears
+	}
+}
+
 // Recent returns copies of the recent fired/resolved ring, oldest first.
 func (s *Store) Recent() []*Alert {
 	s.mu.RLock()

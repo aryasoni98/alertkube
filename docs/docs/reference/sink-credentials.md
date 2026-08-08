@@ -90,19 +90,19 @@ Two optional bearer tokens guard the HTTP endpoints on the metrics address:
 
 ### Alertmanager receiver token
 
-The inbound Alertmanager webhook receiver (`POST /api/v1/alerts`, when `receiver.enabled: true`).
+The inbound Alertmanager webhook receiver (`POST /api/v1/receiver/alerts`, when `receiver.enabled: true`).
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/alerts` when set. Read on every request, so tokens can be rotated without restart. |
+| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/receiver/alerts` when set. Read on every request, so tokens can be rotated without restart. |
 
 ### Read-only alerts API token
 
-The introspection endpoint (`GET /api/alerts`, always available after controller starts).
+The introspection endpoint (`GET /api/v1/alerts`, always available after controller starts).
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on `GET /api/alerts` when set. When empty, the endpoint is unauthenticated; restrict it with NetworkPolicy. Read on every request. |
+| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on `GET /api/v1/alerts` when set. When empty, the endpoint is unauthenticated; restrict it with NetworkPolicy. Read on every request. |
 
 ## Inline vs. Secret reference
 

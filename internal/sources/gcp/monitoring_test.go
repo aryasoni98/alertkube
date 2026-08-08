@@ -7,7 +7,7 @@ import (
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 type fakePolicyLister struct {
@@ -80,7 +80,7 @@ func TestGCPMonitoringSourcePoll(t *testing.T) {
 			alertPolicy("projects/proj-1/alertPolicies/off", "disabled-policy", false),
 		},
 	}}
-	src := &gcpMonitoringSource{projects: []string{"proj-1"}, lister: fake}
+	src := newMonitoringSource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 

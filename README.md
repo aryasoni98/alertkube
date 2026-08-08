@@ -22,10 +22,10 @@ Delivery is **decoupled from the watch loop**: a bounded async worker pool fans 
 
 ## Install
 
-Latest release: [v1.2.0](https://github.com/aryasoni98/alertkube/releases/latest).
+Latest release: [v1.2.1](https://github.com/aryasoni98/alertkube/releases/latest).
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.1 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -41,7 +41,7 @@ helm upgrade --install alertkube ./helm \
 Container image:
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v1.2.0
+docker pull ghcr.io/aryasoni98/alertkube:v1.2.1
 ```
 
 Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
@@ -52,29 +52,19 @@ Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release
 - **Routing:** match by severity, kind, namespace, reason, name, node, or labels; first match wins.
 - **Suppression:** fingerprint mute window, time-bounded silences, recurring maintenance windows, source/target inhibitions, optional storm grouping.
 - **State:** gzip-compressed ConfigMap persistence preserves active alerts, mute history, and the delivery outbox across restarts.
-- **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/deadletter`), per-sink circuit breakers.
-- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` — N replicas share watch/evaluate load; leader election still gates shared state and the API.
+- **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/v1/deadletter`), per-sink circuit breakers.
+- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` - N replicas share watch/evaluate load, with exactly one owner per object. Each shard is independent: it contends for its own leader Lease (`alertkube-shard-<i>`) and owns its own state ConfigMap (`alertkube-state-<i>`), so a shard can itself be a leader-elected pair for failover.
 - **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and an Alertmanager-compatible webhook receiver.
-- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
-- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer — [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
-- **Web console:** embedded single-binary UI on the metrics port — active alerts, config review, runtime silences, channel tests. No npm, no sidecar.
+- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/v1/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
+- **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer - [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
 
-## Web console
+## HTTP API
 
-The console lives at `/` on the metrics port (default `9090`). It shows active alerts and history, the effective config, suppression counts from `/metrics`, and accepts `POST /api/config/validate` for dry-run config checks before you commit to Git.
+Token-gated endpoints on the metrics port (default `9090`) or optional separate `apiAddr`:
 
-Durable config is **never applied live** — Git/ConfigMap stays the source of truth. The supported runtime mutation is **time-boxed silences**, persisted to the state ConfigMap so they survive failover.
-
-```bash
-kubectl -n <ns> port-forward deploy/alertkube 9090:9090
-open http://localhost:9090/   # paste ALERTKUBE_API_TOKEN (helm: api.token) when prompted
-```
-
-Auth model (writes **fail closed**; every mutation is audit-logged via `alertkube_runtime_mutations_total`):
-
-- **Read** (`/api/alerts`, `/api/config`, `GET /api/silences`, `GET /api/deadletter`) — `Authorization: Bearer <api.token>`.
-- **Write** (`POST`/`DELETE /api/silences`, `POST /api/channels/test`) — gated by `api.authMode`: `token` (default) uses a separate `api.writeToken` (unset = disabled); `rbac` validates a Kubernetes token via TokenReview/SubjectAccessReview against synthetic `alertkube.io` resources.
-- **Channel test-fire** reuses loaded sink credentials (no Secret stored). Opt-in `POST /api/channels/test-ref` (`api.allowSecretRead=true`) reads a referenced Secret key at send-time only.
+- **Read:** `GET /api/v1/alerts`, `GET /api/v1/config`, `GET /api/v1/silences`, `GET /api/v1/deadletter` - `Authorization: Bearer <api.token>`.
+- **Validate:** `POST /api/v1/config/validate` for dry-run config checks before you commit to Git.
+- **Write:** `POST`/`DELETE /api/v1/silences`, `POST /api/v1/channels/test` - gated by `api.authMode` (`token` uses `api.writeToken`; `rbac` uses Kubernetes TokenReview/SubjectAccessReview).
 - Data endpoints serve from the elected leader only. Lock the port down with `networkPolicy.enabled=true`.
 
 ## Minimal config

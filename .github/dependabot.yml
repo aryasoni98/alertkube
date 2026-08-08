@@ -1,0 +1,38 @@
+# Dependency update automation.
+#
+# The repo already runs dependency-review (gates PRs) and trivy (scans images),
+# but neither *opens* an update PR - so without this file dependencies rot
+# silently between manual bumps. OpenSSF Scorecard scores this directly
+# (Dependency-Update-Tool), and the scorecard workflow is already enabled.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # k8s.io/* and sigs.k8s.io/* must move in lockstep: client-go,
+      # apimachinery, and api are released as a matched set and a partial bump
+      # breaks compilation on the version-skew rules rather than at runtime.
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      # Cloud SDKs are grouped so one weekly PR covers the polled providers
+      # (internal/sources/{aws,azure,gcp}) instead of three that each need a
+      # full CI run.
+      cloud-sdks:
+        patterns:
+          - "github.com/aws/*"
+          - "github.com/Azure/*"
+          - "cloud.google.com/*"
+          - "google.golang.org/api"
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

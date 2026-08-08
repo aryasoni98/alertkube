@@ -11,9 +11,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"golang.org/x/time/rate"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/metrics"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // dispatchStub is a controllable sink for dispatcher tests.
@@ -222,7 +222,7 @@ func TestDispatcherReplayResumesDelivery(t *testing.T) {
 	defer d.Shutdown()
 
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
-	n := d.ReplayPending([]alert.PendingDelivery{{ID: 7, Alert: a, Route: []string{"a"}}})
+	n := d.ReplayPending([]alert.PendingDelivery{{ID: 7, Alert: a, Route: []string{"a"}}}, nil, nil)
 	if n != 1 {
 		t.Fatalf("ReplayPending returned %d, want 1", n)
 	}
