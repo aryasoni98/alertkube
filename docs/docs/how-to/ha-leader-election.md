@@ -102,7 +102,47 @@ ALERTKUBE_SHARD_INDEX=0     # this replica's shard (0..TOTAL-1, unique per pod)
     `ALERTKUBE_SHARD_TOTAL` unset/`1` (the default) for the standard
     single-active-replica model, which is unchanged.
 
+### Per-shard identity: Lease and state
+
+Turning sharding on scopes two cluster-wide objects to the shard, automatically:
+
+| Object | Unsharded | Sharded (index `i`) |
+| --- | --- | --- |
+| Leader Lease | `alertkube` | `alertkube-shard-<i>` |
+| State ConfigMap | `alertkube-state` | `alertkube-state-<i>` |
+
+Both are required for correctness, not tidiness:
+
+- **The Lease must be per shard.** Every shard runs the full controller body for
+  its own slice of the cluster. If all shards contended for one Lease, exactly
+  one would lead and the other N-1 would watch nothing - and because a
+  leader-election follower reports `Ready` by design, every pod would stay green
+  while most of the cluster silently stopped being alerted on.
+- **The state ConfigMap must be per shard.** Each shard's snapshot contains only
+  the alerts it owns, so a shared object means every save overwrites the other
+  shards' mute history and delivery outbox. The visible symptom is a re-paging
+  storm after any restart.
+
+If you set `persistence.configMapName` explicitly while sharding is on, it must
+end with this replica's shard index. AlertKube refuses to start otherwise rather
+than let the shards quietly clobber each other:
+
+```
+persistence.configMapName "alertkube-prod-state" is shared across shards: ...
+Give each shard its own object by ending the name with its shard index
+(e.g. "alertkube-prod-state-1" for shard 1), or leave persistence.configMapName
+empty to have it scoped automatically
+```
+
+### Rebalancing
+
 Rebalancing is by rollout: change `ALERTKUBE_SHARD_TOTAL` and redeploy.
+
+Objects move between shards when the total changes. Any delivery still sitting
+in a moved object's outbox is **dropped on replay by its old owner**, not
+re-delivered, so a rebalance cannot double-page; the new owner re-evaluates the
+object on its next watch event or resync. Dropped records are counted on
+`alertkube_outbox_replay_foreign_total` and logged once per startup.
 
 !!! note "Cross-shard correlation limitation"
     With sharding on, each replica's rule engine (`count`/`all` correlation
@@ -111,8 +151,16 @@ Rebalancing is by rollout: change `ALERTKUBE_SHARD_TOTAL` and redeploy.
     active replica (leader election, no sharding) if you rely on them.
 
 The two models compose: use leader election for failover of a single active
-replica, or sharding for horizontal scale (each shard can itself be a
-leader-elected pair for failover).
+replica, or sharding for horizontal scale - and because each shard has its own
+Lease, a shard can itself be a leader-elected pair for failover.
+
+!!! danger "Upgrading from a pre-fix build"
+    Before the shard-scoping fix, the Lease and the state ConfigMap were **not**
+    shard-scoped. On those builds, running shards under leader election left
+    only one shard active, and running them without it made every shard
+    overwrite the others' persisted state. If you ran sharding on an earlier
+    build, delete the old shared `alertkube-state` ConfigMap after upgrading:
+    its contents are an arbitrary single shard's partial snapshot.
 
 ## See Also
 

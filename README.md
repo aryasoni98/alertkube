@@ -52,19 +52,19 @@ Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release
 - **Routing:** match by severity, kind, namespace, reason, name, node, or labels; first match wins.
 - **Suppression:** fingerprint mute window, time-bounded silences, recurring maintenance windows, source/target inhibitions, optional storm grouping.
 - **State:** gzip-compressed ConfigMap persistence preserves active alerts, mute history, and the delivery outbox across restarts.
-- **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/deadletter`), per-sink circuit breakers.
-- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` - N replicas share watch/evaluate load; leader election still gates shared state and the API.
+- **Reliability (v1.2+):** async dispatch queue, durable outbox with at-least-once replay, bounded resolve-retry, dead-letter observability (`GET /api/v1/deadletter`), per-sink circuit breakers.
+- **Scaling (v1.2+):** optional hash sharding via `ALERTKUBE_SHARD_TOTAL` / `ALERTKUBE_SHARD_INDEX` - N replicas share watch/evaluate load, with exactly one owner per object. Each shard is independent: it contends for its own leader Lease (`alertkube-shard-<i>`) and owns its own state ConfigMap (`alertkube-state-<i>`), so a shard can itself be a leader-elected pair for failover.
 - **Integrations:** Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout, and an Alertmanager-compatible webhook receiver.
-- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
+- **Operations:** `/metrics`, `/healthz`, `/readyz`, `/api/v1/alerts`, optional ServiceMonitor, [Grafana dashboard](docs/grafana-dashboard.json).
 - **Optional Silence CRD:** manage silences with `kubectl`/GitOps as `alertkube.io/v1alpha1` `Silence` objects (opt-in `crds.silences.enabled`; client-go dynamic informer - [ADR-0004](docs/decisions/0004-opt-in-silence-crd-via-dynamic-informer.md)).
 
 ## HTTP API
 
 Token-gated endpoints on the metrics port (default `9090`) or optional separate `apiAddr`:
 
-- **Read:** `GET /api/alerts`, `GET /api/config`, `GET /api/silences`, `GET /api/deadletter` - `Authorization: Bearer <api.token>`.
-- **Validate:** `POST /api/config/validate` for dry-run config checks before you commit to Git.
-- **Write:** `POST`/`DELETE /api/silences`, `POST /api/channels/test` - gated by `api.authMode` (`token` uses `api.writeToken`; `rbac` uses Kubernetes TokenReview/SubjectAccessReview).
+- **Read:** `GET /api/v1/alerts`, `GET /api/v1/config`, `GET /api/v1/silences`, `GET /api/v1/deadletter` - `Authorization: Bearer <api.token>`.
+- **Validate:** `POST /api/v1/config/validate` for dry-run config checks before you commit to Git.
+- **Write:** `POST`/`DELETE /api/v1/silences`, `POST /api/v1/channels/test` - gated by `api.authMode` (`token` uses `api.writeToken`; `rbac` uses Kubernetes TokenReview/SubjectAccessReview).
 - Data endpoints serve from the elected leader only. Lock the port down with `networkPolicy.enabled=true`.
 
 ## Minimal config
