@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/internal/env"
 )
 
 // Config is the YAML-driven runtime configuration.
@@ -115,7 +115,9 @@ type Config struct {
 	// conditions. Requires get/create/update on the named ConfigMap.
 	Persistence struct {
 		Enabled bool `yaml:"enabled"`
-		// ConfigMapName defaults to "alertkube-state".
+		// ConfigMapName defaults to DefaultStateConfigMap, and to
+		// "<default>-<shardIndex>" when sharding is enabled - see
+		// ApplyShardScope for why sharded replicas must not share one object.
 		ConfigMapName string `yaml:"configMapName"`
 		// Namespace defaults to the POD_NAMESPACE env var (set via the
 		// Downward API in the Helm chart).
@@ -344,217 +346,6 @@ func ParseAndValidate(raw []byte) error {
 	return c.Validate()
 }
 
-// InformerResyncSeconds is the fixed informer resync period the controller
-// runs with (controller.go derives informerResyncPeriod from it). A resync
-// re-delivers every cached object as a synthetic Update, re-touching standing
-// conditions so they do not false-resolve. The resolveTTL and mute windows
-// must therefore exceed it, or a still-firing condition expires between
-// resyncs and re-pages every cycle; Validate enforces that relationship.
-const InformerResyncSeconds = 300
-
-// KnownSinks lists the sink names registered at startup; routing rules may
-// only reference these. Kept here so Validate can fail fast on typos
-// instead of dispatch silently skipping an unknown name.
-var KnownSinks = map[string]bool{
-	"slack":      true,
-	"pagerduty":  true,
-	"teams":      true,
-	"webhook":    true,
-	"stdout":     true,
-	"discord":    true,
-	"telegram":   true,
-	"opsgenie":   true,
-	"googlechat": true,
-	"mattermost": true,
-}
-
-// Validate rejects configurations that would otherwise fail open at
-// runtime: unknown sink names, unparseable silence timestamps and
-// inhibition durations, and non-positive behavior windows.
-func (c *Config) Validate() error {
-	for i, r := range c.Routing {
-		if len(r.Sinks) == 0 {
-			return fmt.Errorf("routing[%d]: sinks list is empty", i)
-		}
-		for _, s := range r.Sinks {
-			if !KnownSinks[s] {
-				return fmt.Errorf("routing[%d]: unknown sink %q", i, s)
-			}
-		}
-	}
-	for i, ov := range c.SeverityOverrides {
-		if len(ov.Match) == 0 {
-			return fmt.Errorf("severityOverrides[%d]: match is empty (would remap every alert)", i)
-		}
-		switch ov.Severity {
-		case "critical", "warning", "info":
-		default:
-			return fmt.Errorf("severityOverrides[%d]: severity must be critical|warning|info, got %q", i, ov.Severity)
-		}
-	}
-	for name, sr := range c.SinkRates {
-		if !KnownSinks[name] {
-			return fmt.Errorf("sinkRates: unknown sink %q", name)
-		}
-		if sr.PerSecond <= 0 {
-			return fmt.Errorf("sinkRates.%s: perSecond must be positive, got %v", name, sr.PerSecond)
-		}
-		if sr.Burst < 1 {
-			return fmt.Errorf("sinkRates.%s: burst must be >= 1, got %d", name, sr.Burst)
-		}
-	}
-	for i, inh := range c.Inhibitions {
-		if inh.Duration == "" {
-			continue
-		}
-		if _, err := time.ParseDuration(inh.Duration); err != nil {
-			return fmt.Errorf("inhibitions[%d]: duration %q: %w", i, inh.Duration, err)
-		}
-	}
-	for i, s := range c.Silences {
-		if _, err := time.Parse(time.RFC3339, s.Until); err != nil {
-			return fmt.Errorf("silences[%d]: until must be RFC3339: %w", i, err)
-		}
-	}
-	if c.Behavior.MuteSeconds <= InformerResyncSeconds {
-		return fmt.Errorf("behavior.muteSeconds (%d) must exceed the informer resync period (%ds): a shorter mute lets a standing condition re-page when the mute lapses before the next resync re-fire", c.Behavior.MuteSeconds, InformerResyncSeconds)
-	}
-	if c.Behavior.ResolveTTLSeconds <= InformerResyncSeconds {
-		return fmt.Errorf("behavior.resolveTTLSeconds (%d) must exceed the informer resync period (%ds): a shorter TTL false-resolves still-firing standing conditions between resyncs, re-paging every cycle", c.Behavior.ResolveTTLSeconds, InformerResyncSeconds)
-	}
-	if c.Behavior.IgnoreRestartCount < 0 {
-		return fmt.Errorf("behavior.ignoreRestartCount must be >= 0, got %d", c.Behavior.IgnoreRestartCount)
-	}
-	if c.Behavior.StartupGraceSeconds < 0 {
-		return fmt.Errorf("behavior.startupGraceSeconds must be >= 0, got %d", c.Behavior.StartupGraceSeconds)
-	}
-	if c.Behavior.PVCPendingSeconds <= 0 {
-		return fmt.Errorf("behavior.pvcPendingSeconds must be positive, got %d", c.Behavior.PVCPendingSeconds)
-	}
-	if c.Persistence.Enabled && c.Persistence.Namespace == "" {
-		return fmt.Errorf("persistence.enabled requires persistence.namespace or the POD_NAMESPACE env var")
-	}
-	for i, esc := range c.Escalations {
-		if esc.AfterMinutes <= 0 {
-			return fmt.Errorf("escalations[%d]: afterMinutes must be positive, got %d", i, esc.AfterMinutes)
-		}
-		if len(esc.Sinks) == 0 {
-			return fmt.Errorf("escalations[%d]: sinks list is empty", i)
-		}
-		for _, s := range esc.Sinks {
-			if !KnownSinks[s] {
-				return fmt.Errorf("escalations[%d]: unknown sink %q", i, s)
-			}
-		}
-	}
-	if c.Grouping.Enabled {
-		if c.Grouping.WindowSeconds <= 0 {
-			return fmt.Errorf("grouping.windowSeconds must be positive, got %d", c.Grouping.WindowSeconds)
-		}
-		for i, k := range c.Grouping.By {
-			if k == "" {
-				return fmt.Errorf("grouping.by[%d]: empty field name", i)
-			}
-		}
-	}
-	if c.AWS.Enabled {
-		if len(c.AWS.Regions) == 0 {
-			return fmt.Errorf("aws.enabled requires at least one entry in aws.regions (or the AWS_REGION env var)")
-		}
-		if !c.AWS.EKS && !c.AWS.CloudWatch && !c.AWS.EC2 && !c.AWS.ELBV2 && !c.AWS.RDS && !c.AWS.DynamoDB && !c.AWS.ElastiCache && !c.AWS.S3 && !c.AWS.CloudTrail && !c.AWS.ASG && !c.AWS.KMS && !c.AWS.EBS && !c.AWS.Aurora && !c.AWS.NAT && !c.AWS.EFS && !c.AWS.Route53 && !c.AWS.ACM && !c.AWS.VPN {
-			return fmt.Errorf("aws.enabled requires at least one source (eks, cloudwatch, ec2, elbv2, rds, dynamodb, elasticache, s3, cloudtrail, asg, kms, ebs, aurora, nat, efs, route53, acm, vpn)")
-		}
-		if c.AWS.PollSeconds <= 0 {
-			return fmt.Errorf("aws.pollSeconds must be positive, got %d", c.AWS.PollSeconds)
-		}
-		if c.AWS.PollSeconds >= c.Behavior.ResolveTTLSeconds {
-			return fmt.Errorf("aws.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d): a longer poll interval lets a still-firing alarm false-resolve between polls", c.AWS.PollSeconds, c.Behavior.ResolveTTLSeconds)
-		}
-	}
-	if c.Azure.Enabled {
-		if len(c.Azure.Subscriptions) == 0 {
-			return fmt.Errorf("azure.enabled requires at least one azure.subscriptions entry")
-		}
-		if !c.Azure.AKS && !c.Azure.Monitor && !c.Azure.VMs && !c.Azure.Storage && !c.Azure.SQL && !c.Azure.Redis {
-			return fmt.Errorf("azure.enabled requires at least one source: azure.aks, azure.monitor, azure.vms, azure.storage, azure.sql, or azure.redis")
-		}
-		if c.Azure.PollSeconds <= 0 {
-			return fmt.Errorf("azure.pollSeconds must be positive, got %d", c.Azure.PollSeconds)
-		}
-		if c.Azure.PollSeconds >= c.Behavior.ResolveTTLSeconds {
-			return fmt.Errorf("azure.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d)", c.Azure.PollSeconds, c.Behavior.ResolveTTLSeconds)
-		}
-	}
-	if c.GCP.Enabled {
-		if len(c.GCP.Projects) == 0 {
-			return fmt.Errorf("gcp.enabled requires at least one gcp.projects entry")
-		}
-		if !c.GCP.GKE && !c.GCP.Monitoring && !c.GCP.Compute && !c.GCP.CloudSQL {
-			return fmt.Errorf("gcp.enabled requires at least one source: gcp.gke, gcp.monitoring, gcp.compute, or gcp.cloudsql")
-		}
-		if c.GCP.PollSeconds <= 0 {
-			return fmt.Errorf("gcp.pollSeconds must be positive, got %d", c.GCP.PollSeconds)
-		}
-		if c.GCP.PollSeconds >= c.Behavior.ResolveTTLSeconds {
-			return fmt.Errorf("gcp.pollSeconds (%d) must be below behavior.resolveTTLSeconds (%d)", c.GCP.PollSeconds, c.Behavior.ResolveTTLSeconds)
-		}
-	}
-	for i, ru := range c.Rules {
-		if ru.Name == "" {
-			return fmt.Errorf("rules[%d]: name is required", i)
-		}
-		switch ru.Severity {
-		case "critical", "warning", "info":
-		default:
-			return fmt.Errorf("rules[%d] (%s): severity must be critical|warning|info, got %q", i, ru.Name, ru.Severity)
-		}
-		set := 0
-		if ru.Count != nil {
-			set++
-		}
-		if len(ru.All) > 0 {
-			set++
-		}
-		if ru.Absent != nil {
-			set++
-		}
-		if set != 1 {
-			return fmt.Errorf("rules[%d] (%s): exactly one of count, all, or absent must be set", i, ru.Name)
-		}
-		if ru.Count != nil {
-			if ru.Count.Threshold <= 0 {
-				return fmt.Errorf("rules[%d] (%s): count.threshold must be positive", i, ru.Name)
-			}
-			if ru.WindowSeconds <= 0 {
-				return fmt.Errorf("rules[%d] (%s): windowSeconds must be positive for a count rule", i, ru.Name)
-			}
-		}
-		if len(ru.All) > 0 && ru.WindowSeconds <= 0 {
-			return fmt.Errorf("rules[%d] (%s): windowSeconds must be positive for an all rule", i, ru.Name)
-		}
-		if ru.Absent != nil && ru.Absent.ForSeconds <= 0 {
-			return fmt.Errorf("rules[%d] (%s): absent.forSeconds must be positive", i, ru.Name)
-		}
-	}
-	for i, w := range c.Maintenance {
-		if err := w.validate(); err != nil {
-			return fmt.Errorf("maintenance[%d]: %w", i, err)
-		}
-	}
-	if c.Correlation.Enabled {
-		if v := c.Correlation.IntervalSeconds; v != 0 && v < 5 {
-			return fmt.Errorf("correlation.intervalSeconds (%d) must be >= 5", v)
-		}
-		if v := c.Correlation.MaxHops; v != 0 && (v < 1 || v > 5) {
-			return fmt.Errorf("correlation.maxHops (%d) must be in [1,5]", v)
-		}
-		if v := c.Correlation.BlastRadiusCap; v != 0 && (v < 1 || v > 500) {
-			return fmt.Errorf("correlation.blastRadiusCap (%d) must be in [1,500]", v)
-		}
-	}
-	return nil
-}
-
 func (c *Config) applyEnvDefaults() {
 	if c.Cluster == "" {
 		c.Cluster = os.Getenv("CLUSTER_NAME")
@@ -609,7 +400,7 @@ func (c *Config) applyEnvDefaults() {
 		c.Grouping.WindowSeconds = 30
 	}
 	if c.Persistence.ConfigMapName == "" {
-		c.Persistence.ConfigMapName = "alertkube-state"
+		c.Persistence.ConfigMapName = DefaultStateConfigMap
 	}
 	if c.Persistence.Namespace == "" {
 		c.Persistence.Namespace = os.Getenv("POD_NAMESPACE")
