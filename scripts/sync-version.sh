@@ -256,7 +256,9 @@ apply_sync() {
     perl -i -pe '
       my $v = $ENV{VERSION};
       s/!\[Version: [0-9]+\.[0-9]+\.[0-9]+(-[^\]]+)?\]/![Version: $v]/g;
+      s/badge\/Version-[0-9]+\.[0-9]+\.[0-9]+(-[^\-\/]+)?/badge\/Version-$v/g;
       s/AppVersion: [0-9]+\.[0-9]+\.[0-9]+(-[^\]]+)?/AppVersion: $v/g;
+      s/badge\/AppVersion-[0-9]+\.[0-9]+\.[0-9]+(-[^\-\/]+)?/badge\/AppVersion-$v/g;
       s/--version [0-9]+\.[0-9]+\.[0-9]+(-[^\s\\]+)?/--version $v/g;
     ' "$ROOT/helm/README.md"
     echo "Updated helm/README.md (install helm-docs for full regen: just helm-docs)"
