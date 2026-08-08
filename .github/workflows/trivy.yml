@@ -40,7 +40,7 @@ jobs:
           skip-dirs: docs,helm
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v3
         if: always()
         with:
           sarif_file: trivy-fs.sarif
@@ -67,7 +67,7 @@ jobs:
           limit-severities-for-sarif: true
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v3
         if: always()
         with:
           sarif_file: trivy-config.sarif
