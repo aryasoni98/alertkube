@@ -18,13 +18,15 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/api/v1alpha1"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // Group/version/resource for the Silence CRD. The resource (plural, lowercase)
@@ -145,23 +147,35 @@ func snapshot(objs []any) []config.Silence {
 	return out
 }
 
-// parseSilence extracts matchers + until from a Silence CR's spec. A CR missing
-// either is skipped (and warned) rather than silencing everything or crashing.
+// parseSilence converts a Silence CR into a config.Silence. A CR missing
+// matchers or a parseable until is skipped (and warned) rather than silencing
+// everything or crashing.
+//
+// The unstructured object is decoded through the published typed struct
+// (api/v1alpha1) rather than read field-by-field with NestedString lookups.
+// Same dynamic informer - ADR-0004 is unchanged - but the field names and their
+// shape now live in one place that external integrators can import, instead of
+// being restated as string literals here and in the CRD template.
 func parseSilence(u *unstructured.Unstructured) (config.Silence, bool) {
 	name := u.GetName()
-	matchers, found, err := unstructured.NestedStringMap(u.Object, "spec", "matchers")
-	if err != nil || !found || len(matchers) == 0 {
-		klog.Warningf("Silence %q: spec.matchers missing or invalid; ignoring", name)
+	var sil v1alpha1.Silence
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &sil); err != nil {
+		klog.Warningf("Silence %q: cannot decode into %s: %v; ignoring", name, v1alpha1.SilenceKind, err)
 		return config.Silence{}, false
 	}
-	until, found, err := unstructured.NestedString(u.Object, "spec", "until")
-	if err != nil || !found || until == "" {
+	// An empty matcher set would match every alert, so an invalid CR must be
+	// dropped rather than defaulted.
+	if len(sil.Spec.Matchers) == 0 {
+		klog.Warningf("Silence %q: spec.matchers missing or empty; ignoring", name)
+		return config.Silence{}, false
+	}
+	if sil.Spec.Until == "" {
 		klog.Warningf("Silence %q: spec.until missing; ignoring", name)
 		return config.Silence{}, false
 	}
-	if _, err := time.Parse(time.RFC3339, until); err != nil {
-		klog.Warningf("Silence %q: spec.until %q is not RFC3339; ignoring", name, until)
+	if _, err := time.Parse(time.RFC3339, sil.Spec.Until); err != nil {
+		klog.Warningf("Silence %q: spec.until %q is not RFC3339; ignoring", name, sil.Spec.Until)
 		return config.Silence{}, false
 	}
-	return config.Silence{Matchers: matchers, Until: until}, true
+	return config.Silence{Matchers: sil.Spec.Matchers, Until: sil.Spec.Until}, true
 }
