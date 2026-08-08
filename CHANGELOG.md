@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/aryasoni98/alertkube/compare/v1.2.0...v1.2.1) (2026-08-08)
+
+Reliability, API versioning, and observability release. Fixes silent shard
+disablement, versions the HTTP API, and adds opt-in OTLP tracing. Go module
+path and Helm chart package bumped with the landing page.
+
 ### ⚠ BREAKING CHANGES
 
 * **module path:** the Go module is now `github.com/aryasoni98/alertkube`
@@ -27,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **`ALERTKUBE_DISPATCH_QUEUE`** is now the process-wide total, split across
   workers, rather than a single shared queue's depth. Raising
   `ALERTKUBE_DISPATCH_WORKERS` no longer multiplies the memory ceiling.
+* **sharding:** sharded deployments move to `alertkube-shard-<i>` Lease names
+  and `alertkube-state-<i>` ConfigMaps. Delete the old shared `alertkube-state`
+  ConfigMap after upgrading.
 
 ### Bug Fixes
 
@@ -80,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model, deployment topologies, and four annotated `examples/` configs.
 * **ci:** add Dependabot for gomod, GitHub Actions, and Docker; add an
   envtest integration job.
+* **deps:** OpenTelemetry OTLP exporter stack; module path
+  `github.com/aryasoni98/alertkube`.
 
 ## [1.2.0](https://github.com/aryasoni98/alertkube/compare/v1.1.0...v1.2.0) (2026-07-03)
 

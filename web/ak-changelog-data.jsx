@@ -2,7 +2,16 @@
 // Depends on AK_VERSION / AK_VERSION_DATE from ak-lib.jsx (loaded first).
 const AK_RELEASES = [
   {
-    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Scale & durability", latest: true,
+    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Reliability & API v1", latest: true,
+    items: [
+      "Per-shard Lease and state ConfigMap so every shard leads and keeps its own mute/outbox history",
+      "Native HTTP API under /api/v1 with 308 redirects; Alertmanager receiver at /api/v1/receiver/alerts",
+      "Per-fingerprint dispatch serialization, foreign-outbox replay gate, and slow-sink circuit breaker",
+      "Opt-in OpenTelemetry delivery tracing; typed Silence CRD under api/v1alpha1; importable Go module path",
+    ],
+  },
+  {
+    v: "v1.2.0", date: "2026-07-03", tag: "Scale & durability",
     items: [
       "Horizontal hash sharding spreads watch/evaluate load across replicas; durable outbox replays undelivered alerts after restart",
       "Dead-letter observability for permanently-abandoned deliveries; bounded resolve-retry for PagerDuty/Opsgenie",

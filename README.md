@@ -22,10 +22,10 @@ Delivery is **decoupled from the watch loop**: a bounded async worker pool fans 
 
 ## Install
 
-Latest release: [v1.2.0](https://github.com/aryasoni98/alertkube/releases/latest).
+Latest release: [v1.2.1](https://github.com/aryasoni98/alertkube/releases/latest).
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.0 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.1 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -41,7 +41,7 @@ helm upgrade --install alertkube ./helm \
 Container image:
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v1.2.0
+docker pull ghcr.io/aryasoni98/alertkube:v1.2.1
 ```
 
 Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
