@@ -1,16 +1,19 @@
 package app
 
 import (
+	"context"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/env"
-	"alertkube/internal/metrics"
-	"alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/internal/trace"
 )
 
 // Dispatch worker-pool defaults. Delivery (the blocking HTTP fan-out to sinks)
@@ -51,6 +54,13 @@ type dispatchJob struct {
 	a      *alert.Alert
 	route  []string
 	onFail func()
+	// traceCtx carries the producing span's linkage - and nothing else - so the
+	// worker's delivery span attaches to the trace that created the alert. It is
+	// deliberately NOT the producer's context: an informer handler's context is
+	// cancelled the moment it returns, which is long before a worker performs
+	// the HTTP send, so inheriting it would cancel every queued delivery.
+	// trace.Detach strips cancellation and keeps the span context.
+	traceCtx context.Context
 	// retries counts how many times a failed resolve has already been
 	// re-queued (see maxResolveRetries).
 	retries int
@@ -63,8 +73,18 @@ type dispatchJob struct {
 // alerts wait in the queue, and enqueue applies backpressure when it is full)
 // and keeps a single slow sink from blocking event processing.
 type dispatcher struct {
-	reg     *sinks.Registry
-	jobs    chan dispatchJob
+	reg *sinks.Registry
+	// queues is one bounded queue per worker, not a single shared channel.
+	// A shared channel gives FIFO at *dequeue* but says nothing about
+	// completion order: with N workers, a FIRE picked up at t0 whose sink call
+	// is slow can land after the RESOLVE picked up at t0+e by a free worker,
+	// leaving a stateful sink (PagerDuty/Opsgenie keys on fingerprint) holding
+	// an incident that never closes. Routing every delivery for one
+	// fingerprint to one worker (see queueFor) makes that reordering
+	// impossible. The cost is head-of-line blocking within a bucket - one slow
+	// delivery stalls only the fingerprints that hash to its worker - which is
+	// why the worker count should be sized up rather than down.
+	queues  []chan dispatchJob
 	stop    chan struct{}
 	workers int
 	wg      sync.WaitGroup
@@ -105,13 +125,52 @@ func newDispatcher(reg *sinks.Registry, workers, queueSize int) *dispatcher {
 	if queueSize <= 0 {
 		queueSize = defaultDispatchQueueSize
 	}
+	// queueSize stays the process-wide bound on buffered alerts; it is split
+	// across the per-worker queues so raising the worker count does not
+	// silently multiply the memory ceiling. Every queue holds at least one slot
+	// so a pool with more workers than the configured capacity still works.
+	perQueue := queueSize / workers
+	if perQueue < 1 {
+		perQueue = 1
+	}
+	queues := make([]chan dispatchJob, workers)
+	for i := range queues {
+		queues[i] = make(chan dispatchJob, perQueue)
+	}
 	return &dispatcher{
 		reg:     reg,
-		jobs:    make(chan dispatchJob, queueSize),
+		queues:  queues,
 		stop:    make(chan struct{}),
 		workers: workers,
 		pending: map[uint64]alert.PendingDelivery{},
 	}
+}
+
+// queueFor picks the worker queue that owns an alert's deliveries. Affinity is
+// by fingerprint, because that is what a stateful sink keys its incident on and
+// therefore what must never be reordered: a FIRE and its RESOLVE share one
+// fingerprint and so always land on the same worker, in enqueue order. Alerts
+// enqueued before a fingerprint was computed fall back to object identity,
+// which is stable for the same object across its lifetime.
+func (d *dispatcher) queueFor(a *alert.Alert) chan dispatchJob {
+	key := a.Fingerprint
+	if key == "" {
+		key = string(a.Kind) + "/" + a.Namespace + "/" + a.Name
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return d.queues[uint64(h.Sum32())%uint64(len(d.queues))]
+}
+
+// queuedTotal is the number of jobs buffered across every worker queue. Used
+// for the depth gauge and the shutdown-drain warning, both of which describe
+// the pool as a whole rather than any one worker.
+func (d *dispatcher) queuedTotal() int {
+	n := 0
+	for _, q := range d.queues {
+		n += len(q)
+	}
+	return n
 }
 
 // dispatchWorkers and dispatchQueueSize read the pool tuning from the
@@ -123,14 +182,18 @@ func dispatchQueueSize() int { return env.IntOr("ALERTKUBE_DISPATCH_QUEUE", defa
 // (by Shutdown), then exits, so a shutdown delivers the queued backlog before
 // the workers stop.
 func (d *dispatcher) Start() {
-	klog.Infof("dispatch pool: %d workers, queue capacity %d", d.workers, cap(d.jobs))
+	klog.Infof("dispatch pool: %d workers, %d queued alerts per worker (deliveries are fingerprint-affine so a FIRE and its RESOLVE cannot reorder)", d.workers, cap(d.queues[0]))
 	for i := 0; i < d.workers; i++ {
+		q := d.queues[i]
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			for job := range d.jobs {
-				metrics.DispatchQueueDepth.Set(float64(len(d.jobs)))
-				if dispatch(d.reg, job.a, job.route) {
+			for job := range q {
+				d.observeDepth()
+				span := startDeliverySpan(job)
+				delivered := dispatch(d.reg, job.a, job.route)
+				endDeliverySpan(span, job, delivered)
+				if delivered {
 					d.pendingDone(job.id) // delivered: ack the outbox record
 					continue
 				}
@@ -173,10 +236,20 @@ func (d *dispatcher) enqueue(a *alert.Alert, route []string, onFail func()) {
 	if len(route) == 0 {
 		return
 	}
+	// Open the enqueue span and keep only its linkage on the job: the producer
+	// goroutine (an informer handler) returns long before a worker delivers, so
+	// the job must not inherit a context that is about to be cancelled.
+	ctx, span := enqueueSpan(context.Background(), a, route)
 	id := d.nextID.Add(1)
 	d.pendingAdd(id, a, route)
-	d.submit(dispatchJob{id: id, a: a, route: route, onFail: onFail})
+	d.submit(dispatchJob{id: id, a: a, route: route, onFail: onFail, traceCtx: trace.Detach(ctx)})
+	span.End()
 }
+
+// observeDepth republishes the queue depth gauge. Called wherever the queue
+// length changes (enqueue, worker pickup) so the gauge tracks backpressure
+// rather than being sampled on a timer.
+func (d *dispatcher) observeDepth() { metrics.DispatchQueueDepth.Set(float64(d.queuedTotal())) }
 
 // pendingAdd records a delivery in the durable outbox. It stores a
 // Details-stripped clone so the persisted record stays small and does not share
@@ -229,16 +302,43 @@ func (d *dispatcher) PendingGeneration() uint64 {
 // replayed as fire-once (no dedupe rollback): they were already routed before
 // the crash, so a re-delivery is the correct at-least-once behavior. Returns
 // the number replayed. Call after Start.
-func (d *dispatcher) ReplayPending(recs []alert.PendingDelivery) int {
-	n := 0
+//
+// owns (nil means own everything) gates each record on shard ownership. The
+// emit path is gated at the producer, but a replay bypasses it entirely: after
+// a shard rebalance - which is exactly the ALERTKUBE_SHARD_TOTAL rollout the
+// docs prescribe - an object's owner moves, and replaying its record here would
+// double-page alongside the new owner. Foreign records are dropped, not
+// delivered, and counted so a rebalance's fallout is visible.
+// rollback (may be nil) forgets a fingerprint's dedupe state after a replayed
+// *firing* alert fails every sink, so the next watch event or resync re-emits
+// it. Without this a replayed firing is strictly less durable than a fresh one:
+// a fresh firing carries an onFail that rolls dedupe back, while a replayed one
+// had none and so was dead-lettered on its first failure - the outbox making an
+// alert *less* likely to survive, which inverts its purpose. Resolves are
+// excluded: they already have the bounded resolve-retry path, and a resolve has
+// no dedupe entry to roll back.
+func (d *dispatcher) ReplayPending(recs []alert.PendingDelivery, owns func(*alert.Alert) bool, rollback func(fingerprint string)) int {
+	n, foreign := 0, 0
 	for _, rec := range recs {
 		if rec.Alert == nil || len(rec.Route) == 0 {
 			continue
 		}
+		if owns != nil && !owns(rec.Alert) {
+			metrics.OutboxReplayForeign.Inc()
+			foreign++
+			continue
+		}
+		var onFail func()
+		if fp := rec.Alert.Fingerprint; rollback != nil && !rec.Alert.Resolved && fp != "" {
+			onFail = func() { rollback(fp) }
+		}
 		id := d.nextID.Add(1)
 		d.pendingAdd(id, rec.Alert, rec.Route)
-		d.submit(dispatchJob{id: id, a: rec.Alert, route: rec.Route})
+		d.submit(dispatchJob{id: id, a: rec.Alert, route: rec.Route, onFail: onFail})
 		n++
+	}
+	if foreign > 0 {
+		klog.Infof("outbox replay: dropped %d record(s) owned by another shard (expected after a shard rebalance); replayed %d", foreign, n)
 	}
 	return n
 }
@@ -252,19 +352,29 @@ func (d *dispatcher) submit(job dispatchJob) {
 		metrics.DispatchDropped.Inc()
 		return
 	}
+	// Fingerprint-affine: this job goes to the one worker that handles every
+	// delivery for its alert, so it can never overtake an earlier delivery for
+	// the same fingerprint.
+	q := d.queueFor(job.a)
 	select {
-	case d.jobs <- job:
-		metrics.DispatchQueueDepth.Set(float64(len(d.jobs)))
+	case q <- job:
+		d.observeDepth()
 		return
 	default:
 	}
 	// Queue full: record the backpressure, then block until a worker drains a
 	// slot or shutdown begins (close(stop) unblocks us so Shutdown can proceed).
+	// The caller here is usually an informer handler, so the time spent parked
+	// is time Kubernetes event processing is stalled - measure it, or the only
+	// symptom is events being handled late with nothing to point at.
 	metrics.DispatchQueueFull.Inc()
+	blockedSince := time.Now()
 	select {
-	case d.jobs <- job:
-		metrics.DispatchQueueDepth.Set(float64(len(d.jobs)))
+	case q <- job:
+		metrics.DispatchEnqueueBlocked.Observe(time.Since(blockedSince).Seconds())
+		d.observeDepth()
 	case <-d.stop:
+		metrics.DispatchEnqueueBlocked.Observe(time.Since(blockedSince).Seconds())
 		metrics.DispatchDropped.Inc()
 	}
 }
@@ -294,7 +404,9 @@ func (d *dispatcher) Shutdown() {
 		return
 	}
 	d.closed = true
-	close(d.jobs)
+	for _, q := range d.queues {
+		close(q)
+	}
 	d.mu.Unlock()
 
 	done := make(chan struct{})
@@ -305,6 +417,6 @@ func (d *dispatcher) Shutdown() {
 	select {
 	case <-done:
 	case <-time.After(dispatchDrainTimeout):
-		klog.Warningf("dispatch drain timed out after %s with %d alert(s) still queued; abandoning them", dispatchDrainTimeout, len(d.jobs))
+		klog.Warningf("dispatch drain timed out after %s with %d alert(s) still queued; abandoning them", dispatchDrainTimeout, d.queuedTotal())
 	}
 }
