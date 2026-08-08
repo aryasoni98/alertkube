@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/templates"
-	"alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
 // NewDiscord posts embeds to a Discord channel webhook.

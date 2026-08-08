@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewPVC fires on Pending (after behavior.pvcPendingSeconds) and Lost.
@@ -43,3 +43,5 @@ func evaluatePVC(pvc *v1.PersistentVolumeClaim, pendingThreshold time.Duration, 
 		emit(a)
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewPVC(o.Config) }) }

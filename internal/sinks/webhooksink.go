@@ -3,8 +3,8 @@ package sinks
 import (
 	"context"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/httpx"
 )
 
 // webhookSink factors the delivery shape shared by every chat-webhook sink

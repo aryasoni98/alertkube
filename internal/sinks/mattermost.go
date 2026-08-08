@@ -3,9 +3,9 @@ package sinks
 import (
 	"fmt"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/templates"
-	"alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
 // NewMattermost posts to a Mattermost incoming webhook. Mattermost accepts the

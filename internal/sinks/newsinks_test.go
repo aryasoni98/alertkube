@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func capture(t *testing.T) (*httptest.Server, *[]map[string]any, *[]string) {

@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewHPA fires when an autoscaler is pinned at maxReplicas while still
@@ -43,3 +43,5 @@ func evaluateHPA(hpa *autoscalingv2.HorizontalPodAutoscaler, emit Emit) {
 		}
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewHPA(o.Config) }) }

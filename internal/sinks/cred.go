@@ -8,7 +8,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 type credOverrideKey struct{}

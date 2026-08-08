@@ -6,8 +6,8 @@ import (
 
 	pd "github.com/PagerDuty/go-pagerduty"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/httpx"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/httpx"
 )
 
 // pagerdutySink sends critical alerts to PagerDuty Events API v2.

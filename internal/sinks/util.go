@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 // markdownEscaper backslash-escapes the markdown metacharacters that let

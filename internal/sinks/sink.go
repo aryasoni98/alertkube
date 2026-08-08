@@ -12,8 +12,8 @@ import (
 	"golang.org/x/time/rate"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 )
 
 // perSinkTimeout caps each individual sink send so a stalled endpoint
@@ -223,11 +223,16 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 			}
 			// Feed the breaker. A resolve still records its outcome so a sink
 			// that recovers via a resolve probe re-closes its breaker.
+			took := time.Since(start)
 			if brk != nil {
 				brk.Record(err == nil)
+				// A sink can also fail by being unusably slow while still
+				// answering 200; that never trips the failure counter but does
+				// tie up a dispatch worker for the whole call.
+				brk.RecordLatency(took)
 				setBreakerGauge(name, brk)
 			}
-			metrics.SinkSendDuration.WithLabelValues(name, result).Observe(time.Since(start).Seconds())
+			metrics.SinkSendDuration.WithLabelValues(name, result).Observe(took.Seconds())
 		}(name, s, limiter, brk)
 	}
 	wg.Wait()

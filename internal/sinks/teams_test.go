@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func TestTeamsSendsAdaptiveCardEnvelope(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewStatefulSet fires when ready replicas fall below desired.
@@ -40,3 +40,5 @@ func evaluateStatefulSet(sts *appsv1.StatefulSet, emit Emit) {
 		desired, sts.Status.ReadyReplicas, sts.Status.CurrentReplicas, sts.Status.UpdatedReplicas)
 	emit(a)
 }
+
+func init() { Register(func(o Opts) Watcher { return NewStatefulSet(o.Config) }) }

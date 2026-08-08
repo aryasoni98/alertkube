@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // NewJob fires on Failed jobs (backoffLimit hit).
@@ -32,3 +32,5 @@ func evaluateJob(job *batchv1.Job, emit Emit) {
 		}
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewJob(o.Config) }) }

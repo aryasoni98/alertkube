@@ -7,8 +7,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/client-go/informers"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // CronJobWatcher fires when a schedule tick passes without a successful
@@ -72,3 +72,5 @@ func (c *CronJobWatcher) evaluate(oldCJ, newCJ *batchv1.CronJob, emit Emit) {
 		emit(a)
 	}
 }
+
+func init() { Register(func(o Opts) Watcher { return NewCronJob(o.Config) }) }

@@ -5,8 +5,8 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"alertkube/internal/config"
-	"alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/watchers"
 )
 
 func testConfig() *config.Config {

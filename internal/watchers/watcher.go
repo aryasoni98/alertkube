@@ -9,9 +9,9 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	"alertkube/internal/alert"
-	"alertkube/internal/config"
-	"alertkube/internal/filter"
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/filter"
 )
 
 // Emit is the callback watchers use to publish alerts.
