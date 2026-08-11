@@ -36,7 +36,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       # Explicit ref so workflow_dispatch builds the tag, not the default branch.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ env.TAG }}
           persist-credentials: false
@@ -183,7 +183,7 @@ jobs:
     timeout-minutes: 15
     needs: docker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ env.TAG }}
           persist-credentials: false
@@ -221,7 +221,7 @@ jobs:
       && needs.trivy.result == 'success'
       && needs.helm.result == 'success' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ env.TAG }}
           fetch-depth: 0
