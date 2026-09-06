@@ -30,7 +30,7 @@ func TestRecentRingAndActiveList(t *testing.T) {
 
 func TestRecentRingCapped(t *testing.T) {
 	s := NewStore(time.Minute, time.Minute, nil)
-	for i := 0; i < recentCap+50; i++ {
+	for i := range recentCap + 50 {
 		s.ShouldSend(New(KindPod, "ns", "p", string(rune(i)), SeverityInfo))
 	}
 	if n := len(s.Recent()); n != recentCap {

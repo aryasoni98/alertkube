@@ -183,7 +183,7 @@ func dispatchQueueSize() int { return env.IntOr("ALERTKUBE_DISPATCH_QUEUE", defa
 // the workers stop.
 func (d *dispatcher) Start() {
 	klog.Infof("dispatch pool: %d workers, %d queued alerts per worker (deliveries are fingerprint-affine so a FIRE and its RESOLVE cannot reorder)", d.workers, cap(d.queues[0]))
-	for i := 0; i < d.workers; i++ {
+	for i := range d.workers {
 		q := d.queues[i]
 		d.wg.Add(1)
 		go func() {

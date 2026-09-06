@@ -68,7 +68,7 @@ func TestRegexCacheCap(t *testing.T) {
 	regexCacheMu.Unlock()
 
 	a := New(KindPod, "flood-ns", "p", "R", SeverityInfo)
-	for i := 0; i < regexCacheMax+500; i++ {
+	for i := range regexCacheMax + 500 {
 		// Each pattern is distinct and valid; none equals the namespace, so each
 		// goes through the regex path.
 		pattern := fmt.Sprintf("ns-%d-.*", i)

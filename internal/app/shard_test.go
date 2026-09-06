@@ -15,7 +15,7 @@ func TestShardGateForwardsOnlyOwned(t *testing.T) {
 
 	owned := 0
 	const n = 90
-	for i := 0; i < n; i++ {
+	for i := range n {
 		a := alert.New(alert.KindPod, "ns", fmt.Sprintf("p%d", i), "X", alert.SeverityInfo)
 		if s.Owns(shardKey(a)) {
 			owned++
@@ -34,7 +34,7 @@ func TestShardGateNoopWhenDisabled(t *testing.T) {
 	s, _ := shard.New(0, 1) // disabled
 	got := 0
 	gated := shardGate(func(*alert.Alert) { got++ }, s)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		gated(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo))
 	}
 	if got != 10 {

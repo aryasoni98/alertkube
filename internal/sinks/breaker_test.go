@@ -10,7 +10,7 @@ import (
 func TestBreakerOpensAfterThreshold(t *testing.T) {
 	b := newBreaker()
 	// Fewer than threshold failures keep it closed.
-	for i := 0; i < breakerThreshold-1; i++ {
+	for i := range breakerThreshold - 1 {
 		b.Record(false)
 		if !b.Allow() {
 			t.Fatalf("breaker opened early after %d failures", i+1)
@@ -28,11 +28,11 @@ func TestBreakerOpensAfterThreshold(t *testing.T) {
 
 func TestBreakerSuccessResetsFailures(t *testing.T) {
 	b := newBreaker()
-	for i := 0; i < breakerThreshold-1; i++ {
+	for range breakerThreshold - 1 {
 		b.Record(false)
 	}
 	b.Record(true) // success clears the run
-	for i := 0; i < breakerThreshold-1; i++ {
+	for i := range breakerThreshold - 1 {
 		b.Record(false)
 		if !b.Allow() {
 			t.Fatalf("breaker opened too early after reset (failure %d)", i+1)
@@ -45,7 +45,7 @@ func TestBreakerHalfOpenRecovery(t *testing.T) {
 	now := time.Now()
 	b.now = func() time.Time { return now }
 
-	for i := 0; i < breakerThreshold; i++ {
+	for range breakerThreshold {
 		b.Record(false)
 	}
 	if b.Allow() {
@@ -75,7 +75,7 @@ func TestBreakerHalfOpenFailureReopens(t *testing.T) {
 	b := newBreaker()
 	now := time.Now()
 	b.now = func() time.Time { return now }
-	for i := 0; i < breakerThreshold; i++ {
+	for range breakerThreshold {
 		b.Record(false)
 	}
 	now = now.Add(breakerCooldown + time.Second)
@@ -108,7 +108,7 @@ func TestDispatchShortCircuitsOpenBreaker(t *testing.T) {
 	tripped := s.sends.Load()
 
 	// Subsequent dispatches must short-circuit: the sink is not called again.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r.Dispatch(context.Background(), testAlert(), []string{"flaky"})
 	}
 	if got := s.sends.Load(); got != tripped {

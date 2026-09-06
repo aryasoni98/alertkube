@@ -24,7 +24,7 @@ func TestLeaseNameUnsharded(t *testing.T) {
 // Each shard must contend for its own lease.
 func TestLeaseNameIsPerShard(t *testing.T) {
 	seen := map[string]bool{}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s, ok := shard.New(i, 3)
 		if !ok {
 			t.Fatalf("shard.New(%d,3)", i)

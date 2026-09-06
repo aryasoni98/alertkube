@@ -22,7 +22,8 @@ go run ./cmd/alertkube
 1. Fork the repository and create a feature branch from `master`.
 2. Make focused changes - one concern per PR.
 3. Add or update tests for behavior changes.
-4. Run `go test -race ./...` and `golangci-lint run` (CI pins v2.12.2).
+4. Run `go test -race -count=1 ./...`, `golangci-lint run` (CI pins v2.13.2),
+   and `govulncheck ./...` (v1.7.0). Run `just tools` to install the pinned tools.
 5. Update `CHANGELOG.md` under `[Unreleased]` if the change is user-facing.
 6. **Sign off** every commit (`git commit -s`) - see [DCO](#dco).
 7. Open a pull request using the PR template.

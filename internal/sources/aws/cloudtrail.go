@@ -83,7 +83,7 @@ func (s *cloudTrailSource) Poll(ctx context.Context, emit sources.Emit) {
 
 func (s *cloudTrailSource) lookupEvent(ctx context.Context, rc cloudTrailRegion, eventName string, start, end time.Time, emit sources.Emit) {
 	var token *string
-	for page := 0; page < maxCloudTrailPages; page++ {
+	for range maxCloudTrailPages {
 		out, err := rc.client.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
 			StartTime: awssdk.Time(start),
 			EndTime:   awssdk.Time(end),

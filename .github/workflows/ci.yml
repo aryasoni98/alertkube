@@ -44,7 +44,12 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Check vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
 
       - name: Coverage gate
         # Fails the build if total statement coverage drops below the floor.
@@ -88,6 +93,9 @@ jobs:
 
       - name: Fuzz matchOrRegex
         run: go test -run='^$' -fuzz='^FuzzMatchOrRegex$' -fuzztime=30s ./internal/alert
+
+      - name: Fuzz snapshot restore
+        run: go test -run='^$' -fuzz='^FuzzRestorePoisonedSnapshot$' -fuzztime=30s ./internal/alert
 
       - name: Fuzz config Load
         run: go test -run='^$' -fuzz='^FuzzLoad$' -fuzztime=30s ./internal/config
@@ -143,4 +151,4 @@ jobs:
           echo "KUBEBUILDER_ASSETS=$(setup-envtest use 1.34.1 -p path)" >> "$GITHUB_ENV"
 
       - name: Integration tests
-        run: go test -tags integration -count=1 -timeout 10m ./test/integration/...
+        run: go test -race -tags integration -count=1 -timeout 10m ./test/integration/...

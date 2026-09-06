@@ -141,7 +141,7 @@ func Retry(ctx context.Context, policy RetryPolicy, fn func(ctx context.Context)
 		policy.MaxAttempts = 1
 	}
 	var lastErr error
-	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
+	for attempt := range policy.MaxAttempts {
 		if attempt > 0 {
 			if err := sleepWithCtx(ctx, backoffDelay(policy, attempt, lastErr)); err != nil {
 				return err

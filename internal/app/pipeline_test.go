@@ -195,7 +195,7 @@ func TestPipeline_GroupingFoldsStorm(t *testing.T) {
 	emit := makeEmitter(store, r, syncEnqueue, cfg, grouper, nil)
 
 	// First alert of the group passes; the rest fold into the pending summary.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		emit(alert.New(alert.KindPod, "ns", "p"+string(rune('a'+i)), "CrashLoopBackOff", alert.SeverityCritical))
 	}
 	if c := sink.count(); c != 1 {

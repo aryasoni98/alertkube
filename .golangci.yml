@@ -23,6 +23,8 @@ linters:
     - wastedassign    # assignments whose value is never used
     - usestdlibvars   # use http.MethodGet etc. instead of string literals
     - predeclared     # don't shadow predeclared identifiers
+    - copyloopvar     # Go 1.22+ gives each iteration its own loop variables
+    - intrange        # use integer ranges where the loop bound is stable
   settings:
     revive:
       rules:

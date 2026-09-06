@@ -158,7 +158,7 @@ func TestArmInhibitionsRefreshesExpiry(t *testing.T) {
 
 	// Simulate muted re-fires keeping the inhibition alive past its
 	// original expiry.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		time.Sleep(25 * time.Millisecond)
 		r.ArmInhibitions(src)
 	}

@@ -127,7 +127,7 @@ func TestMemberListCapped(t *testing.T) {
 	s := &sink{}
 	g := New(time.Hour, nil, s.flush)
 	g.Offer(podAlert("lead"))
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		g.Offer(podAlert("member"))
 	}
 	g.FlushAll()

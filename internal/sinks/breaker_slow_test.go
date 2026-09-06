@@ -12,7 +12,7 @@ func TestBreakerTripsOnSustainedSlowSuccesses(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
 
-	for i := 0; i < breakerSlowRun; i++ {
+	for range breakerSlowRun {
 		b.Record(true) // every send succeeds
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
@@ -37,11 +37,11 @@ func TestBreakerToleratesIsolatedSlowSend(t *testing.T) {
 func TestBreakerFastSendClearsSlowRun(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
-	for i := 0; i < breakerSlowRun-1; i++ {
+	for range breakerSlowRun - 1 {
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
 	b.RecordLatency(time.Millisecond) // recovered
-	for i := 0; i < breakerSlowRun-1; i++ {
+	for range breakerSlowRun - 1 {
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
 	if b.Open() {
@@ -54,7 +54,7 @@ func TestBreakerFastSendClearsSlowRun(t *testing.T) {
 func TestBreakerLatencyDoesNotDisturbFailureCounting(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
-	for i := 0; i < breakerThreshold-1; i++ {
+	for range breakerThreshold - 1 {
 		b.Record(false)
 		b.RecordLatency(time.Millisecond) // fast failures
 	}

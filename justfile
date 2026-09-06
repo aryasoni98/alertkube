@@ -4,6 +4,8 @@ go := "go"
 pkg := "./..."
 docs_dir := "docs"
 bin := "alertkube"
+golangci_lint_version := "v2.13.2"
+govulncheck_version := "v1.7.0"
 
 default:
     @just --list
@@ -21,24 +23,26 @@ run:
 
 # Run unit tests with the race detector
 test:
-    {{go}} test -race {{pkg}}
+    {{go}} test -race -count=1 {{pkg}}
 
 # Run tests and write coverage.out + a total %
 cover:
     {{go}} test -race -covermode=atomic -coverprofile=coverage.out {{pkg}}
     {{go}} tool cover -func=coverage.out | tail -1
 
-# Run each fuzz target briefly (smoke). Override SECONDS=...
+# Run each fuzz target briefly (smoke). Override FUZZ_SECONDS=...
 fuzz:
     #!/usr/bin/env bash
     set -euo pipefail
-    seconds="${SECONDS:-15}"
-    {{go}} test ./internal/alert -run=x -fuzz=FuzzComputeFingerprint -fuzztime="${seconds}s"
-    {{go}} test ./internal/config -run=x -fuzz=FuzzLoad -fuzztime="${seconds}s"
+    fuzz_seconds="${FUZZ_SECONDS:-15}"
+    {{go}} test ./internal/alert -run='^$' -fuzz='^FuzzComputeFingerprint$' -fuzztime="${fuzz_seconds}s"
+    {{go}} test ./internal/alert -run='^$' -fuzz='^FuzzMatchOrRegex$' -fuzztime="${fuzz_seconds}s"
+    {{go}} test ./internal/alert -run='^$' -fuzz='^FuzzRestorePoisonedSnapshot$' -fuzztime="${fuzz_seconds}s"
+    {{go}} test ./internal/config -run='^$' -fuzz='^FuzzLoad$' -fuzztime="${fuzz_seconds}s"
 
 # Run benchmarks
 bench:
-    {{go}} test -run=x -bench=. -benchmem ./internal/alert ./internal/router
+    {{go}} test -run='^$' -bench=. -benchmem ./internal/...
 
 # go vet
 vet:
@@ -47,6 +51,15 @@ vet:
 # Run golangci-lint (must be installed)
 lint:
     golangci-lint run
+
+# Install the same analysis tools used by CI without adding module dependencies
+tools:
+    {{go}} install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{golangci_lint_version}}
+    {{go}} install golang.org/x/vuln/cmd/govulncheck@{{govulncheck_version}}
+
+# Check reachable vulnerabilities against the Go vulnerability database
+vuln:
+    govulncheck {{pkg}}
 
 # Build the container image (no push)
 docker:

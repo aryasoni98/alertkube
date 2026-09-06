@@ -106,7 +106,7 @@ func TestDispatcherShutdownDrainsQueue(t *testing.T) {
 	d.Start()
 
 	const n = 50
-	for i := 0; i < n; i++ {
+	for range n {
 		d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
 	}
 	d.Shutdown() // must block until the backlog is delivered
@@ -252,7 +252,7 @@ func TestDispatcherPendingGenerationMoves(t *testing.T) {
 
 func TestDeadLetterLogBounded(t *testing.T) {
 	dl := newDeadLetterLog()
-	for i := 0; i < deadLetterCap+50; i++ {
+	for range deadLetterCap + 50 {
 		dl.Record(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo))
 	}
 	if got := len(dl.List()); got != deadLetterCap {
