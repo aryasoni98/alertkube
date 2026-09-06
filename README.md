@@ -115,7 +115,7 @@ Slack note: modern incoming webhooks ignore per-channel routing. Use `slack.botT
 
 ## Local development
 
-Requires Go 1.26+ (see `go.mod`) and a kubeconfig with read access to the resources you want to watch.
+Requires Go 1.27+ (see `go.mod`, which selects the Go 1.27.1 toolchain) and a kubeconfig with read access to the resources you want to watch.
 
 ```bash
 export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxxxx/xxxxx
