@@ -103,3 +103,27 @@ func TestExportDropsCorrelation(t *testing.T) {
 		t.Fatal("Export must drop Correlation (derived, not persisted)")
 	}
 }
+
+func TestSnapshotMapsAreIndependent(t *testing.T) {
+	s := NewStore(time.Minute, time.Minute, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.Labels["team"] = "platform"
+	a.Annotations["owner"] = "oncall"
+	s.ShouldSend(a)
+	snap := s.Export()
+	snap.Active[0].Labels["team"] = "snapshot"
+	snap.Active[0].Annotations["owner"] = "snapshot"
+	stored := s.ActiveList()[0]
+	if stored.Labels["team"] != "platform" || stored.Annotations["owner"] != "oncall" {
+		t.Fatal("Export shares maps with active state")
+	}
+	restored := NewStore(time.Minute, time.Minute, nil)
+	restored.Restore(snap)
+	snap.Active[0].Summary = "changed"
+	snap.Active[0].Labels["team"] = "changed"
+	snap.Active[0].Annotations["owner"] = "changed"
+	stored = restored.ActiveList()[0]
+	if stored.Summary != "" || stored.Labels["team"] != "snapshot" || stored.Annotations["owner"] != "snapshot" {
+		t.Fatal("Restore shares alerts or maps with its input snapshot")
+	}
+}

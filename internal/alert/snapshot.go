@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"maps"
 	"time"
 
 	"github.com/aryasoni98/alertkube/internal/silence"
@@ -49,10 +50,7 @@ func (s *Store) Export() *Snapshot {
 		Version:  SnapshotVersion,
 		SavedAt:  time.Now(),
 		Active:   make([]*Alert, 0, len(s.active)),
-		LastSent: make(map[string]time.Time, len(s.lastSent)),
-	}
-	for fp, t := range s.lastSent {
-		snap.LastSent[fp] = t
+		LastSent: maps.Clone(s.lastSent),
 	}
 	for _, a := range s.active {
 		cp := *a
@@ -60,7 +58,7 @@ func (s *Store) Export() *Snapshot {
 		// Correlation is derived and recomputed each interval; it must never be
 		// persisted (keeps the snapshot wire shape stable and bounds its size).
 		cp.Correlation = nil
-		snap.Active = append(snap.Active, &cp)
+		snap.Active = append(snap.Active, cp.Clone())
 	}
 	return snap
 }
@@ -98,7 +96,7 @@ func (s *Store) Restore(snap *Snapshot) {
 			continue
 		}
 		if _, ok := s.active[a.Fingerprint]; !ok {
-			s.active[a.Fingerprint] = a
+			s.active[a.Fingerprint] = a.Clone()
 		}
 	}
 	s.gen++

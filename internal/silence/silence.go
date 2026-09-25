@@ -11,6 +11,7 @@ package silence
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -33,6 +34,11 @@ type Silence struct {
 // Active reports whether the silence still mutes at now.
 func (s Silence) Active(now time.Time) bool { return now.Before(s.Until) }
 
+func (s Silence) clone() Silence {
+	s.Matchers = maps.Clone(s.Matchers)
+	return s
+}
+
 // Store is a concurrency-safe set of runtime silences.
 type Store struct {
 	mu    sync.RWMutex
@@ -54,7 +60,7 @@ func (s *Store) Add(sil Silence) Silence {
 	if sil.CreatedAt.IsZero() {
 		sil.CreatedAt = time.Now()
 	}
-	s.items[sil.ID] = sil
+	s.items[sil.ID] = sil.clone()
 	s.gen++
 	s.mu.Unlock()
 	return sil
@@ -78,7 +84,7 @@ func (s *Store) List() []Silence {
 	s.mu.RLock()
 	out := make([]Silence, 0, len(s.items))
 	for _, v := range s.items {
-		out = append(out, v)
+		out = append(out, v.clone())
 	}
 	s.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
@@ -92,7 +98,7 @@ func (s *Store) Active(now time.Time) []Silence {
 	out := make([]Silence, 0, len(s.items))
 	for _, v := range s.items {
 		if v.Active(now) {
-			out = append(out, v)
+			out = append(out, v.clone())
 		}
 	}
 	return out
@@ -126,7 +132,7 @@ func (s *Store) Replace(items []Silence) {
 		if v.ID == "" {
 			continue
 		}
-		s.items[v.ID] = v
+		s.items[v.ID] = v.clone()
 	}
 	s.gen++
 	s.mu.Unlock()

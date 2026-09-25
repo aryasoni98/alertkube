@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -191,23 +192,11 @@ type Alert struct {
 // reader could race a writer mutating them. Clone severs that sharing.
 func (a *Alert) Clone() *Alert {
 	cp := *a
-	cp.Labels = cloneStringMap(a.Labels)
-	cp.Annotations = cloneStringMap(a.Annotations)
-	cp.Details = cloneStringMap(a.Details)
+	cp.Labels = maps.Clone(a.Labels)
+	cp.Annotations = maps.Clone(a.Annotations)
+	cp.Details = maps.Clone(a.Details)
 	cp.Correlation = a.Correlation.clone()
 	return &cp
-}
-
-// cloneStringMap returns an independent copy of m (nil stays nil).
-func cloneStringMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }
 
 // ComputeFingerprint hashes the identity tuple so equivalent alerts dedupe.

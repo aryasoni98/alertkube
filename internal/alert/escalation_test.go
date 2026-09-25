@@ -58,6 +58,18 @@ func TestEscalationMarksClearedOnForget(t *testing.T) {
 	}
 }
 
+func TestFailedDeliveryClearsEscalationMarks(t *testing.T) {
+	s := NewStore(time.Hour, time.Hour, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.StartsAt = time.Now().Add(-time.Hour)
+	s.ShouldSend(a)
+	s.Overdue(time.Minute, "rule", nil)
+	s.MarkFailed(a.Fingerprint)
+	if !s.ShouldSend(a) || len(s.Overdue(time.Minute, "rule", nil)) != 1 {
+		t.Fatal("a retried incident inherited escalation marks from a failed delivery")
+	}
+}
+
 // TestRegexCacheCap ensures the matcher cache stops growing past its cap so a
 // flood of distinct patterns cannot grow memory without bound. It still matches
 // correctly (the cap only stops memoization, not matching).

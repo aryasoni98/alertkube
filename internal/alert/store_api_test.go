@@ -88,3 +88,60 @@ func TestForgetDropsStateWithoutResolve(t *testing.T) {
 		t.Fatalf("forget must clear the mute record")
 	}
 }
+
+func TestStoreOwnsAcceptedAlerts(t *testing.T) {
+	s := NewStore(0, time.Minute, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.Labels["team"] = "platform"
+	a.Annotations["owner"] = "oncall"
+	a.Details["logs"] = "original"
+	s.ShouldSend(a)
+	endsAt := a.EndsAt
+	s.Touch(a.Fingerprint)
+	if !a.EndsAt.Equal(endsAt) {
+		t.Fatal("Touch mutated an alert held by a delivery worker")
+	}
+	a.Summary = "changed by caller"
+	a.Labels["team"] = "changed"
+	a.Annotations["owner"] = "changed"
+	a.Details["logs"] = "changed"
+	stored := s.ActiveList()[0]
+	if stored.Summary != "" || stored.Labels["team"] != "platform" || stored.Annotations["owner"] != "oncall" || stored.Details["logs"] != "original" {
+		t.Fatalf("store retained caller-owned data: %+v", stored)
+	}
+	corr := &Correlation{GroupID: "g1", BlastRadius: []Ref{{Name: "node"}}}
+	s.ApplyCorrelation(map[string]*Correlation{a.Fingerprint: corr})
+	corr.BlastRadius[0].Name = "changed"
+	if s.ActiveList()[0].Correlation.BlastRadius[0].Name != "node" {
+		t.Fatal("store retained caller-owned correlation")
+	}
+}
+
+func TestRefirePreservesIncidentAge(t *testing.T) {
+	s := NewStore(0, time.Hour, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.StartsAt = time.Now().Add(-10 * time.Minute)
+	s.ShouldSend(a)
+	refire := New(a.Kind, a.Namespace, a.Name, a.Reason, a.Severity)
+	if !s.ShouldSend(refire) {
+		t.Fatal("refire outside the mute window should send")
+	}
+	if !refire.StartsAt.Equal(a.StartsAt) || len(s.Overdue(5*time.Minute, "rule", nil)) != 1 {
+		t.Fatal("repeated firing reset the incident age and postponed escalation")
+	}
+}
+
+func TestForgetPersistsMuteOnlyDeletion(t *testing.T) {
+	s := NewStore(time.Minute, time.Minute, nil)
+	s.Seed("event")
+	before := s.Generation()
+	s.Forget("event")
+	if s.Generation() == before || len(s.Export().LastSent) != 0 {
+		t.Fatal("forgetting a mute-only record must dirty the snapshot")
+	}
+	before = s.Generation()
+	s.Forget("event")
+	if s.Generation() != before {
+		t.Fatal("forgetting an absent record must be a no-op")
+	}
+}

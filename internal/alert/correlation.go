@@ -1,5 +1,7 @@
 package alert
 
+import "slices"
+
 // Correlation is derived, non-persisted context attached to an active alert by
 // the correlation engine (internal/correlate). Nil when correlation is disabled
 // or the alert stands alone. It is recomputed each interval and never written to
@@ -34,9 +36,6 @@ func (c *Correlation) clone() *Correlation {
 		return nil
 	}
 	cp := *c
-	if c.BlastRadius != nil {
-		cp.BlastRadius = make([]Ref, len(c.BlastRadius))
-		copy(cp.BlastRadius, c.BlastRadius)
-	}
+	cp.BlastRadius = slices.Clone(c.BlastRadius)
 	return &cp
 }
