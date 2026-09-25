@@ -109,6 +109,19 @@ jobs:
           test -s /tmp/render-mon.yaml
           grep -q "kind: PrometheusRule" /tmp/render-mon.yaml
 
+      - name: Helm template (maintenance and explicit token mount setting)
+        run: |
+          helm template alertkube helm \
+            --set api.allowUnauthenticatedRead=true \
+            --set automountServiceAccountToken=false \
+            --set-json 'maintenance=[{"name":"nightly-backup","matchers":{"namespace":"prod"},"start":"23:00","end":"02:00","days":["sat","sun"],"timezone":"Europe/Berlin"}]' \
+            > /tmp/render-maintenance.yaml
+          grep -q '^    maintenance:' /tmp/render-maintenance.yaml
+          grep -q 'name: nightly-backup' /tmp/render-maintenance.yaml
+          grep -q 'timezone: Europe/Berlin' /tmp/render-maintenance.yaml
+          grep -q 'automountServiceAccountToken: false' /tmp/render-maintenance.yaml
+          grep -q 'automountServiceAccountToken: true' /tmp/render.yaml
+
       - name: kubeconform validation
         run: |
           base=https://github.com/yannh/kubeconform/releases/download/v0.6.7
@@ -118,7 +131,7 @@ jobs:
           grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum -c -
           tar xzf kubeconform-linux-amd64.tar.gz kubeconform
           ./kubeconform -strict -ignore-missing-schemas -summary \
-            /tmp/render.yaml /tmp/render-sm.yaml /tmp/render-ns.yaml /tmp/render-mon.yaml
+            /tmp/render.yaml /tmp/render-sm.yaml /tmp/render-ns.yaml /tmp/render-mon.yaml /tmp/render-maintenance.yaml
 
   helm-docs:
     name: helm-docs (drift check)

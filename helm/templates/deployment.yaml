@@ -54,7 +54,7 @@ spec:
       # stays on, but pinning it makes the blast radius of a container
       # compromise auditable (CWE-250). Override to false only if you inject
       # credentials another way.
-      automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default true }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       # Bounds graceful shutdown: the controller drains in-flight pod
       # enrichment, finishes sink sends (up to the per-sink timeout), and
       # saves final state. Must exceed that worst case so SIGKILL does not
