@@ -14,7 +14,7 @@ import (
 
 // NewDeployment fires when unavailableReplicas > 0 or progress fails.
 func NewDeployment(cfg *config.Config) *simple[*appsv1.Deployment] {
-	return newSimple("deployment", alert.KindDeployment, cfg,
+	return newSimple("deployment", alert.KindDeployment, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().Deployments().Informer()
 		},

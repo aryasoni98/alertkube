@@ -42,7 +42,9 @@ func init() {
 		Name:        provider,
 		Enabled:     func(c *config.Config) bool { return c.Azure.Enabled },
 		PollSeconds: func(c *config.Config) int { return c.Azure.PollSeconds },
-		Build:       NewProvider,
+		Build: func(ctx context.Context, c *config.Config) ([]sources.Source, error) {
+			return NewProvider(ctx, c.Azure)
+		},
 	})
 }
 
@@ -164,7 +166,7 @@ func (l *armAKSLister) List(ctx context.Context) ([]armcontainerservice.ManagedC
 // subscription. It returns an error if credentials cannot be resolved; the
 // caller logs it and continues without Azure so a cloud-auth problem never
 // takes down the Kubernetes watchers.
-func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
+func NewProvider(ctx context.Context, cfg config.Azure) ([]sources.Source, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		return nil, fmt.Errorf("azure: default credential: %w", err)
@@ -173,9 +175,9 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 	// constructor, and the Source that owns the resulting listers. A disabled
 	// service builds nil and Compact drops it, so adding a service means adding
 	// one entry here and nothing else.
-	subs, z := cfg.Azure.Subscriptions, cfg.Azure
+	subs := cfg.Subscriptions
 	builders := []sourceBuilder{
-		buildSub(z.AKS, subs, func(sub string) (aksLister, error) {
+		buildSub(cfg.AKS, subs, func(sub string) (aksLister, error) {
 			client, err := armcontainerservice.NewManagedClustersClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("managed-clusters", sub, err)
@@ -183,7 +185,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return &armAKSLister{client: client}, nil
 		}, func(ls []aksSubscription) sources.Source { return &aksSource{subs: ls} }),
 
-		buildSub(z.Monitor, subs, func(sub string) (alertsLister, error) {
+		buildSub(cfg.Monitor, subs, func(sub string) (alertsLister, error) {
 			client, err := armalertsmanagement.NewAlertsClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("alerts", sub, err)
@@ -191,7 +193,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return &armAlertsLister{client: client}, nil
 		}, func(ls []azureMonitorSubscription) sources.Source { return &azureMonitorSource{subs: ls} }),
 
-		buildSub(z.VMs, subs, func(sub string) (vmLister, error) {
+		buildSub(cfg.VMs, subs, func(sub string) (vmLister, error) {
 			client, err := armcompute.NewVirtualMachinesClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("virtual-machines", sub, err)
@@ -199,7 +201,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return &armVMLister{client: client}, nil
 		}, func(ls []azureVMSubscription) sources.Source { return &azureVMSource{subs: ls} }),
 
-		buildSub(z.Storage, subs, func(sub string) (storageLister, error) {
+		buildSub(cfg.Storage, subs, func(sub string) (storageLister, error) {
 			client, err := armstorage.NewAccountsClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("storage-accounts", sub, err)
@@ -207,7 +209,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return &armStorageLister{client: client}, nil
 		}, func(ls []azureStorageSubscription) sources.Source { return &azureStorageSource{subs: ls} }),
 
-		buildSub(z.SQL, subs, func(sub string) (sqlLister, error) {
+		buildSub(cfg.SQL, subs, func(sub string) (sqlLister, error) {
 			servers, err := armsql.NewServersClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("sql servers", sub, err)
@@ -219,7 +221,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return &armSQLLister{servers: servers, databases: databases}, nil
 		}, func(ls []azureSQLSubscription) sources.Source { return &azureSQLSource{subs: ls} }),
 
-		buildSub(z.Redis, subs, func(sub string) (redisLister, error) {
+		buildSub(cfg.Redis, subs, func(sub string) (redisLister, error) {
 			client, err := armredis.NewClient(sub, cred, nil)
 			if err != nil {
 				return nil, clientErr("redis", sub, err)

@@ -67,7 +67,9 @@ func init() {
 		Name:        provider,
 		Enabled:     func(c *config.Config) bool { return c.AWS.Enabled },
 		PollSeconds: func(c *config.Config) int { return c.AWS.PollSeconds },
-		Build:       NewProvider,
+		Build: func(ctx context.Context, c *config.Config) ([]sources.Source, error) {
+			return NewProvider(ctx, c.AWS)
+		},
 	})
 }
 
@@ -179,9 +181,9 @@ type vpnAPI interface {
 // region. It returns an error if AWS config/credentials cannot be resolved for
 // a region; the caller logs it and continues without AWS so a cloud-auth
 // problem never takes down the Kubernetes watchers.
-func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
-	regions := make([]regionConfig, 0, len(cfg.AWS.Regions))
-	for _, region := range cfg.AWS.Regions {
+func NewProvider(ctx context.Context, cfg config.AWS) ([]sources.Source, error) {
+	regions := make([]regionConfig, 0, len(cfg.Regions))
+	for _, region := range cfg.Regions {
 		awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 		if err != nil {
 			return nil, fmt.Errorf("aws: load config for region %s: %w", region, err)
@@ -192,59 +194,58 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 	// Source that owns the resulting per-region clients. A disabled service
 	// yields nil and Compact drops it, so adding a service means adding one
 	// entry here and nothing else.
-	a := cfg.AWS
 	return sources.Compact([]sources.Source{
-		regionalSource(a.EKS, regions,
+		regionalSource(cfg.EKS, regions,
 			func(c awssdk.Config) eksAPI { return eks.NewFromConfig(c) },
 			func(rs []eksRegion) sources.Source { return &eksSource{regions: rs} }),
-		regionalSource(a.CloudWatch, regions,
+		regionalSource(cfg.CloudWatch, regions,
 			func(c awssdk.Config) cloudwatchAPI { return cloudwatch.NewFromConfig(c) },
 			func(rs []cwRegion) sources.Source { return &cloudWatchSource{regions: rs} }),
-		regionalSource(a.EC2, regions,
+		regionalSource(cfg.EC2, regions,
 			func(c awssdk.Config) ec2API { return ec2.NewFromConfig(c) },
 			func(rs []ec2Region) sources.Source { return &ec2Source{regions: rs} }),
-		regionalSource(a.ELBV2, regions,
+		regionalSource(cfg.ELBV2, regions,
 			func(c awssdk.Config) elbv2API { return elbv2.NewFromConfig(c) },
 			func(rs []elbv2Region) sources.Source { return &elbv2Source{regions: rs} }),
-		regionalSource(a.RDS, regions,
+		regionalSource(cfg.RDS, regions,
 			func(c awssdk.Config) rdsAPI { return rds.NewFromConfig(c) },
 			func(rs []rdsRegion) sources.Source { return &rdsSource{regions: rs} }),
-		regionalSource(a.DynamoDB, regions,
+		regionalSource(cfg.DynamoDB, regions,
 			func(c awssdk.Config) dynamoDBAPI { return dynamodb.NewFromConfig(c) },
 			func(rs []dynRegion) sources.Source { return &dynamoDBSource{regions: rs} }),
-		regionalSource(a.ElastiCache, regions,
+		regionalSource(cfg.ElastiCache, regions,
 			func(c awssdk.Config) elastiCacheAPI { return elasticache.NewFromConfig(c) },
 			func(rs []ecRegion) sources.Source { return &elastiCacheSource{regions: rs} }),
-		globalSource(a.S3, regions,
+		globalSource(cfg.S3, regions,
 			func(c awssdk.Config) sources.Source { return &s3Source{client: s3.NewFromConfig(c)} }),
-		regionalSource(a.CloudTrail, regions,
+		regionalSource(cfg.CloudTrail, regions,
 			func(c awssdk.Config) cloudTrailAPI { return cloudtrail.NewFromConfig(c) },
 			func(rs []cloudTrailRegion) sources.Source { return newCloudTrailSource(rs, cfg) }),
-		regionalSource(a.ASG, regions,
+		regionalSource(cfg.ASG, regions,
 			func(c awssdk.Config) autoscalingAPI { return autoscaling.NewFromConfig(c) },
 			func(rs []asgRegion) sources.Source { return &asgSource{regions: rs} }),
-		regionalSource(a.KMS, regions,
+		regionalSource(cfg.KMS, regions,
 			func(c awssdk.Config) kmsAPI { return kms.NewFromConfig(c) },
 			func(rs []kmsRegion) sources.Source { return &kmsSource{regions: rs} }),
-		regionalSource(a.EBS, regions,
+		regionalSource(cfg.EBS, regions,
 			func(c awssdk.Config) ebsAPI { return ec2.NewFromConfig(c) },
 			func(rs []ebsRegion) sources.Source { return &ebsSource{regions: rs} }),
-		regionalSource(a.Aurora, regions,
+		regionalSource(cfg.Aurora, regions,
 			func(c awssdk.Config) auroraAPI { return rds.NewFromConfig(c) },
 			func(rs []auroraRegion) sources.Source { return &auroraSource{regions: rs} }),
-		regionalSource(a.NAT, regions,
+		regionalSource(cfg.NAT, regions,
 			func(c awssdk.Config) natAPI { return ec2.NewFromConfig(c) },
 			func(rs []natRegion) sources.Source { return &natSource{regions: rs} }),
-		regionalSource(a.EFS, regions,
+		regionalSource(cfg.EFS, regions,
 			func(c awssdk.Config) efsAPI { return efs.NewFromConfig(c) },
 			func(rs []efsRegion) sources.Source { return &efsSource{regions: rs} }),
-		regionalSource(a.ACM, regions,
+		regionalSource(cfg.ACM, regions,
 			func(c awssdk.Config) acmAPI { return acm.NewFromConfig(c) },
 			func(rs []acmRegion) sources.Source { return &acmSource{regions: rs} }),
-		regionalSource(a.VPN, regions,
+		regionalSource(cfg.VPN, regions,
 			func(c awssdk.Config) vpnAPI { return ec2.NewFromConfig(c) },
 			func(rs []vpnRegion) sources.Source { return &vpnSource{regions: rs} }),
-		globalSource(a.Route53, regions,
+		globalSource(cfg.Route53, regions,
 			func(c awssdk.Config) sources.Source { return &route53Source{client: route53.NewFromConfig(c)} }),
 	}), nil
 }

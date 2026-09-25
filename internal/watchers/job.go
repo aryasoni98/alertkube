@@ -14,7 +14,7 @@ import (
 
 // NewJob fires on Failed jobs (backoffLimit hit).
 func NewJob(cfg *config.Config) *simple[*batchv1.Job] {
-	return newSimple("job", alert.KindJob, cfg,
+	return newSimple("job", alert.KindJob, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Batch().V1().Jobs().Informer()
 		},

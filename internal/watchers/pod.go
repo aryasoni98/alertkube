@@ -27,9 +27,8 @@ const enrichWorkers = 4
 // unexpected-kill transitions.
 type PodWatcher struct {
 	clientset     kubernetes.Interface
-	cfg           *config.Config
-	watchedNS     *filter.Set
-	ignoredNS     *filter.Set
+	behavior      config.Behavior
+	ns            nsFilter
 	watchedPrefix *filter.Set
 	ignoredPrefix *filter.Set
 	enrichSem     chan struct{}
@@ -39,9 +38,8 @@ type PodWatcher struct {
 func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
 	return &PodWatcher{
 		clientset:     c,
-		cfg:           cfg,
-		watchedNS:     filter.New(cfg.Filters.WatchedNamespaces),
-		ignoredNS:     filter.New(cfg.Filters.IgnoredNamespaces),
+		behavior:      cfg.Behavior,
+		ns:            newNSFilter(cfg.Filters),
 		watchedPrefix: filter.New(cfg.Filters.WatchedPodNamePrefixes),
 		ignoredPrefix: filter.New(cfg.Filters.IgnoredPodNamePrefixes),
 		enrichSem:     make(chan struct{}, enrichWorkers),
@@ -81,7 +79,7 @@ func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactor
 
 // shouldHandle returns true when a pod passes namespace + name include/exclude filters.
 func (p *PodWatcher) shouldHandle(pod *v1.Pod) bool {
-	if !p.watchedNS.Matches(pod.Namespace) || p.ignoredNS.Blocks(pod.Namespace) {
+	if !p.ns.allows(pod.Namespace) {
 		return false
 	}
 	if !p.watchedPrefix.Matches(pod.Name) || p.ignoredPrefix.Blocks(pod.Name) {
@@ -127,12 +125,12 @@ func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit 
 
 	// Per-restart alerts stop once a pod is chronically restarting
 	// (ignoreRestartCount); CrashLoopBackOff detection above still covers it.
-	if newCount > oldCount && newCount <= p.cfg.Behavior.IgnoreRestartCount {
+	if newCount > oldCount && newCount <= p.behavior.IgnoreRestartCount {
 		for _, st := range newPod.Status.ContainerStatuses {
 			if st.RestartCount == 0 {
 				continue
 			}
-			if p.cfg.Behavior.IgnoreRestartsWithExitCodeZero &&
+			if p.behavior.IgnoreRestartsWithExitCodeZero &&
 				st.LastTerminationState.Terminated != nil &&
 				st.LastTerminationState.Terminated.ExitCode == 0 {
 				continue
@@ -208,7 +206,7 @@ func (p *PodWatcher) enrich(ctx context.Context, pod *v1.Pod, st v1.ContainerSta
 	if events, err := collectors.PodEvents(ctx, p.clientset, pod.Namespace, pod.Name); err == nil && events != "" {
 		a.Details["Pod Events"] = events
 	}
-	if !p.cfg.Behavior.DisableLogCollection && reason != "ImagePullBackOff" && reason != "ErrImagePull" {
+	if !p.behavior.DisableLogCollection && reason != "ImagePullBackOff" && reason != "ErrImagePull" {
 		if logs, err := collectors.PreviousContainerLogs(ctx, p.clientset, pod, st.Name); err == nil && logs != "" {
 			a.Details["Pod Logs Before Restart"] = logs
 		}

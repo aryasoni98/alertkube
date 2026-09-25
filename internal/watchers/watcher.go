@@ -59,10 +59,10 @@ type nsFilter struct {
 	ignored *filter.Set
 }
 
-func newNSFilter(cfg *config.Config) nsFilter {
+func newNSFilter(cfg config.Filters) nsFilter {
 	return nsFilter{
-		watched: filter.New(cfg.Filters.WatchedNamespaces),
-		ignored: filter.New(cfg.Filters.IgnoredNamespaces),
+		watched: filter.New(cfg.WatchedNamespaces),
+		ignored: filter.New(cfg.IgnoredNamespaces),
 	}
 }
 
@@ -103,7 +103,7 @@ type simple[T interface{ GetNamespace() string }] struct {
 func newSimple[T interface{ GetNamespace() string }](
 	name string,
 	kind alert.Kind,
-	cfg *config.Config,
+	cfg config.Filters,
 	informer func(informers.SharedInformerFactory) cache.SharedIndexInformer,
 	eval func(T, Emit),
 ) *simple[T] {

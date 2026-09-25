@@ -1,56 +1,16 @@
 package config
 
-import (
-	"fmt"
-	"os"
-	"time"
-
-	"gopkg.in/yaml.v3"
-
-	"github.com/aryasoni98/alertkube/internal/env"
-)
+import "time"
 
 // Config is the YAML-driven runtime configuration.
 type Config struct {
 	Cluster string `yaml:"cluster"`
 
-	Filters struct {
-		WatchedNamespaces      string `yaml:"watchedNamespaces"`
-		IgnoredNamespaces      string `yaml:"ignoredNamespaces"`
-		WatchedPodNamePrefixes string `yaml:"watchedPodNamePrefixes"`
-		IgnoredPodNamePrefixes string `yaml:"ignoredPodNamePrefixes"`
-	} `yaml:"filters"`
+	Filters Filters `yaml:"filters"`
 
-	Behavior struct {
-		MuteSeconds                    int  `yaml:"muteSeconds"`
-		IgnoreRestartCount             int  `yaml:"ignoreRestartCount"`
-		IgnoreRestartsWithExitCodeZero bool `yaml:"ignoreRestartsWithExitCodeZero"`
-		ResolveTTLSeconds              int  `yaml:"resolveTTLSeconds"`
-		// StartupGraceSeconds suppresses alerts fired during the first N
-		// seconds after start (informer initial sync re-fires standing
-		// conditions on every restart). 0 disables the window.
-		StartupGraceSeconds int `yaml:"startupGraceSeconds"`
-		// PVCPendingSeconds is how long a claim may stay Pending before
-		// alerting (provisioners legitimately take a while).
-		PVCPendingSeconds int `yaml:"pvcPendingSeconds"`
-		// DisableLogCollection stops the pod watcher from fetching
-		// previous-container logs for alert enrichment. Logs are redacted
-		// before forwarding, but redaction is pattern-based and
-		// best-effort - strict environments should turn collection off
-		// entirely rather than trust it.
-		DisableLogCollection bool `yaml:"disableLogCollection"`
-		// DisableAnnotationSilences ignores the `alert-silence-until`
-		// pod annotation. Anyone with patch on a workload can otherwise
-		// silence its alerts; environments where workload authors must
-		// not control alerting set this.
-		DisableAnnotationSilences bool `yaml:"disableAnnotationSilences"`
-	} `yaml:"behavior"`
+	Behavior Behavior `yaml:"behavior"`
 
-	Channels struct {
-		Critical string `yaml:"critical"`
-		Warning  string `yaml:"warning"`
-		Info     string `yaml:"info"`
-	} `yaml:"channels"`
+	Channels Channels `yaml:"channels"`
 
 	Routing []Route `yaml:"routing"`
 
@@ -81,10 +41,7 @@ type Config struct {
 	// unauthenticated alert injection, so an empty token is a fatal error
 	// unless AllowAnonymous is set (e.g. the port is locked down by a
 	// NetworkPolicy).
-	Receiver struct {
-		Enabled        bool `yaml:"enabled"`
-		AllowAnonymous bool `yaml:"allowAnonymous"`
-	} `yaml:"receiver"`
+	Receiver Receiver `yaml:"receiver"`
 
 	MetricsAddr string `yaml:"metricsAddr"`
 
@@ -102,27 +59,12 @@ type Config struct {
 	// into one summary. Stateful incident sinks (pagerduty, opsgenie)
 	// still receive every resolve so incidents close, and never receive
 	// summaries.
-	Grouping struct {
-		Enabled       bool `yaml:"enabled"`
-		WindowSeconds int  `yaml:"windowSeconds"`
-		// By lists the alert fields forming the group identity.
-		// Defaults to kind, namespace, reason, severity.
-		By []string `yaml:"by"`
-	} `yaml:"grouping"`
+	Grouping Grouping `yaml:"grouping"`
 
 	// Persistence snapshots active-alert and mute state to a ConfigMap so
 	// a restart does not lose pending resolves or re-page muted standing
 	// conditions. Requires get/create/update on the named ConfigMap.
-	Persistence struct {
-		Enabled bool `yaml:"enabled"`
-		// ConfigMapName defaults to DefaultStateConfigMap, and to
-		// "<default>-<shardIndex>" when sharding is enabled - see
-		// ApplyShardScope for why sharded replicas must not share one object.
-		ConfigMapName string `yaml:"configMapName"`
-		// Namespace defaults to the POD_NAMESPACE env var (set via the
-		// Downward API in the Helm chart).
-		Namespace string `yaml:"namespace"`
-	} `yaml:"persistence"`
+	Persistence Persistence `yaml:"persistence"`
 
 	// AWS enables polling AWS APIs for cloud-resource alerts alongside the
 	// in-cluster Kubernetes watchers. Unlike watchers (informer-driven),
@@ -130,82 +72,19 @@ type Config struct {
 	// the standard AWS chain; in-cluster the recommended setup is IAM Roles
 	// for Service Accounts (IRSA). Disabled by default - alertkube stays a
 	// pure Kubernetes controller unless this is turned on.
-	AWS struct {
-		Enabled bool `yaml:"enabled"`
-		// Regions to poll. Each AWS API call is per-region, so every region
-		// here multiplies the per-poll API call count.
-		Regions []string `yaml:"regions"`
-		// PollSeconds is the interval between polls. Must be below
-		// resolveTTLSeconds or a still-firing alarm false-resolves between
-		// polls (Validate enforces this, mirroring the informer-resync rule).
-		PollSeconds int `yaml:"pollSeconds"`
-		// Source toggles. At least one must be true when Enabled.
-		EKS         bool `yaml:"eks"`
-		CloudWatch  bool `yaml:"cloudwatch"`
-		EC2         bool `yaml:"ec2"`
-		ELBV2       bool `yaml:"elbv2"`
-		RDS         bool `yaml:"rds"`
-		DynamoDB    bool `yaml:"dynamodb"`
-		ElastiCache bool `yaml:"elasticache"`
-		S3          bool `yaml:"s3"`
-		CloudTrail  bool `yaml:"cloudtrail"`
-		// CloudTrailEvents overrides the management event names the CloudTrail
-		// source looks up. Empty uses a curated security set (security-group,
-		// S3 policy/ACL, and IAM mutating events).
-		CloudTrailEvents []string `yaml:"cloudtrailEvents"`
-		ASG              bool     `yaml:"asg"`
-		KMS              bool     `yaml:"kms"`
-		EBS              bool     `yaml:"ebs"`
-		Aurora           bool     `yaml:"aurora"`
-		NAT              bool     `yaml:"nat"`
-		EFS              bool     `yaml:"efs"`
-		Route53          bool     `yaml:"route53"`
-		ACM              bool     `yaml:"acm"`
-		VPN              bool     `yaml:"vpn"`
-	} `yaml:"aws"`
+	AWS AWS `yaml:"aws"`
 
 	// Azure enables polling Azure APIs for cloud-resource alerts. Credentials
 	// resolve via the standard Azure chain (DefaultAzureCredential); in-cluster
 	// the recommended setup is AKS Workload Identity. Subscription-scoped (not
 	// region). Disabled by default.
-	Azure struct {
-		Enabled       bool     `yaml:"enabled"`
-		Subscriptions []string `yaml:"subscriptions"`
-		PollSeconds   int      `yaml:"pollSeconds"`
-		AKS           bool     `yaml:"aks"`
-		// Monitor enables ingesting fired Azure Monitor alerts (Alerts
-		// Management): an alert with monitorCondition Fired pages, Resolved
-		// resolves.
-		Monitor bool `yaml:"monitor"`
-		// VMs enables Azure Virtual Machine provisioning-health alerts.
-		VMs bool `yaml:"vms"`
-		// Storage enables Azure Storage account availability alerts.
-		Storage bool `yaml:"storage"`
-		// SQL enables Azure SQL Database health alerts (Suspect/Offline/Inaccessible).
-		SQL bool `yaml:"sql"`
-		// Redis enables Azure Cache for Redis provisioning-health alerts.
-		Redis bool `yaml:"redis"`
-	} `yaml:"azure"`
+	Azure Azure `yaml:"azure"`
 
 	// GCP enables polling Google Cloud APIs for cloud-resource alerts.
 	// Credentials resolve via Application Default Credentials; in-cluster the
 	// recommended setup is GKE Workload Identity. Project-scoped. Disabled by
 	// default.
-	GCP struct {
-		Enabled     bool     `yaml:"enabled"`
-		Projects    []string `yaml:"projects"`
-		PollSeconds int      `yaml:"pollSeconds"`
-		GKE         bool     `yaml:"gke"`
-		// Monitoring enables a Cloud Monitoring posture source: it alerts when
-		// an alert policy is disabled. GCP's Go SDK exposes no fired-incident
-		// listing, so this surfaces monitoring-coverage posture, not fired
-		// incidents.
-		Monitoring bool `yaml:"monitoring"`
-		// Compute enables Compute Engine instance health (REPAIRING) alerts.
-		Compute bool `yaml:"compute"`
-		// CloudSQL enables Cloud SQL instance state alerts.
-		CloudSQL bool `yaml:"cloudsql"`
-	} `yaml:"gcp"`
+	GCP GCP `yaml:"gcp"`
 
 	// Rules are user-authored correlation rules evaluated against the live
 	// alert stream by internal/rules. Each fires a derived alert (kind
@@ -221,6 +100,74 @@ type Config struct {
 	// complementing the one-shot `silences` (which expire at a single RFC3339
 	// instant). Evaluated on every routing decision.
 	Maintenance []MaintenanceWindow `yaml:"maintenance"`
+}
+
+// Filters selects the namespaces and pod names watched by the controller.
+type Filters struct {
+	WatchedNamespaces      string `yaml:"watchedNamespaces"`
+	IgnoredNamespaces      string `yaml:"ignoredNamespaces"`
+	WatchedPodNamePrefixes string `yaml:"watchedPodNamePrefixes"`
+	IgnoredPodNamePrefixes string `yaml:"ignoredPodNamePrefixes"`
+}
+
+// Behavior controls alert lifecycle and pod enrichment.
+type Behavior struct {
+	MuteSeconds                    int  `yaml:"muteSeconds"`
+	IgnoreRestartCount             int  `yaml:"ignoreRestartCount"`
+	IgnoreRestartsWithExitCodeZero bool `yaml:"ignoreRestartsWithExitCodeZero"`
+	ResolveTTLSeconds              int  `yaml:"resolveTTLSeconds"`
+	// StartupGraceSeconds suppresses alerts fired during the first N
+	// seconds after start (informer initial sync re-fires standing
+	// conditions on every restart). 0 disables the window.
+	StartupGraceSeconds int `yaml:"startupGraceSeconds"`
+	// PVCPendingSeconds is how long a claim may stay Pending before
+	// alerting (provisioners legitimately take a while).
+	PVCPendingSeconds int `yaml:"pvcPendingSeconds"`
+	// DisableLogCollection stops the pod watcher from fetching
+	// previous-container logs for alert enrichment. Logs are redacted
+	// before forwarding, but redaction is pattern-based and
+	// best-effort - strict environments should turn collection off
+	// entirely rather than trust it.
+	DisableLogCollection bool `yaml:"disableLogCollection"`
+	// DisableAnnotationSilences ignores the `alert-silence-until`
+	// pod annotation. Anyone with patch on a workload can otherwise
+	// silence its alerts; environments where workload authors must
+	// not control alerting set this.
+	DisableAnnotationSilences bool `yaml:"disableAnnotationSilences"`
+}
+
+// Channels provides the default Slack channel for each severity.
+type Channels struct {
+	Critical string `yaml:"critical"`
+	Warning  string `yaml:"warning"`
+	Info     string `yaml:"info"`
+}
+
+// Receiver controls the Alertmanager-compatible webhook endpoint.
+type Receiver struct {
+	Enabled        bool `yaml:"enabled"`
+	AllowAnonymous bool `yaml:"allowAnonymous"`
+}
+
+// Grouping controls how alert storms collapse into summaries.
+type Grouping struct {
+	Enabled       bool `yaml:"enabled"`
+	WindowSeconds int  `yaml:"windowSeconds"`
+	// By lists the alert fields forming the group identity.
+	// Defaults to kind, namespace, reason, severity.
+	By []string `yaml:"by"`
+}
+
+// Persistence configures the ConfigMap holding alert and delivery state.
+type Persistence struct {
+	Enabled bool `yaml:"enabled"`
+	// ConfigMapName defaults to DefaultStateConfigMap, and to
+	// "<default>-<shardIndex>" when sharding is enabled - see
+	// ApplyShardScope for why sharded replicas must not share one object.
+	ConfigMapName string `yaml:"configMapName"`
+	// Namespace defaults to the POD_NAMESPACE env var (set via the
+	// Downward API in the Helm chart).
+	Namespace string `yaml:"namespace"`
 }
 
 type Route struct {
@@ -308,117 +255,4 @@ type Escalation struct {
 	Match        map[string]string `yaml:"match"`
 	AfterMinutes int               `yaml:"afterMinutes"`
 	Sinks        []string          `yaml:"sinks"`
-}
-
-// Load reads YAML from path, then layers env-var fallbacks for legacy v1 keys.
-// A path that cannot be read is a hard error: silently booting on env
-// defaults because a ConfigMap mount is wrong gives an operator a
-// mis-routed controller with no signal.
-func Load(path string) (*Config, error) {
-	c := &Config{}
-	if path != "" {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read config %s: %w", path, err)
-		}
-		if err := yaml.Unmarshal(raw, c); err != nil {
-			return nil, fmt.Errorf("parse config %s: %w", path, err)
-		}
-	}
-	c.applyEnvDefaults()
-	if err := c.Validate(); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-// ParseAndValidate parses YAML config bytes and runs the same validation as
-// Load, without touching the filesystem. The read-only UI's POST
-// /api/config/validate uses it to give authors fast feedback on a candidate
-// config before they commit the change to Git/ConfigMap (Phase 1 authoring).
-// Env defaults are applied so the verdict matches a real Load.
-func ParseAndValidate(raw []byte) error {
-	c := &Config{}
-	if err := yaml.Unmarshal(raw, c); err != nil {
-		return fmt.Errorf("parse config: %w", err)
-	}
-	c.applyEnvDefaults()
-	return c.Validate()
-}
-
-func (c *Config) applyEnvDefaults() {
-	if c.Cluster == "" {
-		c.Cluster = os.Getenv("CLUSTER_NAME")
-	}
-	if c.Filters.WatchedNamespaces == "" {
-		c.Filters.WatchedNamespaces = os.Getenv("WATCHED_NAMESPACES")
-	}
-	if c.Filters.IgnoredNamespaces == "" {
-		c.Filters.IgnoredNamespaces = os.Getenv("IGNORED_NAMESPACES")
-	}
-	if c.Filters.WatchedPodNamePrefixes == "" {
-		c.Filters.WatchedPodNamePrefixes = os.Getenv("WATCHED_POD_NAME_PREFIXES")
-	}
-	if c.Filters.IgnoredPodNamePrefixes == "" {
-		c.Filters.IgnoredPodNamePrefixes = os.Getenv("IGNORED_POD_NAME_PREFIXES")
-	}
-	if c.Behavior.MuteSeconds == 0 {
-		c.Behavior.MuteSeconds = env.IntOr("MUTE_SECONDS", 600)
-	}
-	if c.Behavior.IgnoreRestartCount == 0 {
-		c.Behavior.IgnoreRestartCount = env.IntOr("IGNORE_RESTART_COUNT", 30)
-	}
-	if !c.Behavior.IgnoreRestartsWithExitCodeZero {
-		c.Behavior.IgnoreRestartsWithExitCodeZero = os.Getenv("IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO") == "true"
-	}
-	if c.Behavior.ResolveTTLSeconds == 0 {
-		c.Behavior.ResolveTTLSeconds = env.IntOr("RESOLVE_TTL_SECONDS", 600)
-	}
-	if c.Behavior.StartupGraceSeconds == 0 {
-		c.Behavior.StartupGraceSeconds = env.IntOr("STARTUP_GRACE_SECONDS", 0)
-	}
-	if c.Behavior.PVCPendingSeconds == 0 {
-		c.Behavior.PVCPendingSeconds = env.IntOr("PVC_PENDING_SECONDS", 300)
-	}
-	if c.Channels.Critical == "" {
-		c.Channels.Critical = env.Or("SLACK_CHANNEL_CRITICAL", "alerts-critical")
-	}
-	if c.Channels.Warning == "" {
-		c.Channels.Warning = env.Or("SLACK_CHANNEL_WARNING", env.Or("SLACK_CHANNEL", "alerts-warning"))
-	}
-	if c.Channels.Info == "" {
-		c.Channels.Info = env.Or("SLACK_CHANNEL_INFO", "alerts-info")
-	}
-	if c.MetricsAddr == "" {
-		c.MetricsAddr = env.Or("METRICS_ADDR", ":9090")
-	}
-	if c.APIAddr == "" {
-		// Empty stays empty (co-located) unless an address is supplied.
-		c.APIAddr = os.Getenv("ALERTKUBE_API_ADDR")
-	}
-	if c.Grouping.WindowSeconds == 0 {
-		c.Grouping.WindowSeconds = 30
-	}
-	if c.Persistence.ConfigMapName == "" {
-		c.Persistence.ConfigMapName = DefaultStateConfigMap
-	}
-	if c.Persistence.Namespace == "" {
-		c.Persistence.Namespace = os.Getenv("POD_NAMESPACE")
-	}
-	if c.AWS.Enabled {
-		if len(c.AWS.Regions) == 0 {
-			if r := os.Getenv("AWS_REGION"); r != "" {
-				c.AWS.Regions = []string{r}
-			}
-		}
-		if c.AWS.PollSeconds == 0 {
-			c.AWS.PollSeconds = env.IntOr("AWS_POLL_SECONDS", 60)
-		}
-	}
-	if c.Azure.Enabled && c.Azure.PollSeconds == 0 {
-		c.Azure.PollSeconds = env.IntOr("AZURE_POLL_SECONDS", 60)
-	}
-	if c.GCP.Enabled && c.GCP.PollSeconds == 0 {
-		c.GCP.PollSeconds = env.IntOr("GCP_POLL_SECONDS", 60)
-	}
 }

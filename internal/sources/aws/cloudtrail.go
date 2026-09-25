@@ -57,15 +57,15 @@ type cloudTrailSource struct {
 // newCloudTrailSource resolves the event-name set (curated default when empty)
 // and a lookback of 2x the poll interval so an event landing between polls is
 // still caught; EventId dedupe absorbs the resulting overlap.
-func newCloudTrailSource(regions []cloudTrailRegion, cfg *config.Config) *cloudTrailSource {
-	events := cfg.AWS.CloudTrailEvents
+func newCloudTrailSource(regions []cloudTrailRegion, cfg config.AWS) *cloudTrailSource {
+	events := cfg.CloudTrailEvents
 	if len(events) == 0 {
 		events = defaultCloudTrailEvents
 	}
 	return &cloudTrailSource{
 		regions:  regions,
 		events:   events,
-		lookback: time.Duration(2*cfg.AWS.PollSeconds) * time.Second,
+		lookback: time.Duration(2*cfg.PollSeconds) * time.Second,
 	}
 }
 

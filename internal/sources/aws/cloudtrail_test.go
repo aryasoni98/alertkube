@@ -137,8 +137,8 @@ func TestCloudTrailSourcePoll(t *testing.T) {
 }
 
 func TestNewCloudTrailSourceDefaults(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.AWS.PollSeconds = 60
+	cfg := config.AWS{}
+	cfg.PollSeconds = 60
 
 	src := newCloudTrailSource(nil, cfg)
 	if len(src.events) == 0 {
@@ -148,7 +148,7 @@ func TestNewCloudTrailSourceDefaults(t *testing.T) {
 		t.Fatalf("lookback = %v, want 2x poll interval (120s)", src.lookback)
 	}
 
-	cfg.AWS.CloudTrailEvents = []string{"CreateUser"}
+	cfg.CloudTrailEvents = []string{"CreateUser"}
 	if src2 := newCloudTrailSource(nil, cfg); len(src2.events) != 1 || src2.events[0] != "CreateUser" {
 		t.Errorf("explicit cloudtrailEvents override not honored: %v", src2.events)
 	}

@@ -22,7 +22,7 @@ type CronJobWatcher struct {
 }
 
 func NewCronJob(cfg *config.Config) *CronJobWatcher {
-	return &CronJobWatcher{ns: newNSFilter(cfg)}
+	return &CronJobWatcher{ns: newNSFilter(cfg.Filters)}
 }
 
 func (*CronJobWatcher) Name() string { return "cronjob" }

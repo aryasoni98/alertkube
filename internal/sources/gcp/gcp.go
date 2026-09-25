@@ -37,7 +37,9 @@ func init() {
 		Name:        provider,
 		Enabled:     func(c *config.Config) bool { return c.GCP.Enabled },
 		PollSeconds: func(c *config.Config) int { return c.GCP.PollSeconds },
-		Build:       NewProvider,
+		Build: func(ctx context.Context, c *config.Config) ([]sources.Source, error) {
+			return NewProvider(ctx, c.GCP)
+		},
 	})
 }
 
@@ -66,14 +68,14 @@ func (l *apiGKELister) List(ctx context.Context, project string) ([]*containerpb
 // client (and thus Application Default Credentials) cannot be initialized; the
 // caller logs it and continues without GCP so a cloud-auth problem never takes
 // down the Kubernetes watchers.
-func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
+func NewProvider(ctx context.Context, cfg config.GCP) ([]sources.Source, error) {
 	// One entry per service: its config toggle and the constructor for its API
 	// client plus the Source that polls with it. A disabled service builds nil
 	// - without touching credentials - and Compact drops it, so adding a
 	// service means adding one entry here and nothing else.
-	projects, g := cfg.GCP.Projects, cfg.GCP
+	projects := cfg.Projects
 	builders := []sourceBuilder{
-		buildProject(g.GKE, projects, func() (sources.Source, error) {
+		buildProject(cfg.GKE, projects, func() (sources.Source, error) {
 			client, err := container.NewClusterManagerClient(ctx)
 			if err != nil {
 				return nil, clientErr("cluster manager", err)
@@ -81,7 +83,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return newGKESource(projects, &apiGKELister{client: client}), nil
 		}),
 
-		buildProject(g.Monitoring, projects, func() (sources.Source, error) {
+		buildProject(cfg.Monitoring, projects, func() (sources.Source, error) {
 			client, err := monitoring.NewAlertPolicyClient(ctx)
 			if err != nil {
 				return nil, clientErr("alert policy", err)
@@ -89,7 +91,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return newMonitoringSource(projects, &apiPolicyLister{client: client}), nil
 		}),
 
-		buildProject(g.Compute, projects, func() (sources.Source, error) {
+		buildProject(cfg.Compute, projects, func() (sources.Source, error) {
 			svc, err := compute.NewService(ctx)
 			if err != nil {
 				return nil, clientErr("compute", err)
@@ -97,7 +99,7 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 			return newGCESource(projects, &apiGCELister{svc: svc}), nil
 		}),
 
-		buildProject(g.CloudSQL, projects, func() (sources.Source, error) {
+		buildProject(cfg.CloudSQL, projects, func() (sources.Source, error) {
 			svc, err := sqladmin.NewService(ctx)
 			if err != nil {
 				return nil, clientErr("sqladmin", err)
