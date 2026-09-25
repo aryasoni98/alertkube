@@ -99,3 +99,18 @@ func TestGroupKeyStable(t *testing.T) {
 		t.Fatalf("GroupKey is order-dependent: %q vs %q", k1, k2)
 	}
 }
+
+func TestGroupKeyKeepsFieldsAndValuesDistinct(t *testing.T) {
+	for _, tc := range []struct {
+		left, right map[string]string
+	}{
+		{map[string]string{"a": "x", "b": "y"}, map[string]string{"a": "y", "b": "x"}},
+		{map[string]string{"a": "x|y", "b": "z"}, map[string]string{"a": "x", "b": "y|z"}},
+		{map[string]string{"a": "x&b=y", "b": "z"}, map[string]string{"a": "x", "b": "y&b=z"}},
+	} {
+		a, b := &Alert{Labels: tc.left}, &Alert{Labels: tc.right}
+		if a.GroupKey([]string{"a", "b"}) == b.GroupKey([]string{"a", "b"}) {
+			t.Errorf("distinct alerts share a group key: %v and %v", tc.left, tc.right)
+		}
+	}
+}

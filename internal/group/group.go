@@ -8,6 +8,7 @@ package group
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +16,8 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
-// DefaultBy is the group identity when config does not override it.
-var DefaultBy = []string{"kind", "namespace", "reason", "severity"}
+// defaultBy is the group identity when config does not override it.
+var defaultBy = []string{"kind", "namespace", "reason", "severity"}
 
 // memberListCap bounds how many member names a summary's text lists.
 const memberListCap = 10
@@ -38,8 +39,9 @@ type Grouper struct {
 }
 
 type bucket struct {
-	first    *alert.Alert
+	first    alert.Alert
 	members  []string
+	count    int
 	deadline time.Time
 }
 
@@ -47,11 +49,11 @@ type bucket struct {
 // without the Grouper lock held.
 func New(window time.Duration, by []string, flush func(*alert.Alert)) *Grouper {
 	if len(by) == 0 {
-		by = DefaultBy
+		by = defaultBy
 	}
 	return &Grouper{
 		window:  window,
-		by:      by,
+		by:      slices.Clone(by),
 		flush:   flush,
 		buckets: map[string]*bucket{},
 	}
@@ -78,21 +80,27 @@ func (g *Grouper) Offer(a *alert.Alert) bool {
 		return true
 	}
 	b, ok := g.buckets[key]
-	if ok && now.After(b.deadline) {
-		// Window closed but the flusher has not run yet: flush the old
-		// bucket inline and let this alert open (and lead) a new window.
-		delete(g.buckets, key)
-		g.buckets[key] = &bucket{first: a, deadline: now.Add(g.window)}
+	if !ok || now.After(b.deadline) {
+		// Retain only the summary's identity; no caller-owned maps or logs.
+		g.buckets[key] = &bucket{
+			first: alert.Alert{
+				Kind: a.Kind, Namespace: a.Namespace, Name: a.Name,
+				Reason: a.Reason, Severity: a.Severity, Cluster: a.Cluster,
+				Resolved: a.Resolved,
+			},
+			deadline: now.Add(g.window),
+		}
 		g.mu.Unlock()
-		g.emitSummary(b)
+		if ok {
+			// The old window expired before the flusher ran.
+			g.emitSummary(b)
+		}
 		return true
 	}
-	if !ok {
-		g.buckets[key] = &bucket{first: a, deadline: now.Add(g.window)}
-		g.mu.Unlock()
-		return true
+	b.count++
+	if len(b.members) < memberDetailCap {
+		b.members = append(b.members, a.Namespace+"/"+a.Name)
 	}
-	b.members = append(b.members, a.Namespace+"/"+a.Name)
 	g.mu.Unlock()
 	return false
 }
@@ -151,7 +159,7 @@ func (g *Grouper) FlushAll() {
 // absorptions produces nothing - the pass-through alert already told the
 // whole story.
 func (g *Grouper) emitSummary(b *bucket) {
-	n := len(b.members)
+	n := b.count
 	if n == 0 {
 		return
 	}
@@ -168,17 +176,13 @@ func (g *Grouper) emitSummary(b *bucket) {
 	listed := b.members
 	suffix := ""
 	if len(listed) > memberListCap {
-		suffix = fmt.Sprintf(" (+%d more)", len(listed)-memberListCap)
+		suffix = fmt.Sprintf(" (+%d more)", n-memberListCap)
 		listed = listed[:memberListCap]
 	}
 	s.Summary = fmt.Sprintf("%d more %s %s alert(s) %s within %s of %s/%s: %s%s",
 		n, f.Kind, f.Reason, verb, g.window, f.Namespace, f.Name, strings.Join(listed, ", "), suffix)
 
-	detail := b.members
-	if len(detail) > memberDetailCap {
-		detail = detail[:memberDetailCap]
-	}
-	s.Details["Grouped Resources"] = strings.Join(detail, "\n")
+	s.Details["Grouped Resources"] = strings.Join(b.members, "\n")
 
 	g.flush(s)
 }

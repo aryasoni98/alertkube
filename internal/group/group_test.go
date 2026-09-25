@@ -139,3 +139,29 @@ func TestMemberListCapped(t *testing.T) {
 		t.Fatalf("details list = %d lines, want 30", got)
 	}
 }
+
+func TestStormBoundsRetainedMembersAndPreservesSummary(t *testing.T) {
+	s := &sink{}
+	g := New(time.Hour, nil, s.flush)
+	first := podAlert("lead")
+	g.Offer(first)
+	for range 10000 {
+		g.Offer(podAlert("member"))
+	}
+	for _, b := range g.buckets {
+		if len(b.members) > memberDetailCap {
+			t.Errorf("storm retained %d member names; summary only needs %d", len(b.members), memberDetailCap)
+		}
+	}
+	// The delivery copy can change after Offer without changing this window.
+	first.Name = "changed"
+	first.Resolved = true
+	g.FlushAll()
+	sum := s.alerts()[0]
+	if !strings.Contains(sum.Summary, "10000 more") || !strings.Contains(sum.Summary, "+9990 more") || !strings.Contains(sum.Summary, "of ns/lead:") || sum.Resolved {
+		t.Fatalf("storm summary lost its count or identity: %q", sum.Summary)
+	}
+	if got := strings.Count(sum.Details["Grouped Resources"], "\n") + 1; got != memberDetailCap {
+		t.Fatalf("details list = %d, want %d", got, memberDetailCap)
+	}
+}

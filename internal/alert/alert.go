@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -333,17 +333,15 @@ func cacheRegex(pattern string, re *regexp.Regexp) {
 	regexCache[pattern] = re
 }
 
-// GroupKey builds a stable key for grouping alerts together. The values are
-// sorted (not joined in `by` order) on purpose: it makes the key independent
-// of how the `by` list is ordered in config, so reordering `by` does not
-// silently split previously-grouped alerts. Do not "simplify" the sort away.
+// GroupKey includes field names and escapes values so swapped fields or
+// embedded separators cannot merge unrelated alerts. Encoding sorts the keys,
+// keeping group identity independent of the order of `by` in config.
 func (a *Alert) GroupKey(by []string) string {
-	parts := make([]string, 0, len(by))
+	fields := make(url.Values, len(by))
 	for _, k := range by {
-		parts = append(parts, a.FieldValue(k))
+		fields.Set(k, a.FieldValue(k))
 	}
-	sort.Strings(parts)
-	return strings.Join(parts, "|")
+	return fields.Encode()
 }
 
 func (a *Alert) String() string {
