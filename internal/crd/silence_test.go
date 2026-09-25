@@ -10,13 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	"github.com/aryasoni98/alertkube/api/v1alpha1"
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // newScheme returns a runtime.Scheme that maps the Silence GVR to a list kind so
 // the dynamic fake informer can list it.
 func newFakeClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
-	gvr := SilenceGVR
+	gvr := v1alpha1.SilenceGVR
 	listKinds := map[schema.GroupVersionResource]string{
 		gvr: "SilenceList",
 	}
@@ -36,7 +39,7 @@ func silenceCR(name string, matchers map[string]string, until string) *unstructu
 		spec["until"] = until
 	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": Group + "/" + Version,
+		"apiVersion": v1alpha1.GroupVersion.String(),
 		"kind":       "Silence",
 		"metadata":   map[string]interface{}{"name": name, "namespace": "default"},
 		"spec":       spec,
@@ -99,7 +102,7 @@ func TestSyncerReflectsAddDelete(t *testing.T) {
 	}
 
 	// Create a CR via the dynamic client; the informer should pick it up.
-	gvr := SilenceGVR
+	gvr := v1alpha1.SilenceGVR
 	_, err := client.Resource(gvr).Namespace("default").Create(ctx,
 		silenceCR("live", map[string]string{"namespace": "prod"}, future()),
 		metav1.CreateOptions{})
@@ -116,6 +119,28 @@ func TestSyncerReflectsAddDelete(t *testing.T) {
 	}
 	if !waitFor(func() bool { return len(store.List()) == 0 }, 2*time.Second) {
 		t.Fatalf("store should reflect the deleted CR, got %d", len(store.List()))
+	}
+}
+
+func TestSilenceStoreOwnsMatchers(t *testing.T) {
+	store := NewSilenceStore()
+	input := []config.Silence{{Matchers: map[string]string{"namespace": "prod"}, Until: future()}}
+	store.replace(input)
+	input[0].Matchers["namespace"] = "changed"
+	if store.List()[0].Matchers["namespace"] != "prod" {
+		t.Fatal("cached CRD silence shares input matchers")
+	}
+	store.List()[0].Matchers["namespace"] = "changed"
+	if store.List()[0].Matchers["namespace"] != "prod" {
+		t.Fatal("cached CRD silence shares returned matchers")
+	}
+}
+
+func TestSyncerCancelledBeforeSync(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := NewSyncer(newFakeClient(), NewSilenceStore(), "").Run(ctx); err != nil {
+		t.Fatalf("normal shutdown reported a CRD failure: %v", err)
 	}
 }
 

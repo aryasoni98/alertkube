@@ -13,13 +13,13 @@ package crd
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
@@ -28,17 +28,6 @@ import (
 	"github.com/aryasoni98/alertkube/api/v1alpha1"
 	"github.com/aryasoni98/alertkube/internal/config"
 )
-
-// Group/version/resource for the Silence CRD. The resource (plural, lowercase)
-// must match the CRD's spec.names.plural.
-const (
-	Group    = "alertkube.io"
-	Version  = "v1alpha1"
-	Resource = "silences"
-)
-
-// SilenceGVR is the GroupVersionResource the dynamic informer watches.
-var SilenceGVR = schema.GroupVersionResource{Group: Group, Version: Version, Resource: Resource}
 
 // SilenceStore holds the current set of Silence CRs as config.Silence values
 // (matchers + RFC3339 until), so the router consults them with the exact same
@@ -55,6 +44,7 @@ func NewSilenceStore() *SilenceStore { return &SilenceStore{} }
 
 // replace swaps the cached set. Called by the syncer on every informer event.
 func (s *SilenceStore) replace(items []config.Silence) {
+	items = cloneSilences(items)
 	sort.Slice(items, func(i, j int) bool { return items[i].Until < items[j].Until })
 	s.mu.Lock()
 	s.items = items
@@ -66,8 +56,15 @@ func (s *SilenceStore) replace(items []config.Silence) {
 func (s *SilenceStore) List() []config.Silence {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]config.Silence, len(s.items))
-	copy(out, s.items)
+	return cloneSilences(s.items)
+}
+
+func cloneSilences(items []config.Silence) []config.Silence {
+	out := make([]config.Silence, len(items))
+	copy(out, items)
+	for i := range out {
+		out[i].Matchers = maps.Clone(out[i].Matchers)
+	}
 	return out
 }
 
@@ -102,7 +99,7 @@ func NewSyncer(client dynamic.Interface, store *SilenceStore, namespace string) 
 // Returns an error only if the initial cache sync fails (almost always a missing
 // CRD or missing RBAC), which the caller logs before continuing without CRDs.
 func (s *Syncer) Run(ctx context.Context) error {
-	inf := s.factory.ForResource(SilenceGVR).Informer()
+	inf := s.factory.ForResource(v1alpha1.SilenceGVR).Informer()
 	rebuild := func(any) { s.store.replace(snapshot(inf.GetStore().List())) }
 	if _, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    rebuild,
@@ -112,7 +109,12 @@ func (s *Syncer) Run(ctx context.Context) error {
 		return fmt.Errorf("add silence informer handler: %w", err)
 	}
 	s.factory.Start(ctx.Done())
-	for gvr, ok := range s.factory.WaitForCacheSync(ctx.Done()) {
+	defer s.factory.Shutdown()
+	synced := s.factory.WaitForCacheSync(ctx.Done())
+	if ctx.Err() != nil {
+		return nil
+	}
+	for gvr, ok := range synced {
 		if !ok {
 			return fmt.Errorf("silence informer cache for %v did not sync (is the CRD installed and RBAC granted?)", gvr)
 		}

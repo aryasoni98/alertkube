@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -63,7 +64,7 @@ func (s *s3Source) evaluateBucket(ctx context.Context, name string, emit sources
 	case isPublic:
 		emitFiring(emit, alert.KindS3Bucket, s3Scope, name, "S3BucketPublic",
 			"S3 bucket "+name+" is publicly accessible via its bucket policy", alert.SeverityCritical,
-			map[string]string{"publicAccessBlock": boolStr(blocked)})
+			map[string]string{"publicAccessBlock": strconv.FormatBool(blocked)})
 	case !blocked:
 		emitFiring(emit, alert.KindS3Bucket, s3Scope, name, "S3BucketPublicAccessNotBlocked",
 			"S3 bucket "+name+" does not fully enable the public-access block", alert.SeverityWarning,
@@ -117,11 +118,4 @@ func (s *s3Source) publicAccessBlocked(ctx context.Context, bucket string) (bloc
 func isAPIErrCode(err error, code string) bool {
 	var ae smithy.APIError
 	return errors.As(err, &ae) && ae.ErrorCode() == code
-}
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
 }
