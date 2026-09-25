@@ -158,6 +158,6 @@ just version-check  # manifest ↔ helm ↔ landing page drift gate
 
 Releases use [release-please](https://github.com/googleapis/release-please) + Conventional Commits. After a version bump, run `just sync-version` to propagate the manifest to the Helm chart, landing page, README, and the docs manual.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), [ADOPTERS.md](ADOPTERS.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, [GOVERNANCE.md](GOVERNANCE.md), [code owners](.github/CODEOWNERS), [ADOPTERS.md](ADOPTERS.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
 
 Apache-2.0 · [LICENSE](LICENSE)

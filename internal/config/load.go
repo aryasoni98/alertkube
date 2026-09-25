@@ -32,9 +32,8 @@ func Load(path string) (*Config, error) {
 }
 
 // ParseAndValidate parses YAML config bytes and runs the same validation as
-// Load, without touching the filesystem. The read-only UI's POST
-// /api/config/validate uses it to give authors fast feedback on a candidate
-// config before they commit the change to Git/ConfigMap (Phase 1 authoring).
+// Load, without touching the filesystem. POST /api/v1/config/validate uses it
+// to check candidate configuration before it is committed to Git/ConfigMap.
 // Env defaults are applied so the verdict matches a real Load.
 func ParseAndValidate(raw []byte) error {
 	c := &Config{}

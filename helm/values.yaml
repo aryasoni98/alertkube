@@ -227,14 +227,14 @@ receiver:
 # bearer auth; left empty the endpoint is open, so restrict the metrics port
 # with networkPolicy instead.
 api:
-  # -- Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET, console data) (inline; prefer the Secret ref).
+  # -- Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET) (inline; prefer the Secret ref).
   token: ""
   # -- Secret reference for the API (read) token (`{key, name}`).
   tokenSecretKeyRef: {}
     # key: apiToken
     # name: alertkube-api
   # -- Optional SEPARATE bearer token enabling runtime WRITES (create/delete
-  # silences from the console). Leave empty to keep the controller read-only:
+  # silences through the API). Leave empty to keep the controller read-only:
   # write endpoints fail closed (403) until this is set. Inline; prefer the ref.
   writeToken: ""
   # -- Secret reference for the API write token (`{key, name}`).
@@ -247,14 +247,14 @@ api:
   # binds the controller SA to system:auth-delegator; grant END USERS access with
   # a Role on apiGroups:["alertkube.io"] resources:["silences","channels"].
   authMode: token
-  # -- Opt-in (Phase 2b): allow the console to TEST a channel whose credential
+  # -- Allow the API to test a channel whose credential
   # lives in a Kubernetes Secret. Enabling this grants the controller `secrets:
   # get` in its OWN namespace (a Role, not cluster-wide) and is the one place the
   # zero-secrets-read posture bends. Off by default; the secret value is read at
   # send-time only and never returned to the client. Leave false unless you need
-  # in-UI channel credential validation.
+  # channel credential validation through the API.
   allowSecretRead: false
-  # -- Accept an UNAUTHENTICATED read API (/api/v1/alerts + console data) when no
+  # -- Accept an UNAUTHENTICATED read API (alerts, config, silences) when no
   # api.token and no networkPolicy are set. The chart fails closed by default:
   # an install with neither a token nor a NetworkPolicy is rejected unless this
   # is explicitly true, so an open introspection surface is always a deliberate

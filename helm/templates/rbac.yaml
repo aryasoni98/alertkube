@@ -192,7 +192,7 @@ subjects:
 {{- end }}
 {{- if .Values.api.allowSecretRead }}
 ---
-# Phase 2b opt-in: the console can test a channel whose credential lives in a
+# Opt-in: the API can test a channel whose credential lives in a
 # Secret. This grants the controller `get` on secrets in ITS OWN namespace only
 # (a Role, never cluster-wide, never list/watch). It is the single place the
 # zero-secrets-read posture bends and is off unless api.allowSecretRead=true.
@@ -224,7 +224,7 @@ subjects:
 {{- end }}
 {{- if eq .Values.api.authMode "rbac" }}
 ---
-# Delegated authn/authz for console writes. In api.authMode=rbac the controller
+# Delegated authn/authz for API writes. In api.authMode=rbac the controller
 # validates each write request's bearer token with TokenReview and checks the
 # caller's RBAC with SubjectAccessReview. The built-in system:auth-delegator
 # ClusterRole grants exactly `create` on tokenreviews + subjectaccessreviews -

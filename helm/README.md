@@ -8,14 +8,20 @@ optional Prometheus Operator integration.
 
 ## Install
 
+Create `alertkube-api` with key `token` and `alertkube-slack` with key
+`webhookUrl` in the release namespace, then reference those Secrets:
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
   --version 1.2.1 \
   --set cluster=my-cluster \
-  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
+  --set slack.webhookUrlSecretKeyRef.name=alertkube-slack \
+  --set slack.webhookUrlSecretKeyRef.key=webhookUrl
 ```
 
-Or from a git checkout: `helm upgrade --install alertkube ./helm --set cluster=...`.
+From a git checkout, use `./helm` as the chart path and omit `--version`.
 
 ### Sinks
 
@@ -29,7 +35,10 @@ Set the credential for each sink you use (inline or via `*SecretKeyRef`):
 | Opsgenie | `opsgenie.apiKey` (+ `opsgenie.apiUrl` for EU) |
 | Discord | `discord.webhookUrl` |
 | Telegram | `telegram.botToken` + `telegram.chatId` |
+| Google Chat | `googlechat.webhookUrl` |
+| Mattermost | `mattermost.webhookUrl` |
 | Generic webhook | `genericWebhook.url` (+ `genericWebhook.signingSecret` for HMAC) |
+| stdout | No credential; route to the `stdout` sink for local testing |
 
 Routing, inhibitions, silences, severity overrides, and escalations are set under
 `routing:`, `inhibitions:`, `silences:`, `severityOverrides:`, `escalations:` and
@@ -47,12 +56,12 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
-| api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
-| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/v1/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
+| api.allowSecretRead | bool | `false` | Allow the API to test a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need channel credential validation through the API. |
+| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (alerts, config, silences) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
 | api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
-| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET, console data) (inline; prefer the Secret ref). |
+| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET) (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
-| api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences from the console). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
+| api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences through the API). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
 | api.writeTokenSecretKeyRef | object | `{}` | Secret reference for the API write token (`{key, name}`). |
 | automountServiceAccountToken | bool | `true` | Mount the ServiceAccount API token into the pod. |
 | aws.acm | bool | `false` | Alert on ACM certificates that are unusable or expiring within 30 days. |

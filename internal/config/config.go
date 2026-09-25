@@ -34,7 +34,7 @@ type Config struct {
 	// lifetime. Match semantics are the same as routing rules.
 	Escalations []Escalation `yaml:"escalations"`
 
-	// Receiver exposes POST /api/v1/alerts on the metrics address,
+	// Receiver exposes POST /api/v1/receiver/alerts on the API address,
 	// accepting Alertmanager webhook payloads and running them through
 	// the same dedupe/grouping/routing/sink pipeline. Bearer auth via the
 	// ALERTKUBE_RECEIVER_TOKEN env var; without a token the endpoint accepts
@@ -45,11 +45,11 @@ type Config struct {
 
 	MetricsAddr string `yaml:"metricsAddr"`
 
-	// APIAddr optionally serves the sensitive data plane (/api/*, the console
-	// SPA, and the Alertmanager receiver) on a SEPARATE listen address from
+	// APIAddr optionally serves the sensitive data plane (the control API
+	// and Alertmanager receiver) on a separate listen address from
 	// MetricsAddr, which then serves only /metrics + the health probes. This
 	// lets an operator expose the metrics/probe port for scraping and kubelet
-	// probes while firewalling the data/console/receiver port with a
+	// probes while firewalling the data/receiver port with a
 	// NetworkPolicy. Empty (default) co-locates everything on MetricsAddr, the
 	// original single-port behavior.
 	APIAddr string `yaml:"apiAddr"`
@@ -91,8 +91,8 @@ type Config struct {
 	// Derived) through the same dedupe/route/group/sink pipeline.
 	Rules []Rule `yaml:"rules"`
 
-	// Correlation configures the topology-aware alert correlation engine
-	// (internal/correlate). Disabled by default.
+	// Correlation reserves configuration for the planned topology-aware engine.
+	// It is not wired into the controller yet; retained for config compatibility.
 	Correlation Correlation `yaml:"correlation"`
 
 	// Maintenance windows suppress matching alerts on a recurring daily

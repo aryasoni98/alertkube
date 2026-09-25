@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"sync"
@@ -61,7 +62,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	// so a slow sink can never stall Kubernetes event processing.
 	disp := newDispatcher(reg, dispatchWorkers(), dispatchQueueSize())
 	// Capture permanently-abandoned deliveries (exhausted resolves, failed
-	// fire-once alerts) so they surface on /api/deadletter + the metric instead
+	// fire-once alerts) so they surface on /api/v1/deadletter + the metric instead
 	// of vanishing into a log line.
 	deadLetter := newDeadLetterLog()
 	disp.SetDeadLetter(deadLetter.Record)
@@ -69,7 +70,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 
 	crdSyncer := setupCRDSilences(dynClient, watchNamespace, r)
 
-	// Runtime silences: time-boxed mutes created from the console without a
+	// Runtime silences: time-boxed mutes created through the API without a
 	// redeploy. Persisted into the state ConfigMap (below) so they survive a
 	// leader failover, and consulted by the router alongside config silences.
 	silStore := silence.NewStore()
@@ -320,14 +321,15 @@ func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, d
 		return
 	}
 	receiverToken := os.Getenv("ALERTKUBE_RECEIVER_TOKEN")
+	endpoint := cmp.Or(cfg.APIAddr, cfg.MetricsAddr) + metrics.APIPrefix + "/receiver/alerts"
 	switch {
 	case receiverToken == "" && !cfg.Receiver.AllowAnonymous:
-		// Fail closed: an open POST /api/v1/alerts lets anyone with
+		// Fail closed: an open receiver endpoint lets anyone with
 		// network reach inject arbitrary alerts (and resolves that close
 		// real incidents). Require an explicit opt-in to run without auth.
-		klog.Fatalf("receiver.enabled but no bearer token: POST /api/v1/alerts on %s would accept unauthenticated alert injection. Set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token), or set receiver.allowAnonymous: true if the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+		klog.Fatalf("receiver.enabled but no bearer token: POST %s would accept unauthenticated alert injection. Set ALERTKUBE_RECEIVER_TOKEN (helm: receiver.token), or set receiver.allowAnonymous: true if the port is restricted by a NetworkPolicy", endpoint)
 	case receiverToken == "":
-		klog.Warningf("receiver enabled with receiver.allowAnonymous: POST /api/v1/alerts on %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", cfg.MetricsAddr)
+		klog.Warningf("receiver enabled with receiver.allowAnonymous: POST %s accepts UNAUTHENTICATED alert injection - ensure the port is restricted by a NetworkPolicy", endpoint)
 	}
 	metrics.ReceiverHandler.Set(receiver.New(
 		receiverToken,
@@ -339,7 +341,7 @@ func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, d
 			dispatchResolved(a)
 		},
 	))
-	klog.Infof("alertmanager-compatible receiver enabled on %s/api/v1/alerts", cfg.MetricsAddr)
+	klog.Infof("alertmanager-compatible receiver enabled on %s", endpoint)
 }
 
 // startInformers builds the shared informer factory, wires every watcher,
@@ -377,12 +379,12 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 	return ws, factory.Shutdown
 }
 
-// shutdown runs the controller's drain sequence in the one order that does
-// not drop alerts: join informer callbacks, then finish in-flight pod enrichment
+// shutdown clears leader handlers and readiness, then drains producers:
+// join informer callbacks, then finish in-flight pod enrichment
 // (those alerts must reach the store and grouper), then flush open grouping
 // windows, wait for the sweeper + grouper goroutines, drain the dispatch queue
 // so every enqueued alert is actually delivered, save final state on a fresh
-// deadline (ctx is already cancelled), and finally mark not-ready.
+// deadline (ctx is already cancelled).
 //
 // The dispatcher is drained after wg.Wait so every producer (enrichment,
 // grouper flush, sweeper escalations, cloud sources, rules) has stopped
@@ -392,7 +394,7 @@ func shutdown(ws []watchers.Watcher, stopInformers, grouperStop func(), wg *sync
 	// Stop serving the leader-scoped routes first. The HTTP server outlives
 	// leader election, so a demoted leader would otherwise keep accepting
 	// receiver POSTs (202) into the store we are about to abandon - silently
-	// dropping them - and keep dumping a stale active set on /api/alerts.
+	// dropping them - and keep dumping a stale active set on /api/v1/alerts.
 	// 503 makes both fail loudly until the next leader reinstalls them.
 	metrics.ClearLeaderHandlers()
 	metrics.MarkNotReady()

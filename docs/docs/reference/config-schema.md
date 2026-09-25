@@ -23,7 +23,7 @@ hard error - the controller does not boot on env defaults alone.
 | --- | --- | --- | --- | --- | --- |
 | `cluster` | string | `""` | `CLUSTER_NAME` | - | Cluster name rendered into every alert. |
 | `metricsAddr` | string | `:9090` | `METRICS_ADDR` | - | Listen address for `/metrics`, `/healthz`, `/readyz`, and (when co-located) the data plane. |
-| `apiAddr` | string | `""` | `ALERTKUBE_API_ADDR` | - | Optional SEPARATE listen address for the sensitive data plane (`/api/*`, console, receiver). Empty co-locates everything on `metricsAddr`; set it to firewall the data port independently of `/metrics` + probes. |
+| `apiAddr` | string | `""` | `ALERTKUBE_API_ADDR` | - | Optional separate listen address for the control API and receiver. Empty co-locates everything on `metricsAddr`; set it to firewall the data port independently of `/metrics` + probes. |
 
 ### Runtime tuning & scaling (environment only)
 

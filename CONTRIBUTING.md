@@ -39,16 +39,17 @@ go run ./cmd/alertkube
 ## Add a Watcher
 
 1. Create `internal/watchers/<kind>.go` (use `newSimple` if evaluation only needs the latest object state).
-2. Register in `buildWatchers` in `builders.go`.
+2. Call `Register` from the watcher's `init` function, as in `internal/watchers/deployment.go`. The shared builder applies `Opts` at startup.
 3. Add RBAC rules in `helm/templates/rbac.yaml` if a new API resource.
 4. Add table-driven tests in `internal/watchers/<kind>_test.go`.
 
 ## Add a Sink
 
 1. Create `internal/sinks/<name>.go`.
-2. Register in `buildSinks` in `builders.go`.
-3. Add Helm values and Secret wiring in `helm/`.
-4. Document env vars in the README.
+2. Call `Register` from the sink's `init` function, as in `internal/sinks/googlechat.go`. Reuse `webhookSink` when only the payload format differs.
+3. Add the routing name to `config.KnownSinks`; `TestKnownSinksMatchesRegistry` checks that validation and registration agree.
+4. Add Helm values and Secret wiring in `helm/`, and document the environment variables.
+5. Add payload and delivery tests, including escaping and credential handling where applicable.
 
 ## Commit Messages
 
@@ -63,7 +64,7 @@ alertkube uses [Conventional Commits](https://www.conventionalcommits.org/) for 
 Signed-off-by: Your Name <you@example.com>
 ```
 
-Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`. Scopes mirror [areas](MAINTAINERS.md#areas), e.g. `feat(sinks): add Google Chat sink`. Breaking changes use `!` or a `BREAKING CHANGE:` footer.
+Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`. Scopes mirror [code ownership areas](.github/CODEOWNERS), e.g. `feat(sinks): add Google Chat sink`. Breaking changes use `!` or a `BREAKING CHANGE:` footer.
 
 ## DCO
 

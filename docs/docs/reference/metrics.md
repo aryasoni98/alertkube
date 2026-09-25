@@ -32,7 +32,7 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `alertkube_cloud_poll_truncated_total` | counter | `source` | Cloud polls that hit a pagination cap and dropped remaining items (e.g. CloudTrail's per-event page limit). |
 | `alertkube_state_snapshot_bytes` | gauge | - | Size of the last (compressed) state snapshot serialized for persistence. Watch against the ConfigMap object limit. |
 | `alertkube_state_save_skipped_total` | counter | - | State saves skipped because the compressed snapshot exceeded the size guard. Non-zero means persisted state is going stale. |
-| `alertkube_runtime_mutations_total` | counter | `action` | Control-plane writes via the console API (silence create/delete, channel test), by action. |
+| `alertkube_runtime_mutations_total` | counter | `action` | Control API writes (silence create/delete, channel test), by action. |
 
 !!! note "`alertkube_sink_send_seconds` is a histogram"
     It exposes the standard Prometheus histogram series:
@@ -71,7 +71,7 @@ Served on `metricsAddr`. Server timeouts: 5s read-header, 10s read, 10s write,
     all. Until each handler is installed, its route returns `503`.
 
 !!! tip "Splitting the sensitive data plane onto its own port"
-    Set `apiAddr` (env `ALERTKUBE_API_ADDR`) to serve `/api/*`, the console, and
+    Set `apiAddr` (env `ALERTKUBE_API_ADDR`) to serve the control API and
     the receiver on a **separate** listener from `/metrics` + the probes, so the
     metrics/probe port can stay open for scraping while the data port is
     firewalled with a NetworkPolicy. Empty (default) co-locates everything on

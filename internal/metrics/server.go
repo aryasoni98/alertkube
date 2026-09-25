@@ -10,17 +10,15 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// ready is flipped to true once the informer caches have synced.
-// /readyz returns 503 until then so the kubelet does not declare the
-// pod Ready while the controller is still blind.
+// ready is true for a synced controller or a hot-standby election follower.
+// A new leader clears it while its informer caches sync. Followers stay ready
+// so a rolling update can replace the old leader; their data handlers return 503.
 var ready atomic.Bool
 
-// MarkReady signals that the controller has finished its initial sync
-// and may receive traffic.
+// MarkReady signals a synced controller or a healthy election follower.
 func MarkReady() { ready.Store(true) }
 
-// MarkNotReady flips readiness back to false. Used by leader election
-// when a follower has not yet acquired the lease, or after lease loss.
+// MarkNotReady clears readiness during controller startup or shutdown.
 func MarkNotReady() { ready.Store(false) }
 
 // Liveness heartbeat. /healthz is not a static 200: a static probe cannot
@@ -84,13 +82,13 @@ const (
 	readTimeout       = 10 * time.Second
 	// writeTimeout is the connection-level write ceiling. It is deliberately
 	// generous: it must cover the slowest *legitimate* response, which is a
-	// high-cardinality /metrics scrape or a full /api/alerts dump (200 recent
+	// high-cardinality /metrics scrape or a full /api/v1/alerts dump (200 recent
 	// + every active alert). A tight value here silently truncates those.
 	// Fast routes are bounded separately (receiverWriteTimeout) so this
 	// generous ceiling does not let the receiver POST hog a connection.
 	writeTimeout = 30 * time.Second
 	idleTimeout  = 60 * time.Second
-	// receiverWriteTimeout bounds /api/v1/alerts below the server-wide
+	// receiverWriteTimeout bounds /api/v1/receiver/alerts below the server-wide
 	// writeTimeout. The receiver returns a small 202, but emit() dispatches
 	// synchronously, so without this a large batch could occupy a connection
 	// for the full writeTimeout; http.TimeoutHandler returns 503 cleanly
