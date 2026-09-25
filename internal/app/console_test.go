@@ -18,6 +18,7 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 	"github.com/aryasoni98/alertkube/internal/authz"
 	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/internal/metrics"
 	"github.com/aryasoni98/alertkube/internal/silence"
 	"github.com/aryasoni98/alertkube/internal/sinks"
 )
@@ -42,13 +43,13 @@ func TestDeadLetterHandler(t *testing.T) {
 
 	// No token -> 401.
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/deadletter", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/deadletter", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: got %d, want 401", rec.Code)
 	}
 	// With token -> 200 and the recorded entry.
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/deadletter", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deadletter", nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -123,19 +124,95 @@ func do(h http.Handler, method, path, bearer, body string) *httptest.ResponseRec
 
 func futureRFC3339() string { return time.Now().Add(time.Hour).Format(time.RFC3339) }
 
+// Exercise the installed handlers through the production mux: testing each in
+// isolation previously missed disagreements over the versioned URL prefix.
+func TestConsoleRoutesThroughServer(t *testing.T) {
+	d, sil, sink := testDeps("read-secret", "write-secret", nil)
+	installConsoleHandlers(d)
+	t.Cleanup(metrics.ClearLeaderHandlers)
+	srv := metrics.Serve("127.0.0.1:0", "")[0]
+	t.Cleanup(func() { _ = srv.Close() })
+	for _, prefix := range []string{"/api/v1", "/api"} {
+		t.Run(prefix, func(t *testing.T) {
+			request := func(method, path, token, body string) *httptest.ResponseRecorder {
+				rec := do(srv.Handler, method, prefix+path, token, body)
+				if prefix == "/api" {
+					if rec.Code != http.StatusPermanentRedirect || rec.Header().Get("Location") != "/api/v1"+path {
+						t.Fatalf("legacy %s %s: status=%d location=%q", method, path, rec.Code, rec.Header().Get("Location"))
+					}
+					rec = do(srv.Handler, method, rec.Header().Get("Location"), token, body)
+				}
+				return rec
+			}
+			if rec := request(http.MethodGet, "/channels", "", ""); rec.Code != http.StatusUnauthorized {
+				t.Fatalf("channel read without token: %d", rec.Code)
+			}
+			if rec := request(http.MethodGet, "/channels", "read-secret", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "slack") {
+				t.Fatalf("channel list: %d %s", rec.Code, rec.Body.String())
+			}
+			before := sink.got
+			if rec := request(http.MethodPost, "/channels/test", "write-secret", `{"sink":"slack"}`); rec.Code != http.StatusOK || sink.got != before+1 {
+				t.Fatalf("channel test: %d %s; sends=%d", rec.Code, rec.Body.String(), sink.got-before)
+			}
+			if rec := request(http.MethodPost, "/channels/test-ref", "write-secret", `{}`); rec.Code != http.StatusForbidden {
+				t.Fatalf("disabled secret test: %d %s", rec.Code, rec.Body.String())
+			}
+			rec := request(http.MethodPost, "/silences", "write-secret", `{"matchers":{"namespace":"prod"},"until":"`+futureRFC3339()+`"}`)
+			var created silence.Silence
+			if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || rec.Code != http.StatusCreated || created.ID == "" {
+				t.Fatalf("silence create: %d %s (%v)", rec.Code, rec.Body.String(), err)
+			}
+			if rec := request(http.MethodDelete, "/silences/"+created.ID, "write-secret", ""); rec.Code != http.StatusNoContent || len(sil.List()) != 0 {
+				t.Fatalf("silence delete: %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAPIRejectsOversizedBodies(t *testing.T) {
+	d, sil, sink := testDeps("", "write-secret", nil)
+	d.secretRead = true
+	d.secretReader = func(context.Context, string, string) (string, error) {
+		t.Fatal("oversized request must not read a Secret")
+		return "", nil
+	}
+	for _, tc := range []struct {
+		path  string
+		h     http.Handler
+		body  string
+		limit int
+	}{
+		{"/api/v1/config/validate", newValidateHandler(d), "cluster: test\n", configBodyLimit},
+		{"/api/v1/silences", newSilencesHandler(d), `{"matchers":{"namespace":"prod"},"until":"` + futureRFC3339() + `"}`, silenceBodyLimit},
+		{"/api/v1/channels/test", newChannelsHandler(d), `{"sink":"slack"}`, channelBodyLimit},
+		{"/api/v1/channels/test-ref", newChannelsHandler(d), `{"type":"slack","secretRef":{"name":"s","key":"url"}}`, channelBodyLimit},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			// A valid prefix plus whitespace must not be silently truncated and accepted.
+			body := tc.body + strings.Repeat(" ", tc.limit-len(tc.body)+1)
+			if rec := do(tc.h, http.MethodPost, tc.path, "write-secret", body); rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("oversized body: %d %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	if sink.got != 0 || len(sil.List()) != 0 {
+		t.Fatal("oversized request caused a mutation")
+	}
+}
+
 // --- read gating ---
 
 func TestReadEndpointsGatedByToken(t *testing.T) {
 	d, _, _ := testDeps("read-secret", "", nil)
 	h := newConfigHandler(d)
 
-	if rec := do(h, http.MethodGet, "/api/config", "", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(h, http.MethodGet, "/api/v1/config", "", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: got %d, want 401", rec.Code)
 	}
-	if rec := do(h, http.MethodGet, "/api/config", "wrong", ""); rec.Code != http.StatusUnauthorized {
+	if rec := do(h, http.MethodGet, "/api/v1/config", "wrong", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong token: got %d, want 401", rec.Code)
 	}
-	rec := do(h, http.MethodGet, "/api/config", "read-secret", "")
+	rec := do(h, http.MethodGet, "/api/v1/config", "read-secret", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("right token: got %d, want 200", rec.Code)
 	}
@@ -149,13 +226,13 @@ func TestValidateAndRender(t *testing.T) {
 	d, _, _ := testDeps("", "", nil) // no read token -> open
 	v := newValidateHandler(d)
 
-	if rec := do(v, http.MethodPost, "/api/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [slack]\n"); rec.Code != http.StatusOK {
+	if rec := do(v, http.MethodPost, "/api/v1/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [slack]\n"); rec.Code != http.StatusOK {
 		t.Fatalf("validate status %d", rec.Code)
 	} else if !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Fatalf("valid config not ok: %s", rec.Body.String())
 	}
 	// Unknown sink must fail validation.
-	if rec := do(v, http.MethodPost, "/api/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [nope]\n"); !strings.Contains(rec.Body.String(), `"ok":false`) {
+	if rec := do(v, http.MethodPost, "/api/v1/config/validate", "", "routing:\n- match: {severity: critical}\n  sinks: [nope]\n"); !strings.Contains(rec.Body.String(), `"ok":false`) {
 		t.Fatalf("invalid config should be ok:false: %s", rec.Body.String())
 	}
 }
@@ -165,7 +242,7 @@ func TestValidateAndRender(t *testing.T) {
 func TestSilenceWriteFailsClosedWithoutToken(t *testing.T) {
 	d, _, _ := testDeps("", "", nil) // writeToken empty -> writes disabled
 	h := newSilencesHandler(d)
-	rec := do(h, http.MethodPost, "/api/silences", "anything", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`)
+	rec := do(h, http.MethodPost, "/api/v1/silences", "anything", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("write with no write token: got %d, want 403", rec.Code)
 	}
@@ -174,7 +251,7 @@ func TestSilenceWriteFailsClosedWithoutToken(t *testing.T) {
 func TestSilenceWriteWrongToken(t *testing.T) {
 	d, _, _ := testDeps("", "wsecret", nil)
 	h := newSilencesHandler(d)
-	rec := do(h, http.MethodPost, "/api/silences", "bad", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`)
+	rec := do(h, http.MethodPost, "/api/v1/silences", "bad", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong write token: got %d, want 401", rec.Code)
 	}
@@ -185,7 +262,7 @@ func TestSilenceCreateListDelete(t *testing.T) {
 	h := newSilencesHandler(d)
 
 	// Create
-	rec := do(h, http.MethodPost, "/api/silences", "wsecret", `{"matchers":{"namespace":"prod"},"until":"`+futureRFC3339()+`","comment":"noisy"}`)
+	rec := do(h, http.MethodPost, "/api/v1/silences", "wsecret", `{"matchers":{"namespace":"prod"},"until":"`+futureRFC3339()+`","comment":"noisy"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: got %d, want 201 (%s)", rec.Code, rec.Body.String())
 	}
@@ -201,13 +278,13 @@ func TestSilenceCreateListDelete(t *testing.T) {
 	}
 
 	// List
-	rec = do(h, http.MethodGet, "/api/silences", "", "")
+	rec = do(h, http.MethodGet, "/api/v1/silences", "", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), created.ID) {
 		t.Fatalf("list missing created silence: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Delete
-	rec = do(h, http.MethodDelete, "/api/silences/"+created.ID, "wsecret", "")
+	rec = do(h, http.MethodDelete, "/api/v1/silences/"+created.ID, "wsecret", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: got %d, want 204", rec.Code)
 	}
@@ -215,7 +292,7 @@ func TestSilenceCreateListDelete(t *testing.T) {
 		t.Fatalf("store should be empty after delete, has %d", len(sil.Active(time.Now())))
 	}
 	// Delete again -> 404
-	if rec = do(h, http.MethodDelete, "/api/silences/"+created.ID, "wsecret", ""); rec.Code != http.StatusNotFound {
+	if rec = do(h, http.MethodDelete, "/api/v1/silences/"+created.ID, "wsecret", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("delete missing: got %d, want 404", rec.Code)
 	}
 }
@@ -224,7 +301,7 @@ func TestSilenceCreateRejectsPastExpiry(t *testing.T) {
 	d, _, _ := testDeps("", "wsecret", nil)
 	h := newSilencesHandler(d)
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
-	if rec := do(h, http.MethodPost, "/api/silences", "wsecret", `{"matchers":{"ns":"x"},"until":"`+past+`"}`); rec.Code != http.StatusBadRequest {
+	if rec := do(h, http.MethodPost, "/api/v1/silences", "wsecret", `{"matchers":{"ns":"x"},"until":"`+past+`"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("past expiry: got %d, want 400", rec.Code)
 	}
 }
@@ -235,19 +312,19 @@ func TestChannelsListAndTestFire(t *testing.T) {
 	d, _, sink := testDeps("rt", "wsecret", nil)
 	h := newChannelsHandler(d)
 
-	rec := do(h, http.MethodGet, "/api/channels", "rt", "")
+	rec := do(h, http.MethodGet, "/api/v1/channels", "rt", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "slack") {
 		t.Fatalf("channels list: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Test-fire disabled without write token.
 	dNo, _, _ := testDeps("rt", "", nil)
-	if rec := do(newChannelsHandler(dNo), http.MethodPost, "/api/channels/test", "rt", `{"sink":"slack"}`); rec.Code != http.StatusForbidden {
+	if rec := do(newChannelsHandler(dNo), http.MethodPost, "/api/v1/channels/test", "rt", `{"sink":"slack"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("test-fire without write token: got %d, want 403", rec.Code)
 	}
 
 	// Test-fire a known sink.
-	rec = do(h, http.MethodPost, "/api/channels/test", "wsecret", `{"sink":"slack"}`)
+	rec = do(h, http.MethodPost, "/api/v1/channels/test", "wsecret", `{"sink":"slack"}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Fatalf("test-fire: %d %s", rec.Code, rec.Body.String())
 	}
@@ -256,7 +333,7 @@ func TestChannelsListAndTestFire(t *testing.T) {
 	}
 
 	// Unknown sink -> 400.
-	if rec := do(h, http.MethodPost, "/api/channels/test", "wsecret", `{"sink":"nope"}`); rec.Code != http.StatusBadRequest {
+	if rec := do(h, http.MethodPost, "/api/v1/channels/test", "wsecret", `{"sink":"nope"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown sink: got %d, want 400", rec.Code)
 	}
 }
@@ -277,7 +354,7 @@ func rbacClient(authenticated, allowed bool, user string) *fake.Clientset {
 func TestSilenceCreateRBACAllowedRecordsRealUser(t *testing.T) {
 	d, _, _ := testDeps("", "", authz.NewRBACAuthorizer(rbacClient(true, true, "alice@example.com")))
 	h := newSilencesHandler(d)
-	rec := do(h, http.MethodPost, "/api/silences", "k8s-token", `{"matchers":{"namespace":"prod"},"until":"`+futureRFC3339()+`"}`)
+	rec := do(h, http.MethodPost, "/api/v1/silences", "k8s-token", `{"matchers":{"namespace":"prod"},"until":"`+futureRFC3339()+`"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("rbac allowed create: got %d, want 201 (%s)", rec.Code, rec.Body.String())
 	}
@@ -291,7 +368,7 @@ func TestSilenceCreateRBACAllowedRecordsRealUser(t *testing.T) {
 func TestSilenceCreateRBACDenied(t *testing.T) {
 	d, _, _ := testDeps("", "", authz.NewRBACAuthorizer(rbacClient(true, false, "bob")))
 	h := newSilencesHandler(d)
-	if rec := do(h, http.MethodPost, "/api/silences", "k8s-token", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`); rec.Code != http.StatusForbidden {
+	if rec := do(h, http.MethodPost, "/api/v1/silences", "k8s-token", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("rbac denied: got %d, want 403", rec.Code)
 	}
 }
@@ -299,7 +376,7 @@ func TestSilenceCreateRBACDenied(t *testing.T) {
 func TestSilenceCreateRBACMissingToken(t *testing.T) {
 	d, _, _ := testDeps("", "", authz.NewRBACAuthorizer(rbacClient(true, true, "alice")))
 	h := newSilencesHandler(d)
-	if rec := do(h, http.MethodPost, "/api/silences", "", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`); rec.Code != http.StatusUnauthorized {
+	if rec := do(h, http.MethodPost, "/api/v1/silences", "", `{"matchers":{"ns":"x"},"until":"`+futureRFC3339()+`"}`); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("rbac missing token: got %d, want 401", rec.Code)
 	}
 }
@@ -308,7 +385,7 @@ func TestSilenceCreateRBACMissingToken(t *testing.T) {
 
 func TestChannelTestRefDisabledByDefault(t *testing.T) {
 	d, _, _ := testDeps("rt", "wsecret", nil) // secretRead stays false
-	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("test-ref with secretRead off: got %d, want 403", rec.Code)
 	}
@@ -318,7 +395,7 @@ func TestChannelTestRefWriteGated(t *testing.T) {
 	d, _, _ := testDeps("rt", "", nil) // no write token -> writes disabled
 	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
-	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "anything", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "anything", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("test-ref without write token: got %d, want 403", rec.Code)
 	}
@@ -332,7 +409,7 @@ func TestChannelTestRefSuccess(t *testing.T) {
 		gotName, gotKey = name, key
 		return "https://hooks.example.test/abc", nil
 	}
-	rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"slack-creds","key":"webhookUrl"}}`)
+	rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"slack-creds","key":"webhookUrl"}}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Fatalf("test-ref: %d %s", rec.Code, rec.Body.String())
 	}
@@ -353,7 +430,7 @@ func TestChannelTestRefUnsupportedType(t *testing.T) {
 	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
 	// telegram is intentionally unsupported (needs a non-secret chat id).
-	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"telegram","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
+	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"telegram","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unsupported type: got %d, want 400", rec.Code)
 	}
 }
@@ -362,7 +439,7 @@ func TestChannelTestRefEmptySecret(t *testing.T) {
 	d, _, _ := testDeps("rt", "wsecret", nil)
 	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "", nil }
-	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
+	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty secret: got %d, want 400", rec.Code)
 	}
 }
