@@ -273,6 +273,109 @@ func TestDispatcherEnqueueAfterShutdownDrops(t *testing.T) {
 	}
 }
 
+func TestDispatcherOwnsEnqueuedDelivery(t *testing.T) {
+	d := newDispatcher(sinks.NewRegistry(), 1, 8)
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+	a.Labels["team"], a.Details["logs"] = "platform", "original"
+	route := []string{"a"}
+	d.enqueue(a, route, nil)
+	a.Name, a.Labels["team"], a.Details["logs"], route[0] = "changed", "changed", "changed", "changed"
+	job := <-d.queues[0]
+	if job.a.Name != "p" || job.a.Labels["team"] != "platform" || job.a.Details["logs"] != "original" || job.route[0] != "a" {
+		t.Fatalf("queued delivery shares caller-owned state: %+v %v", job.a, job.route)
+	}
+}
+
+func TestPendingSnapshotOwnsAndOrdersRecords(t *testing.T) {
+	d := newDispatcher(sinks.NewRegistry(), 1, 8)
+	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+	a.Labels["team"] = "platform"
+	for _, id := range []uint64{3, 1, 2} {
+		d.pendingAdd(id, a, []string{"a"})
+	}
+	snapshot := d.PendingSnapshot()
+	for i, rec := range snapshot {
+		if rec.ID != uint64(i+1) {
+			t.Errorf("snapshot record %d has ID %d", i, rec.ID)
+		}
+		rec.Alert.Labels["team"] = "changed"
+		rec.Route[0] = "changed"
+	}
+	for _, rec := range d.PendingSnapshot() {
+		if rec.Alert.Labels["team"] != "platform" || rec.Route[0] != "a" {
+			t.Fatal("persisted snapshot aliases the live outbox")
+		}
+	}
+}
+
+func TestReplayRestoresDeliveryOrder(t *testing.T) {
+	d := newDispatcher(sinks.NewRegistry(), 1, 8)
+	first := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+	first.Summary = "fire"
+	resolved := first.Clone()
+	resolved.Summary, resolved.Resolved = "resolve", true
+	refire := first.Clone()
+	refire.Summary = "refire"
+	// Older snapshots serialized a map, so their records can be in any order.
+	records := []alert.PendingDelivery{
+		{ID: 20, Alert: resolved, Route: []string{"a"}},
+		{ID: 30, Alert: refire, Route: []string{"a"}},
+		{ID: 10, Alert: first, Route: []string{"a"}},
+	}
+	if n := d.ReplayPending(records, nil, nil); n != 3 {
+		t.Fatalf("replayed %d, want 3", n)
+	}
+	for _, want := range []string{"fire", "resolve", "refire"} {
+		if job := <-d.queues[0]; job.a.Summary != want {
+			t.Errorf("replayed %q, want %q", job.a.Summary, want)
+		}
+	}
+	if records[0].ID != 20 {
+		t.Fatal("replay reordered the caller's snapshot")
+	}
+}
+
+func TestConcurrentShutdownWaitsForDrain(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	reg := sinks.NewRegistry()
+	reg.Add(&funcSink{name: "a", fn: func() error {
+		close(started)
+		<-release
+		return nil
+	}})
+	d := newDispatcher(reg, 1, 8)
+	d.Start()
+	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
+	select {
+	case <-started:
+	case <-timeoutAfter():
+		close(release)
+		t.Fatal("delivery did not start")
+	}
+	returned := make(chan struct{}, 4)
+	for range cap(returned) {
+		go func() {
+			d.Shutdown()
+			returned <- struct{}{}
+		}()
+	}
+	select {
+	case <-returned:
+		close(release)
+		t.Fatal("Shutdown returned before the in-flight delivery finished")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	for range cap(returned) {
+		select {
+		case <-returned:
+		case <-timeoutAfter():
+			t.Fatal("Shutdown did not return after delivery finished")
+		}
+	}
+	d.Shutdown() // Repeated shutdown must also be safe after the drain completed.
+}
+
 // funcSink runs an arbitrary function per send.
 type funcSink struct {
 	name string

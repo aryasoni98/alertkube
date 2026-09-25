@@ -59,8 +59,7 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 			if len(route) == 0 {
 				return
 			}
-			cp := *a
-			enqueue(&cp, route, nil)
+			enqueue(a, route, nil)
 			return
 		}
 		// Startup grace: conditions that pre-date this process (informer
@@ -94,14 +93,10 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 			metrics.AlertsSuppressed.WithLabelValues("grouped").Inc()
 			return
 		}
-		// Enqueue a copy: the original is retained in the store and its
-		// EndsAt is mutated by Touch while sink goroutines read the alert.
-		// Delivery runs on the dispatch worker pool, off this producer
-		// goroutine; onFail rolls back dedupe (on the worker) if every sink
-		// fails so the next firing retries.
-		cp := *a
+		// The dispatcher takes its own copy. onFail rolls back dedupe if
+		// every sink fails so the next firing retries.
 		fp := a.Fingerprint
-		enqueue(&cp, route, func() {
+		enqueue(a, route, func() {
 			metrics.AlertsDropped.Inc()
 			store.MarkFailed(fp)
 		})

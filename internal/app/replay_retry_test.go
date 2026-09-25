@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
 // The regression D10 exists for: a replayed FIRING alert used to carry no
@@ -70,3 +71,18 @@ func TestReplayedResolveKeepsRetryPathNotRollback(t *testing.T) {
 }
 
 func timeoutAfter() <-chan time.Time { return time.After(2 * time.Second) }
+
+func TestReplayedFireOnceDoesNotRollback(t *testing.T) {
+	for _, event := range []bool{true, false} {
+		d := newDispatcher(sinks.NewRegistry(), 1, 8)
+		a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+		a.Event = event
+		if !event {
+			a.Labels["alertkube-grouped"] = "true"
+		}
+		d.ReplayPending([]alert.PendingDelivery{{ID: 1, Alert: a, Route: []string{"a"}}}, nil, func(string) {})
+		if job := <-d.queues[0]; job.onFail != nil {
+			t.Errorf("fire-once replay (event=%v) gained a dedupe rollback instead of dead-lettering", event)
+		}
+	}
+}

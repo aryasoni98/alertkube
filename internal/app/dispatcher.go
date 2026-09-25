@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"hash/fnv"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -94,6 +95,8 @@ type dispatcher struct {
 	// (many concurrent producers) and Lock by Shutdown (once).
 	mu     sync.RWMutex
 	closed bool
+	// Every caller of Shutdown waits for the same drain, including concurrent callers.
+	shutdownOnce sync.Once
 
 	// onDeadLetter, when set, records a delivery the dispatcher permanently
 	// abandoned (no retry path). nil = no dead-letter capture (e.g. tests).
@@ -232,10 +235,13 @@ func (d *dispatcher) Start() {
 // room; when the queue is full it blocks (backpressure) until a worker frees a
 // slot or the dispatcher shuts down - it never blocks forever and never drops
 // silently except during a shutdown drain race (recorded on DispatchDropped).
+// It owns a copy of the alert and route before returning to the producer.
 func (d *dispatcher) enqueue(a *alert.Alert, route []string, onFail func()) {
 	if len(route) == 0 {
 		return
 	}
+	a = a.Clone()
+	route = slices.Clone(route)
 	// Open the enqueue span and keep only its linkage on the job: the producer
 	// goroutine (an informer handler) returns long before a worker delivers, so
 	// the job must not inherit a context that is about to be cancelled.
@@ -250,98 +256,6 @@ func (d *dispatcher) enqueue(a *alert.Alert, route []string, onFail func()) {
 // length changes (enqueue, worker pickup) so the gauge tracks backpressure
 // rather than being sampled on a timer.
 func (d *dispatcher) observeDepth() { metrics.DispatchQueueDepth.Set(float64(d.queuedTotal())) }
-
-// pendingAdd records a delivery in the durable outbox. It stores a
-// Details-stripped clone so the persisted record stays small and does not share
-// mutable maps with the live alert.
-func (d *dispatcher) pendingAdd(id uint64, a *alert.Alert, route []string) {
-	cp := a.Clone()
-	cp.Details = nil
-	rec := alert.PendingDelivery{ID: id, Alert: cp, Route: append([]string(nil), route...)}
-	d.pendingMu.Lock()
-	d.pending[id] = rec
-	d.pendingGen++
-	metrics.OutboxPending.Set(float64(len(d.pending)))
-	d.pendingMu.Unlock()
-}
-
-// pendingDone acks (removes) an outbox record once its delivery reaches a
-// terminal outcome (delivered, rolled back, or dead-lettered). id 0 (replayed
-// jobs may reuse this path) is a no-op.
-func (d *dispatcher) pendingDone(id uint64) {
-	d.pendingMu.Lock()
-	if _, ok := d.pending[id]; ok {
-		delete(d.pending, id)
-		d.pendingGen++
-		metrics.OutboxPending.Set(float64(len(d.pending)))
-	}
-	d.pendingMu.Unlock()
-}
-
-// PendingSnapshot returns the outbox as durable records for persistence.
-func (d *dispatcher) PendingSnapshot() []alert.PendingDelivery {
-	d.pendingMu.Lock()
-	defer d.pendingMu.Unlock()
-	out := make([]alert.PendingDelivery, 0, len(d.pending))
-	for _, rec := range d.pending {
-		out = append(out, rec)
-	}
-	return out
-}
-
-// PendingGeneration increments on every outbox add/remove; the save loop
-// compares it to skip no-op saves (mirrors alert.Store.Generation).
-func (d *dispatcher) PendingGeneration() uint64 {
-	d.pendingMu.Lock()
-	defer d.pendingMu.Unlock()
-	return d.pendingGen
-}
-
-// ReplayPending re-enqueues outbox records restored from a snapshot so an
-// enqueued-but-undelivered alert resumes delivery after a restart. Records are
-// replayed as fire-once (no dedupe rollback): they were already routed before
-// the crash, so a re-delivery is the correct at-least-once behavior. Returns
-// the number replayed. Call after Start.
-//
-// owns (nil means own everything) gates each record on shard ownership. The
-// emit path is gated at the producer, but a replay bypasses it entirely: after
-// a shard rebalance - which is exactly the ALERTKUBE_SHARD_TOTAL rollout the
-// docs prescribe - an object's owner moves, and replaying its record here would
-// double-page alongside the new owner. Foreign records are dropped, not
-// delivered, and counted so a rebalance's fallout is visible.
-// rollback (may be nil) forgets a fingerprint's dedupe state after a replayed
-// *firing* alert fails every sink, so the next watch event or resync re-emits
-// it. Without this a replayed firing is strictly less durable than a fresh one:
-// a fresh firing carries an onFail that rolls dedupe back, while a replayed one
-// had none and so was dead-lettered on its first failure - the outbox making an
-// alert *less* likely to survive, which inverts its purpose. Resolves are
-// excluded: they already have the bounded resolve-retry path, and a resolve has
-// no dedupe entry to roll back.
-func (d *dispatcher) ReplayPending(recs []alert.PendingDelivery, owns func(*alert.Alert) bool, rollback func(fingerprint string)) int {
-	n, foreign := 0, 0
-	for _, rec := range recs {
-		if rec.Alert == nil || len(rec.Route) == 0 {
-			continue
-		}
-		if owns != nil && !owns(rec.Alert) {
-			metrics.OutboxReplayForeign.Inc()
-			foreign++
-			continue
-		}
-		var onFail func()
-		if fp := rec.Alert.Fingerprint; rollback != nil && !rec.Alert.Resolved && fp != "" {
-			onFail = func() { rollback(fp) }
-		}
-		id := d.nextID.Add(1)
-		d.pendingAdd(id, rec.Alert, rec.Route)
-		d.submit(dispatchJob{id: id, a: rec.Alert, route: rec.Route, onFail: onFail})
-		n++
-	}
-	if foreign > 0 {
-		klog.Infof("outbox replay: dropped %d record(s) owned by another shard (expected after a shard rebalance); replayed %d", foreign, n)
-	}
-	return n
-}
 
 // submit queues an already-built job (used by enqueue and by resolve retries,
 // which carry a retry count). See enqueue for the backpressure/drop contract.
@@ -395,28 +309,25 @@ func (d *dispatcher) scheduleResolveRetry(job dispatchJob) {
 // stop unblocks any backpressured enqueue, and the write lock guarantees no
 // send is in flight when the jobs channel is closed.
 func (d *dispatcher) Shutdown() {
-	// Unblock any enqueue parked on a full queue so it can observe the shutdown
-	// and release its read lock, letting the write lock below proceed.
-	close(d.stop)
-	d.mu.Lock()
-	if d.closed {
+	d.shutdownOnce.Do(func() {
+		// Unblock backpressured producers before taking the write lock.
+		close(d.stop)
+		d.mu.Lock()
+		d.closed = true
+		for _, q := range d.queues {
+			close(q)
+		}
 		d.mu.Unlock()
-		return
-	}
-	d.closed = true
-	for _, q := range d.queues {
-		close(q)
-	}
-	d.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(dispatchDrainTimeout):
-		klog.Warningf("dispatch drain timed out after %s with %d alert(s) still queued; abandoning them", dispatchDrainTimeout, d.queuedTotal())
-	}
+		done := make(chan struct{})
+		go func() {
+			d.wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(dispatchDrainTimeout):
+			klog.Warningf("dispatch drain timed out after %s with %d alert(s) still queued; abandoning them", dispatchDrainTimeout, d.queuedTotal())
+		}
+	})
 }
