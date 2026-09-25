@@ -237,7 +237,7 @@ function AKHero({ live }) {
             <Reveal delay={0.12}>
               <p className="wk-hero__sub">
                 AlertKube watches nine resource kinds, dedupes the storms, routes by severity,
-                and gives responders a live console for silences, config, and channel tests.
+                and exposes APIs for runtime silences, config review, and channel tests.
               </p>
             </Reveal>
             <Reveal delay={0.18}>
@@ -253,9 +253,9 @@ function AKHero({ live }) {
                 <div className="wk-hero__trust-label">In the box</div>
                 <div className="wk-hero__logos">
                   <span><AKCount to={9} /> watchers</span>
-                  <span><AKCount to={8} /> sinks</span>
+                  <span><AKCount to={AK_SINKS.length} /> sinks</span>
                   <span><AKCount to={6} />-stage pipeline</span>
-                  <span>web console</span>
+                  <span>control API</span>
                   <span>1 binary</span>
                 </div>
               </div>
@@ -321,7 +321,6 @@ function AKMarquee() {
 
 /* ----------------------------- BENTO FEATURES ----------------------------- */
 const AK_BENTO_STAGES = ["Fingerprint", "Mute", "Silence", "Inhibit", "Route", "Resolve"];
-const AK_BENTO_SINKS = ["Slack", "PagerDuty", "Teams", "Opsgenie", "Discord", "Telegram", "Webhook", "stdout"];
 
 const AK_BENTO = [
   {
@@ -341,12 +340,12 @@ const AK_BENTO = [
   },
   {
     area: "console", tone: "violet", icon: "grid",
-    title: "Web console",
-    desc: "Live alerts, runtime silences, config review, and channel tests - no kubectl for day-two ops.",
+    title: "Control API",
+    desc: "Review alerts and config, manage silences, and test channels through authenticated HTTP endpoints.",
   },
   {
     area: "sinks", tone: "amber", icon: "zap",
-    title: "8 notification sinks",
+    title: `${AK_SINKS.length} notification sinks`,
     desc: "One interface. Register a new sink in ~30 lines.",
   },
   {
@@ -383,7 +382,7 @@ function AKBentoFeatures() {
                 )}
                 {f.area === "sinks" && (
                   <div className="ak-bento-chips" aria-label="Supported sinks">
-                    {AK_BENTO_SINKS.map((s) => <span key={s} className="ak-bento-chip">{s}</span>)}
+                    {AK_SINK_NAMES.map((s) => <span key={s} className="ak-bento-chip">{s}</span>)}
                   </div>
                 )}
                 {f.area === "metrics" && (
