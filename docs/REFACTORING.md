@@ -150,7 +150,11 @@ filenames or file length.
   tests do not cover all producer-to-resolution interactions.
 - ConfigMap capacity and cross-leader stale writes remain operational limits.
   Resource-version retry prevents API update conflicts, not stale-state
-  replacement or split-brain fencing.
+  replacement or split-brain fencing. Joining an outgoing controller's drain
+  does not prevent the next leader from acquiring the released Lease first.
+- Initial outbox replay now preserves recorded order, but delayed resolve
+  retries can still run after a newer firing. Delivery remains at-least-once;
+  ordering across retries and partial per-sink success need separate designs.
 - Live cloud partial-list behavior, SDK defaults, large log responses, sink
   credential error redaction, and rule/escalation retry semantics deserve
   focused integration/security work rather than speculative rewrites.
@@ -159,5 +163,147 @@ filenames or file length.
   application. Static content and external links require ongoing release
   maintenance.
 
-Implementation details, removals, performance changes, and final validation are
-recorded below as each verified change group completes.
+## Refactoring performed and components extracted
+
+The implementation retains the existing modular Go architecture: domain state,
+policy, adapters, and application wiring remain separate packages. No service
+framework, repository layer, frontend build system, or production dependency
+was introduced. Go configuration types changed internally; YAML keys, defaults,
+normal alert fingerprints, snapshot version 1, environment names, and public
+CRD types remain compatible.
+
+| Change group | Final organization and behavior |
+| --- | --- |
+| Configuration and adapters | `config.go` contains shared schema, `cloud.go` contains provider sections, and `load.go` contains parsing/defaults. Named `Filters`, `Behavior`, `Channels`, `Receiver`, `Grouping`, `Persistence`, `AWS`, `Azure`, and `GCP` sections replace anonymous structs. Provider constructors take their own section; the registry's composition adapters receive the full config. |
+| Watchers | Pod and generic resource watchers share `nsFilter`; pod evaluation retains its immutable behavior section instead of the entire config. Existing constructor conventions and registration remain. |
+| API handlers | `console.go` retains authentication and wiring. `console_read.go`, `console_silences.go`, and `console_channels.go` own their respective operations. The production mux and handlers share `metrics.APIPrefix`; canonical channel routes and silence deletion work, and legacy paths retain 308 redirects. Oversized bodies return 413 before mutations. |
+| HTTP serving | `metrics/server.go` owns listeners, readiness/liveness, routing, and handler replacement; `metrics.go` contains instrumentation. Receiver startup messages identify the actual API listener and canonical route. |
+| Alert and silence ownership | Store ingress, restore, export, correlation data, runtime silences, and CRD silence caches copy mutable collections at ownership boundaries. Reminder deliveries preserve the incident's original start time. Failure cleanup uses `Forget`, including escalation cleanup and mutation accounting for mute-only records. |
+| Grouping | Group identity encodes field names and escaped values. Buckets own summary identity, count every member, and retain only the 50 names that can appear in details. The first alert and existing summary wording/limits remain; normal incident fingerprints are unchanged. |
+| Dispatch | `dispatcher_outbox.go` owns durable records and replay. Snapshots own their data and sort by delivery ID; replay also sorts older unordered snapshots. The shared enqueue path owns alerts/routes, and replay keeps fire-once failure behavior for events and summaries. All concurrent shutdown callers wait for the same bounded drain. |
+| Controller lifecycle | Leader election joins controller cleanup, including cancellation before the leadership callback starts. Informer shutdown joins callbacks before draining enrichment. Cancellation during cache sync returns normally. Leader handlers and readiness clear before draining producers, dispatch, and the final state save. |
+| CRD adapter | The dynamic informer uses `api/v1alpha1` resource identifiers instead of redeclaring them. Cached matcher maps are owned, and cancellation joins the informer factory without a misleading cache-sync error. |
+| Deployment | Helm now renders maintenance windows and preserves an explicit false service-account token mount value. Chart CI checks both settings and the default true value. Generated chart documentation is current. |
+| Website and release tooling | One `AK_SINKS` catalog drives the comparison table, architecture diagram, feature card, and counts for all ten sinks. Google Chat and Mattermost are included. Current marketing copy describes control APIs. JSON-LD is valid JSON and version checking parses it. Release markers sit outside the JSON using the supported [release-please block annotations](https://github.com/googleapis/release-please/blob/main/docs/customizing.md#updating-arbitrary-files). |
+| Contributor documentation | Watcher/sink instructions describe self-registration and existing helpers. Broken maintainer-file links point to actual code ownership/release sources; no ownership assignments changed. Examples use supported Helm values overlays, and the local E2E command explicitly routes to stdout. The changelog records the user-visible fixes. |
+
+Existing React components already separate the site's sections and reuse
+primitives. No new UI component was extracted solely to reduce file length;
+the concrete duplication was the sink data shared by three displays.
+
+## Files and unused code removed
+
+Only one tracked file was removed:
+
+- `scripts/land-audit-commits.sh` (293 lines): a historical staging script with
+  no references in active tasks, workflows, or source.
+
+Removed or reduced unused/duplicate symbols include `cloneStringMap`,
+`dropEscalationsLocked`, AWS `boolStr`, shell `expect_line` and an unused local,
+the unused `controllerRuns` counter, redundant cloud goroutine parameters,
+duplicate CRD Group/Version/Resource/GVR declarations, and two website sink
+arrays. The default grouping field list is private and copied for each grouper.
+The unused CODEOWNERS rule for the nonexistent maintainer file was removed;
+the existing catch-all ownership rule remains.
+
+Reference searches, the package graph, compilation, and the configured unused
+analyzer support these removals. Both website entry points and their referenced
+JSX/CSS/assets were exercised in Chromium. `internal/topology` is the one local
+package outside the executable import graph: it remains explicitly tracked as
+unfinished correlation work, with tests and compatibility-sensitive types/config.
+Public CRD types, test helpers, fuzz targets, examples, and design documents were
+not misclassified as dead application code. The two pre-existing untracked audit
+documents were left untouched.
+
+## Shared utilities and reuse
+
+- Reused `maps.Clone` and `slices.Clone` instead of custom primitive copy loops.
+- Reused `textutil.Head` for UTF-8-safe API field limits and `strconv.FormatBool`
+  for S3 details.
+- Reused the watcher's existing namespace filter, `api/v1alpha1` identifiers,
+  `Store.Forget`, and dispatcher enqueue path.
+- Exposed the existing API prefix to its handlers; added no general routing
+  framework or alternate HTTP abstraction.
+- Added small private clone operations for domain silence collections, where
+  maps require ownership beyond copying the slice/struct.
+- Centralized the static site's sink catalog and derived display names/counts.
+
+## Performance and resource use
+
+- Grouping retains at most 50 member names per bucket instead of one per alert.
+  A regression test offers 10,000 absorbed alerts and verifies the exact total,
+  bounded retained metadata, and existing summary/detail limits. Memory used
+  for member names is independent of the storm size; the number of distinct
+  groups is still workload-dependent.
+- History/outbox snapshots discard enrichment details before cloning, avoiding
+  allocation for maps that were immediately discarded.
+- Group buckets no longer retain the first caller's full alert, logs, and maps.
+- Explicit ownership adds necessary collection copies; ordered snapshots add
+  sorting at persistence boundaries. These are correctness tradeoffs, not
+  claimed CPU or throughput improvements. No cache, worker-pool redesign, or
+  speculative frontend optimization was added.
+
+## Dependency audit
+
+`go.mod` and `go.sum` are unchanged. `go mod tidy -diff` is empty and
+`go mod verify` passes. Direct SDK dependencies have active adapters;
+controller-runtime is used by the integration-tagged envtest harness. Existing
+transitive versions are selected by Go modules; deleting them manually would
+not remove their consumers. No stable library was replaced unnecessarily.
+
+With Go 1.27.1 and govulncheck 1.7.0, the scan reports no reachable vulnerabilities
+and no affected imported packages. Its one module-only finding is
+[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), concerning the unmaintained
+`golang.org/x/crypto/openpgp` family. Those packages are not imported by this
+application; the advisory has no fixed version. Replacing the module's used
+cryptography packages with an OpenPGP alternative would not address an
+application dependency here.
+
+## Final validation
+
+The baseline had 414 test functions; the final tree has 435, including expanded
+table-driven coverage. New regression cases were run against the affected
+pre-fix behavior before their corresponding fixes. Each implementation group
+passed scoped race tests, compilation, and the configured lint checks before
+its signed conventional commit.
+
+| Check | Result |
+| --- | --- |
+| `go test -race -count=1 -coverprofile=… -covermode=atomic ./...` | Passed; total statement coverage **71.1%**, above the repository's 66% gate. |
+| `go build ./...`, CLI build, `go vet ./...` | Passed. |
+| golangci-lint 2.13.2 | Passed with **0 issues**, including configured unused/static/type analyzers. |
+| envtest with Kubernetes 1.34.1, `-race -tags integration -count=1` | Passed against a real API server and etcd. |
+| Isolated kind cluster, Kubernetes 1.31.9 | Passed: chart startup, live versioned channel/silence APIs, authenticated receiver fire/resolve, real pod CrashLoopBackOff delivery and delete resolution, immediate shutdown persistence, two ready HA replicas, leader replacement, and silence restoration. Only stdout delivery was enabled. |
+| Four existing fuzz targets, 30 seconds each | Passed: fingerprinting, regex matching, poisoned snapshot restore, and config loading. |
+| Go module checks and govulncheck | Passed; module-only advisory qualified above. |
+| Package import graph | 29 local packages, 65 local import edges, no cycles. `topology` is the documented dormant exception to executable reachability. |
+| Docker release builds | Passed for **linux/amd64 and linux/arm64**; arm64 distroless image ran `version` and validated rendered configuration with networking disabled. |
+| Helm lint and five CI render scenarios | Passed; kubeconform 0.6.7 validated 42 resources, with 0 invalid/errors. Three monitoring CRs were skipped under `-ignore-missing-schemas`. |
+| Helm settings and examples | Exact rendered maintenance data, false/default-true token mounting, image version, four CLI example configs, and rendered chart config passed. The two documented example overlays also rendered and passed schema validation (16 resources). |
+| helm-docs 1.14.2 | README regenerated from values/template. |
+| MkDocs strict build | Passed. |
+| Chromium desktop (1440px) and mobile (390px) | Home and changelog render; ten sinks agree across displays; valid JSON-LD; no JavaScript errors, failed local assets, or page-level horizontal overflow. |
+| Release version checks | Current 1.2.1 passes. An isolated copy successfully bumped to `1.2.2-test.1`, updated publication date, and passed checks without changing workspace versions. |
+| Formatting and diff checks | `gofmt`, shell syntax, and `git diff --check` passed. |
+
+Validation is evidence for the exercised contracts, not a proof of zero defects.
+Live AWS/Azure/GCP accounts and external notification services were not used.
+The full CI Kubernetes matrix, Chainsaw OOM/image-pull scenarios, and sustained
+production load still belong in the release validation process.
+
+## Recommended next work
+
+1. Prioritize lifecycle reliability: explicitly test in-flight HTTP mutations
+   during shutdown, add cross-leader persistence fencing, and define ordering
+   of delayed resolves versus newer firings.
+2. Decide whether to finish or deprecate topology correlation, with a migration
+   plan for accepted configuration and serialized fields.
+3. Add real informer resync scenarios for persistent Node/CronJob conditions;
+   expand cloud partial-page and escalation failure integration coverage.
+4. Make configuration strictness, zero/false precedence, and fingerprint changes
+   explicit compatibility projects with migration tests.
+5. Measure memory under representative storm cardinality and ConfigMap limits
+   before selecting another persistence backend or changing concurrency.
+6. Retain current dependencies and frontend conventions until a measured need
+   justifies replacement. Continue dependency scanning and static-site/browser
+   checks during releases.

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+* **architecture:** separate configuration schema/defaults/cloud settings, API
+  handlers, HTTP server lifecycle, and durable outbox code within their existing
+  packages. Cloud providers and watcher filters receive only their settings.
+* **web:** use one catalog for all ten supported sinks, correct control API
+  descriptions, and validate structured release metadata during version checks.
+* **maintenance:** reuse shared namespace filtering, canonical Silence CRD
+  identifiers, UTF-8 truncation, and standard-library collection copying; remove
+  the unreferenced historical audit-commit script and unused helpers.
+
+### Fixed
+
+* **api:** align channel operations and silence deletion with `/api/v1`, retain
+  legacy redirects, and reject oversized bodies before parsing or mutation.
+* **state:** isolate stored alerts, silences, and snapshots from callers; retain
+  the original incident start time on reminders; clear escalation state on total
+  delivery failure and persist mute-only deletions.
+* **grouping:** distinguish grouping fields and escaped values, and retain at
+  most 50 member names while preserving the full storm count and summary format.
+* **dispatch:** restore outbox delivery order by ID, preserve event/summary
+  failure handling on replay, and make concurrent shutdown calls safe.
+* **lifecycle:** wait for the elected controller to drain before process exit,
+  join informer callbacks before enrichment shutdown, and handle cancellation
+  during initial cache sync without a fatal exit.
+* **helm:** render configured maintenance windows and honor an explicit
+  `automountServiceAccountToken: false`; add chart CI checks for both settings.
+
 ## [1.2.1](https://github.com/aryasoni98/alertkube/compare/v1.2.0...v1.2.1) (2026-08-08)
 
 Reliability, API versioning, and observability release. Fixes silent shard
