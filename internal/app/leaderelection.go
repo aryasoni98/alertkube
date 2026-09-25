@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,7 +60,7 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 			Identity: id,
 		},
 	}
-	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
+	runLeaderElection(ctx, leaderelection.LeaderElectionConfig{
 		Lock: lock,
 		// The kube-controller-manager 15/10/2 defaults assume direct etcd
 		// proximity. A workload pod renews through the API server over a
@@ -87,4 +88,34 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 			},
 		},
 	})
+}
+
+// runLeaderElection joins the controller before returning to process shutdown.
+// client-go starts OnStartedLeading in a goroutine and does not join it. The
+// mutex also covers cancellation before that goroutine has started: a follower
+// has nothing to drain, and a late callback must not start an abandoned controller.
+func runLeaderElection(ctx context.Context, cfg leaderelection.LeaderElectionConfig) {
+	var mu sync.Mutex
+	started, stopping := false, false
+	done := make(chan struct{})
+	run := cfg.Callbacks.OnStartedLeading
+	cfg.Callbacks.OnStartedLeading = func(leadCtx context.Context) {
+		mu.Lock()
+		if stopping {
+			mu.Unlock()
+			return
+		}
+		started = true
+		mu.Unlock()
+		defer close(done)
+		run(leadCtx)
+	}
+	leaderelection.RunOrDie(ctx, cfg)
+	mu.Lock()
+	stopping = true
+	wait := started
+	mu.Unlock()
+	if wait {
+		<-done
+	}
 }

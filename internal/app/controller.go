@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -46,17 +45,10 @@ const informerResyncPeriod = config.InformerResyncSeconds * time.Second
 // A non-empty watchNamespace scopes every informer to that namespace and
 // disables the node watcher (nodes are cluster-scoped), so the controller
 // runs under a namespace Role instead of a ClusterRole.
-// controllerRuns counts entries into runController. With leader election a
-// single process can win, lose, and re-win the lease without exiting, so this
-// body runs more than once per process. Each run rebuilds the informer
-// factory, store, and grouper from scratch and re-applies the startup grace
-// window to the fresh informer sync; the counter makes that re-entrancy
-// observable in the logs (e.g. when diagnosing leader flap).
-var controllerRuns atomic.Uint64
-
 func runController(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, cfg *config.Config, watchNamespace string, sharder *shard.Sharder) {
-	if n := controllerRuns.Add(1); n > 1 {
-		klog.Infof("controller starting (leadership acquisition #%d): rebuilding informers/store/grouper; startup grace re-applies to this sync", n)
+	metrics.MarkNotReady()
+	if ctx.Err() != nil {
+		return
 	}
 	reg := buildSinks(cfg)
 	r := router.New(cfg.Routing, cfg.Inhibitions, cfg.Silences, []string{"slack"})
@@ -138,7 +130,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 	// gets them, and derived alerts are low volume). Default (total=1) = no-op.
 	shardedEmit := shardGate(emit, sharder)
 
-	ws := startInformers(ctx, clientset, cfg, watchNamespace, shardedEmit)
+	ws, stopInformers := startInformers(ctx, clientset, cfg, watchNamespace, shardedEmit)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -183,7 +175,7 @@ func runController(ctx context.Context, clientset kubernetes.Interface, dynClien
 
 	<-ctx.Done()
 	klog.Infof("%s shutting down", appName)
-	shutdown(ws, grouperStop, &wg, disp, persister, store, silStore)
+	shutdown(ws, stopInformers, grouperStop, &wg, disp, persister, store, silStore)
 }
 
 // shardGate wraps emit so only alerts for objects this replica owns proceed;
@@ -301,10 +293,10 @@ func startCloudSources(ctx context.Context, wg *sync.WaitGroup, cfg *config.Conf
 		}
 		poll := p.PollSeconds(cfg)
 		wg.Add(1)
-		go func(name string, srcs []sources.Source, poll int) {
+		go func(srcs []sources.Source, poll int) {
 			defer wg.Done()
 			sources.Run(ctx, time.Duration(poll)*time.Second, emit, srcs...)
-		}(p.Name, srcs, poll)
+		}(srcs, poll)
 		klog.Infof("%s sources enabled: %d source(s), polling every %ds", p.Name, len(srcs), poll)
 	}
 }
@@ -351,10 +343,10 @@ func setupReceiver(cfg *config.Config, store *alert.Store, emit watchers.Emit, d
 }
 
 // startInformers builds the shared informer factory, wires every watcher,
-// starts the informers, and blocks until their caches sync (fatal on failure,
-// which is almost always missing RBAC). Returns the watchers so the caller can
-// drain their background work at shutdown.
-func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string, emit watchers.Emit) []watchers.Watcher {
+// starts the informers, and waits for cache sync or cancellation. The returned
+// stop function joins informer callbacks after ctx is cancelled; call it before
+// draining watcher background work so no callback can start new enrichment.
+func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *config.Config, watchNamespace string, emit watchers.Emit) ([]watchers.Watcher, func()) {
 	var factoryOpts []informers.SharedInformerOption
 	if watchNamespace != "" {
 		klog.Infof("watching single namespace %q (node alerts disabled)", watchNamespace)
@@ -374,19 +366,20 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 	}
 
 	factory.Start(ctx.Done())
-	for kind, synced := range factory.WaitForCacheSync(ctx.Done()) {
-		if !synced {
-			klog.Fatalf("informer cache for %v did not sync (check RBAC)", kind)
-		}
+	if result := factory.WaitForCacheSyncWithContext(ctx); result.Err != nil {
+		klog.Infof("informer cache sync interrupted: %v", result.Err)
+		return ws, factory.Shutdown
 	}
-	metrics.MarkReady()
-	klog.Infof("%s started", appName)
-	return ws
+	if ctx.Err() == nil {
+		metrics.MarkReady()
+		klog.Infof("%s started", appName)
+	}
+	return ws, factory.Shutdown
 }
 
 // shutdown runs the controller's drain sequence in the one order that does
-// not drop alerts: finish in-flight pod enrichment first (those alerts must
-// reach the store and grouper), then stop the grouper so it flushes open
+// not drop alerts: join informer callbacks, then finish in-flight pod enrichment
+// (those alerts must reach the store and grouper), then flush open grouping
 // windows, wait for the sweeper + grouper goroutines, drain the dispatch queue
 // so every enqueued alert is actually delivered, save final state on a fresh
 // deadline (ctx is already cancelled), and finally mark not-ready.
@@ -395,13 +388,15 @@ func startInformers(ctx context.Context, clientset kubernetes.Interface, cfg *co
 // grouper flush, sweeper escalations, cloud sources, rules) has stopped
 // enqueuing before the queue is closed, and before the final save so a
 // delivery failure's dedupe rollback is reflected in the saved snapshot.
-func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, disp *dispatcher, persister persist.Store, store *alert.Store, silStore *silence.Store) {
+func shutdown(ws []watchers.Watcher, stopInformers, grouperStop func(), wg *sync.WaitGroup, disp *dispatcher, persister persist.Store, store *alert.Store, silStore *silence.Store) {
 	// Stop serving the leader-scoped routes first. The HTTP server outlives
 	// leader election, so a demoted leader would otherwise keep accepting
 	// receiver POSTs (202) into the store we are about to abandon - silently
 	// dropping them - and keep dumping a stale active set on /api/alerts.
 	// 503 makes both fail loudly until the next leader reinstalls them.
 	metrics.ClearLeaderHandlers()
+	metrics.MarkNotReady()
+	stopInformers()
 	drainWatchers(ws, enrichDrainTimeout)
 	grouperStop()
 	wg.Wait()
@@ -415,5 +410,4 @@ func shutdown(ws []watchers.Watcher, grouperStop func(), wg *sync.WaitGroup, dis
 		}
 		saveCancel()
 	}
-	metrics.MarkNotReady()
 }

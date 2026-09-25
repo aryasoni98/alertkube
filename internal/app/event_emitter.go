@@ -12,12 +12,8 @@ import (
 )
 
 func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {
-	// controllerStart is intentionally per-leadership-acquisition, not
-	// process start: each runController builds fresh informers whose initial
-	// sync re-fires every standing condition. The grace window must cover
-	// that fresh sync - seeding the re-fires into the mute window instead of
-	// paging them - every time this pod (re)acquires leadership, not only on
-	// the first acquisition. See controllerRuns for the re-entrancy contract.
+	// Start grace with the controller, after leadership is acquired, so it
+	// covers initial informer sync even after a long wait as a follower.
 	controllerStart := time.Now()
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
