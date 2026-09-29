@@ -34,7 +34,7 @@ spec:
               metadata:
                 name: badimage
               status:
-                (containerStatuses[0].state.waiting.reason): (contains('ImagePullBackOff ErrImagePull', @))
+                (contains(`["ImagePullBackOff", "ErrImagePull"]`, containerStatuses[0].state.waiting.reason)): true
     - name: Assert the controller emitted an image-pull alert
       try:
         - script:
