@@ -139,6 +139,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify image version
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker run --rm --network none "$REGISTRY/$IMAGE_NAME@$DIGEST" version > "$RUNNER_TEMP/alertkube-version.txt"
+          cat "$RUNNER_TEMP/alertkube-version.txt"
+          grep -Fx "alertkube $TAG" "$RUNNER_TEMP/alertkube-version.txt"
+
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 

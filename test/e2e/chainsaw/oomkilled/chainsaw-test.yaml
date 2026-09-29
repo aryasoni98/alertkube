@@ -9,7 +9,7 @@ kind: Test
 metadata:
   name: oomkilled-alert
 spec:
-  namespace: alertkube-e2e
+  namespace: alertkube-e2e-oomkilled
   steps:
     - name: Create a pod that exceeds its memory limit
       try:

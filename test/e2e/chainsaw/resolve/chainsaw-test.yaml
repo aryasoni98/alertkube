@@ -8,7 +8,7 @@ kind: Test
 metadata:
   name: resolve-on-delete
 spec:
-  namespace: alertkube-e2e
+  namespace: alertkube-e2e-resolve
   steps:
     - name: Create a crash-looping pod
       try:
@@ -58,13 +58,12 @@ spec:
     - name: Delete the pod and assert a resolve is emitted
       try:
         - script:
-            content: kubectl delete pod resolve-target -n alertkube-e2e --wait=true
+            content: kubectl delete pod resolve-target -n alertkube-e2e-resolve --wait=true
         - script:
             timeout: 3m
             content: |
               set -eu
-              # stdout logs an explicit resolved=true marker. The pod name must
-              # not itself contain "resolv", or this grep passes on the firing line.
+              # Require the explicit resolved=true marker, not text in a pod name.
               for _ in $(seq 1 30); do
                 if kubectl logs -n alertkube deploy/alertkube --tail=-1 2>/dev/null \
                      | grep -F "resolve-target" | grep -F "resolved=true" >/dev/null; then

@@ -6,7 +6,7 @@ kind: Test
 metadata:
   name: imagepull-alert
 spec:
-  namespace: alertkube-e2e
+  namespace: alertkube-e2e-imagepull
   steps:
     - name: Create a pod with an unpullable image
       try:

@@ -6,7 +6,7 @@ kind: Test
 metadata:
   name: crashloop-alert
 spec:
-  namespace: alertkube-e2e
+  namespace: alertkube-e2e-crashloop
   steps:
     - name: Create a crash-looping pod
       try:
