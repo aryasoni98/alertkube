@@ -46,10 +46,11 @@ go run ./cmd/alertkube
 ## Add a Sink
 
 1. Create `internal/sinks/<name>.go`.
-2. Call `Register` from the sink's `init` function, as in `internal/sinks/googlechat.go`. Reuse `webhookSink` when only the payload format differs.
+2. Call `Register` from the sink's `init` function, as in `internal/sinks/googlechat.go`. Reuse `chatWebhookSink` when only the payload format differs.
 3. Add the routing name to `config.KnownSinks`; `TestKnownSinksMatchesRegistry` checks that validation and registration agree.
-4. Add Helm values and Secret wiring in `helm/`, and document the environment variables.
-5. Add payload and delivery tests, including escaping and credential handling where applicable.
+4. Declare each credential env var as a constant in `internal/sinks/cred.go`. Resolve it with `requireCred` (or set `chatWebhookSink.credEnv`) so a console credential override applies; a plain `os.Getenv` read, as for `SLACK_BOT_TOKEN` and `GENERIC_WEBHOOK_SECRET`, ignores overrides. If one credential fully drives a send, add the sink to `singleCredEnv` there so the console can test-fire it by Secret reference.
+5. Add Helm values and Secret wiring in `helm/`, and document the environment variables.
+6. Add payload and delivery tests, including escaping and credential handling where applicable.
 
 ## Commit Messages
 

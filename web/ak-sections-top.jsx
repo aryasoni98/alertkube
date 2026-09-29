@@ -172,13 +172,13 @@ function AKNav({ theme, setTheme }) {
 
 /* ----------------------------- HERO ----------------------------- */
 const AK_FEED = [
-  { tone: "critical", title: "payments/api-7d9fc · CrashLoopBackOff", meta: "fp a3f29c41b07e · restarts 6", sinks: ["slack", "pagerduty"] },
-  { tone: "warning", title: "ingest/worker-2 · ImagePullBackOff", meta: "fp 9c01d4e2aa18 · pull denied", sinks: ["slack"] },
-  { tone: "critical", title: "node ip-10-0-3-41 · NodeNotReady", meta: "fp 77b2e09c43dd · inhibits 12 pod alerts", sinks: ["slack", "pagerduty"] },
-  { tone: "warning", title: "search/indexer · DeploymentUnavailable", meta: "fp e4f81b29cc07 · ready 2/4", sinks: ["slack"] },
-  { tone: "resolved", title: "payments/api-7d9fc · Resolved", meta: "fp a3f29c41b07e · TTL sweep", sinks: ["slack"] },
-  { tone: "critical", title: "ml/train-nightly · JobFailed", meta: "fp 5d20cf83b1ea · backoff limit", sinks: ["slack", "pagerduty"] },
-  { tone: "warning", title: "cache/redis-data-0 · PVCPending", meta: "fp 1bb74a90de52 · no volume bound", sinks: ["slack"] },
+  { tone: "critical", title: "payments/api-7d9fc · CrashLoopBackOff", meta: "fp 2de19f2d35e98bd7 · restarts 6", sinks: ["slack", "pagerduty"] },
+  { tone: "warning", title: "ingest/worker-2 · ImagePullBackOff", meta: "fp 31792382a26895ad · pull denied", sinks: ["slack"] },
+  { tone: "critical", title: "node ip-10-0-3-41 · NodeNotReady", meta: "fp 117c9ecf055bd869 · inhibits 12 pod alerts", sinks: ["slack", "pagerduty"] },
+  { tone: "warning", title: "search/indexer · DeploymentUnavailable", meta: "fp 3cd14256e9844ec9 · ready 2/4", sinks: ["slack"] },
+  { tone: "resolved", title: "payments/api-7d9fc · Resolved", meta: "fp 2de19f2d35e98bd7 · TTL sweep", sinks: ["slack"] },
+  { tone: "critical", title: "ml/train-nightly · JobFailed", meta: "fp 7351028e1f154e0c · backoff limit", sinks: ["slack", "pagerduty"] },
+  { tone: "warning", title: "cache/redis-data-0 · PVCPending", meta: "fp ab1210a402d2e9ab · no volume bound", sinks: ["slack"] },
 ];
 
 function AKFeedRow({ a }) {
@@ -401,7 +401,7 @@ function AKBentoFeatures() {
 
 /* ----------------------------- PIPELINE ----------------------------- */
 const AK_STAGES = [
-  { t: "Fingerprint", d: "sha256(kind | ns | name | reason), truncated to 12 chars. Same fingerprint, same alert - dedupe for free." },
+  { t: "Fingerprint", d: "sha256 over length-prefixed kind, ns, name and reason, cut to 16 hex chars. Same fingerprint, same alert - dedupe for free." },
   { t: "Mute", d: "muteSeconds blocks re-firing of the same fingerprint. The last-sent table self-cleans after an hour." },
   { t: "Silence", d: "Matchers plus an RFC3339 until. The alert-silence-until annotation works per-resource." },
   { t: "Inhibit", d: "A source alert arms a window; matching targets are dropped while it holds. NodeNotReady mutes its pods." },
@@ -414,15 +414,15 @@ function AKStageVisual({ i }) {
     <div className="pv">
       <div className="pv-card"><span className="pv-mono">kind=Pod · ns=payments · name=api-7d9fc<br />reason=CrashLoopBackOff</span></div>
       <span className="pv-arrow"><Icon name="chev" size={18} /></span>
-      <span className="pv-hash">a3f29c41b07e</span>
+      <span className="pv-hash">2de19f2d35e98bd7</span>
       <span className="pv-note">one identity per failure, not per event</span>
     </div>
   );
   if (i === 1) return (
     <div className="pv">
-      <div className="pv-card"><AKDot tone="critical" /><span><span className="pv-name">a3f29c41b07e</span><span className="pv-sub">sent 09:14:02</span></span><span className="ak-tag" style={{ marginLeft: "auto", color: "var(--wk-green-700)" }}><Icon name="check" size={11} /> delivered</span></div>
-      <div className="pv-card pv-card--off"><AKDot tone="critical" /><span><span className="pv-name">a3f29c41b07e</span><span className="pv-sub">re-fired 09:15:40</span></span><span className="ak-tag" style={{ marginLeft: "auto" }}>muted 600s</span></div>
-      <div className="pv-card pv-card--off"><AKDot tone="critical" /><span><span className="pv-name">a3f29c41b07e</span><span className="pv-sub">re-fired 09:18:11</span></span><span className="ak-tag" style={{ marginLeft: "auto" }}>muted 600s</span></div>
+      <div className="pv-card"><AKDot tone="critical" /><span><span className="pv-name">2de19f2d35e98bd7</span><span className="pv-sub">sent 09:14:02</span></span><span className="ak-tag" style={{ marginLeft: "auto", color: "var(--wk-green-700)" }}><Icon name="check" size={11} /> delivered</span></div>
+      <div className="pv-card pv-card--off"><AKDot tone="critical" /><span><span className="pv-name">2de19f2d35e98bd7</span><span className="pv-sub">re-fired 09:15:40</span></span><span className="ak-tag" style={{ marginLeft: "auto" }}>muted 600s</span></div>
+      <div className="pv-card pv-card--off"><AKDot tone="critical" /><span><span className="pv-name">2de19f2d35e98bd7</span><span className="pv-sub">re-fired 09:18:11</span></span><span className="ak-tag" style={{ marginLeft: "auto" }}>muted 600s</span></div>
     </div>
   );
   if (i === 2) return (

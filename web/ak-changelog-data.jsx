@@ -2,7 +2,16 @@
 // Depends on AK_VERSION / AK_VERSION_DATE from ak-lib.jsx (loaded first).
 const AK_RELEASES = [
   {
-    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Reliability & API v1", latest: true,
+    v: AK_VERSION, date: AK_VERSION_DATE, tag: "Modular controller & safer configuration", latest: true,
+    items: [
+      "Shared cloud pollers, watcher handlers, HTTP delivery, and configuration validation",
+      "Durable escalation marks, isolated inhibition rules, and graceful leader handover",
+      "Strict configuration, scoped Silence CRs, and collision-resistant alert identities; review the v2 upgrade guide",
+      "Smaller dependency graph; validated multi-architecture images and Helm charts built on the release runner",
+    ],
+  },
+  {
+    v: "v1.2.1", date: "2026-08-08", tag: "Reliability & API v1",
     items: [
       "Per-shard Lease and state ConfigMap so every shard leads and keeps its own mute/outbox history",
       "Native HTTP API under /api/v1 with 308 redirects; Alertmanager receiver at /api/v1/receiver/alerts",

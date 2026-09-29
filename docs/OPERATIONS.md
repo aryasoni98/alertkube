@@ -20,7 +20,7 @@ own failure is silent by construction. These are the SLOs worth defending.
 | Delivery success | > 99.9 % of routed alerts reach ≥1 sink | `alertkube_alerts_dropped_total` | A dropped alert is an unnoticed outage |
 | Dead letters | 0 | `alertkube_dead_letter_total` | Any non-zero value means an alert reached no sink and will not retry |
 | State freshness | 0 skipped saves | `alertkube_state_save_skipped_total` | A skipped save means a restart loses recent resolves and mutes |
-| Leaderless window | < 30 s | Lease observation | Bounded by `LeaseDuration` (30 s) in `internal/app/leaderelection.go` |
+| Leaderless window | < 15 s on a rollout, ~30 s after a crash | Lease observation | A draining leader releases the Lease, and a follower takes it on its next 5 s retry (jittered). A crashed leader cannot, so the Lease must expire: `LeaseDuration` (30 s) in `internal/app/leaderelection.go` |
 | Outbox replay time | < 10 s after restart | `alertkube_outbox_pending` returning to steady state | Replay runs before informers sync; a long replay delays readiness |
 
 ### Recommended alerting rules
@@ -158,20 +158,30 @@ kube-controller-manager 15/10/2 defaults because a workload pod renews through
 the apiserver over a network hop; transient apiserver latency would otherwise
 trigger spurious failovers.
 
-**Expected behavior on leader loss:**
+**Expected behavior on a graceful handover** (rollout, `kubectl delete pod`):
 
-1. Outgoing leader logs `lost leadership`, calls `MarkNotReady`, and clears the
-   data-plane handler slots — `/api/*` returns **503**, not stale data.
-2. A follower acquires within ~30 s worst case.
-3. New leader loads the state snapshot, replays the outbox, syncs informers,
-   flips `/readyz` to 200.
+1. Outgoing leader clears the data-plane handler slots — `/api/*` returns
+   **503**, not stale data — calls `MarkNotReady`, drains, and saves state
+   while it still holds the Lease.
+2. It then releases the Lease and logs `lost leadership`. A follower acquires
+   on its next retry: 5 s, up to ~11 s with jitter.
+3. New leader returns **503** on `/readyz` while it loads the state snapshot,
+   replays the outbox, and syncs informers, then flips `/readyz` to 200.
+
+A leader that crashes cannot release the Lease, so a follower acquires only
+once it expires, about 30 s after the last renewal. A leader that misses its
+20 s renew deadline logs `lost leadership` and drains without the Lease.
+Followers log `follower stopping` at Info when they shut down, not
+`lost leadership`.
 
 **Verify a failover:**
 
 ```bash
 kubectl get lease -n kube-system alertkube -o yaml   # holderIdentity
 kubectl delete pod -n <ns> <current-leader-pod>
-# within ~15s: a follower's /readyz flips to 200 and dispatch continues
+# once the old leader has drained (at most 35 s): holderIdentity moves to a
+# follower within one retry, its /readyz is 503 until caches sync, and
+# dispatch continues
 ```
 
 **Followers are Ready by design.** A leader-election follower reports Ready so a
@@ -269,6 +279,17 @@ state save: compressed snapshot is N bytes (limit 921600); skipping save
 You are over the ConfigMap ceiling. See §2. Losing one save is deliberately
 preferred over wedging every subsequent update with apiserver rejections.
 
+```
+state save: save state configmap <ns>/<name>: stale snapshot: stored SavedAt … is after this snapshot's …
+```
+
+The stored snapshot was saved later than this one was exported. During a
+leader handoff with clock skew this is expected: it repeats each sweep (30s)
+and clears within about 2 minutes. It can also appear once as
+`final state save: …` on the outgoing leader. If it keeps repeating, two
+writers share one state ConfigMap, for example several replicas running
+without leader election or sharding.
+
 ### Dead letters
 
 `GET /api/v1/deadletter` returns the recent ring of permanently abandoned
@@ -286,7 +307,17 @@ Both mean a sink was unavailable for the full retry budget. Correlate with
 
 `alertkube_cloud_poll_errors_total` by `source` (e.g. `aws-eks`,
 `gcp-gke`). A cloud-auth failure never takes down the Kubernetes watchers by
-design — the provider is logged once at startup and skipped. Check pod logs for
+design. How it shows up depends on the provider:
+
+- **AWS and Azure** resolve credentials lazily, on the first API call. Missing
+  or invalid credentials therefore do not fail startup; they show up as
+  `alertkube_cloud_poll_errors_total` rising for every source on every poll.
+  Only a config-loading error (AWS: malformed shared config; Azure, rarely: an
+  invalid `AZURE_TOKEN_CREDENTIALS`) disables the provider at startup.
+- **GCP** resolves Application Default Credentials when it builds its API
+  clients, so missing credentials disable the provider at startup.
+
+A provider disabled at startup is logged once and skipped. Check pod logs for
 `sources disabled (continuing without them)`.
 
 ---

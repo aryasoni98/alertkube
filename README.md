@@ -16,16 +16,16 @@
 
 [Website](https://aryasoni98.github.io/alertkube/) · [Manual](https://aryasoni98.github.io/alertkube/manual/) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/aryasoni98/alertkube/releases/latest)
 
-alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by `sha256(kind|namespace|name|reason)`, suppresses noise with silences, inhibitions, and optional storm grouping, and delivers alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhooks, or stdout.
+alertkube watches Pods, Nodes, Deployments, PVCs, Jobs, DaemonSets, StatefulSets, CronJobs, and HPAs. It classifies conditions as `critical`, `warning`, or `info`, deduplicates by a sha256 fingerprint of kind, namespace, name, and reason, suppresses noise with silences, inhibitions, and optional storm grouping, and delivers alerts to Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhooks, or stdout.
 
 Delivery is **decoupled from the watch loop**: a bounded async worker pool fans out to sinks, a durable outbox replays undelivered alerts after restart, and static hash sharding (v1.2+) lets multiple replicas share load with exactly one owner per object.
 
 ## Install
 
-Latest release: [v1.2.1](https://github.com/aryasoni98/alertkube/releases/latest).
+Latest release: [v2.0.0](https://github.com/aryasoni98/alertkube/releases/latest).
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.1 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
@@ -41,7 +41,7 @@ helm upgrade --install alertkube ./helm \
 Container image:
 
 ```bash
-docker pull ghcr.io/aryasoni98/alertkube:v1.2.1
+docker pull ghcr.io/aryasoni98/alertkube:v2.0.0
 ```
 
 Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
@@ -63,7 +63,7 @@ Signed multi-arch images, SBOMs, and Helm charts publish on every tagged release
 Token-gated endpoints on the metrics port (default `9090`) or optional separate `apiAddr`:
 
 - **Read:** `GET /api/v1/alerts`, `GET /api/v1/config`, `GET /api/v1/silences`, `GET /api/v1/deadletter` - `Authorization: Bearer <api.token>`.
-- **Validate:** `POST /api/v1/config/validate` for dry-run config checks before you commit to Git.
+- **Validate:** `alertkube validate --config path` (or `ALERTKUBE_CONFIG`) runs the boot decoder with no cluster. `POST /api/v1/config/validate` is the same check against a running controller.
 - **Write:** `POST`/`DELETE /api/v1/silences`, `POST /api/v1/channels/test` - gated by `api.authMode` (`token` uses `api.writeToken`; `rbac` uses Kubernetes TokenReview/SubjectAccessReview).
 - Data endpoints serve from the elected leader only. Lock the port down with `networkPolicy.enabled=true`.
 

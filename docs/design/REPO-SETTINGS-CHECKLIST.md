@@ -18,13 +18,17 @@ a PR can merge red. Verify at
   - [ ] `Build & Test` (ci.yml)
   - [ ] `Fuzz (smoke)` (ci.yml)
   - [ ] `Docker build smoke test` (ci.yml)
-  - [ ] `lint`
-  - [ ] `codeql`
-  - [ ] `dco`
-  - [ ] `dependency-review`
-  - [ ] `helm`
-  - [ ] `e2e`
-  - [ ] `trivy`
+  - [ ] `Integration (envtest)` (ci.yml)
+  - [ ] `golangci-lint` (lint.yml)
+  - [ ] `Analyze (go)` (codeql.yml)
+  - [ ] `Check Signed-off-by` (dco.yml)
+  - [ ] `Dependency review` (dependency-review.yml)
+  - [ ] `Lint & Template` (helm.yml)
+  - [ ] `Smoke (k8s v1.31.9)` (e2e.yml; require each matrix leg you support)
+  - [ ] `HA leader election` (e2e.yml)
+  - [ ] `Chainsaw` (e2e.yml)
+  - [ ] `Filesystem scan` (trivy.yml)
+  - [ ] `Misconfig scan (IaC)` (trivy.yml)
 - [ ] Require branches to be up to date before merging
 - [ ] Require conversation resolution
 - [ ] Require signed commits

@@ -136,14 +136,13 @@ kept answering `202` would accept alerts into a store nothing will drain.
 | Resource | Verbs | Needed for | When |
 | --- | --- | --- | --- |
 | pods, nodes, deployments, statefulsets, daemonsets, jobs, cronjobs, hpa, pvc | get, list, watch | Core watching | Always |
-| events | list, watch | Alert enrichment | Always |
-| pods/log | get | Enrichment (previous container logs) | Always |
+| events | list | Alert enrichment | Always |
+| pods/log | get | Enrichment (previous container logs) | Unless `behavior.disableLogCollection` |
 | configmaps | get, create, update | State persistence | `persistence.enabled` |
 | leases (coordination.k8s.io) | get, create, update | Leader election | `leaderElection.enabled` |
 | silences.alertkube.io | get, list, watch | Silence CRD | `crds.silences.enabled` |
 | tokenreviews, subjectaccessreviews | create | RBAC auth mode | `api.authMode=rbac` |
 | secrets | get (own namespace) | Secret-reference channel test | `api.allowSecretRead` |
-| replicasets, services | get, list, watch | Correlation topology | Correlation (in progress) |
 
 `pods/log` is the widest grant in the default set — it can read application log
 output. Set `--watch-namespace` to scope the controller to a single namespace

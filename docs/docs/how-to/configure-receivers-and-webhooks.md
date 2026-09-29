@@ -57,6 +57,8 @@ receivers:
 
 Receiver alerts use `kind: External`, so routing can treat them separately.
 
+When an Alertmanager alert carries a `fingerprint` made of letters, digits, `.`, `_`, `:`, or `-` (at most 128 characters), alertkube keeps it as `am-<fingerprint>`. The prefix stops an upstream id from occupying a fingerprint alertkube computed for a watched object. PagerDuty dedup keys and Opsgenie aliases for receiver alerts carry the prefix. Any other value is ignored, and the alert gets a locally computed fingerprint.
+
 ## Query `/api/v1/alerts`
 
 `/api/v1/alerts` returns active alerts and recent history as JSON.
@@ -72,34 +74,27 @@ curl -H "Authorization: Bearer your-secret-token-here" \
 
 Response shape:
 
+`Alert` has no `json` tags, so keys are the Go field names. `Details` is a
+map. There is no `lastFired` field; age is `StartsAt`.
+
 ```json
 {
   "active": [
     {
-      "fingerprint": "abc123def456",
-      "kind": "Pod",
-      "namespace": "default",
-      "name": "web-server-xyz",
-      "reason": "CrashLoopBackOff",
-      "severity": "warning",
-      "resolved": false,
-      "lastFired": "2026-06-20T12:34:56Z",
-      "labels": {
-        "node": "node-1",
-        "pod": "web-server-xyz"
-      },
-      "summary": "Pod default/web-server-xyz is CrashLoopBackOff",
-      "details": "Container logs and event details..."
+      "Fingerprint": "f0b03a99c75e3eac",
+      "Kind": "Pod",
+      "Namespace": "default",
+      "Name": "web-server-xyz",
+      "Severity": "warning",
+      "Reason": "CrashLoopBackOff",
+      "Summary": "Pod default/web-server-xyz is CrashLoopBackOff",
+      "Details": {"container": "app"},
+      "Labels": {"node": "node-1"},
+      "StartsAt": "2026-06-20T12:34:56Z",
+      "Resolved": false
     }
   ],
-  "recent": [
-    {
-      "fingerprint": "def789ghi012",
-      "kind": "Node",
-      "reason": "NodeNotReady",
-      ...
-    }
-  ]
+  "recent": []
 }
 ```
 
@@ -167,7 +162,7 @@ curl -X POST http://localhost:9090/api/v1/receiver/alerts \
 
 # 4. Query the API
 curl -H "Authorization: Bearer my-api-token" \
-  http://localhost:9090/api/v1/alerts | jq '.active[] | select(.kind == "External")'
+  http://localhost:9090/api/v1/alerts | jq '.active[] | select(.Kind == "External")'
 ```
 
 ## See Also

@@ -1,6 +1,6 @@
 # Configure Alert Sinks
 
-alertkube can send alerts to `slack`, `pagerduty`, `teams`, `opsgenie`, `discord`, `telegram`, `webhook`, and `stdout`. Full credential names live in [Sink credentials & env vars](../reference/sink-credentials.md).
+alertkube can send alerts to `slack`, `pagerduty`, `teams`, `opsgenie`, `discord`, `telegram`, `googlechat`, `mattermost`, `webhook`, and `stdout`. Full credential names live in [Sink credentials & env vars](../reference/sink-credentials.md).
 
 ## Quick Setup
 

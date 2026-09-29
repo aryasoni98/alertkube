@@ -9,7 +9,7 @@ For a complete metric reference, see [Metrics reference](../reference/metrics.md
 | Metric | Query | Meaning | What to do if high |
 | --- | --- | --- | --- |
 | **Alert volume** | `alertkube_alerts_total` | Alerts emitted, by kind/severity/reason | Expected; use alerting rules to page if sustained |
-| **Suppression** | `alertkube_alerts_suppressed_total` | Alerts dropped, by reason (dedupe/inhibited/silenced/grouped) | Expected; too high = tune mute window or grouping |
+| **Suppression** | `alertkube_alerts_suppressed_total` | Alerts dropped, by reason (`muted`, `silenced`, `maintenance`, `inhibited`, `grouped`, `startup`, `foreign_shard`, `circuit_open`, `ratelimited`) | Expected; too high = tune mute window or grouping |
 | **Active alerts** | `alertkube_active_alerts` | Count of currently firing, unresolved alerts | High during incidents; should drop after fixes |
 | **Dispatch in-flight** | `alertkube_dispatch_inflight` | Sink sends currently queued on the rate limiter | Pinned high = storm is queueing; see rate-limiting section |
 | **Sink send latency** | `alertkube_sink_send_seconds` | Time from dispatch to sink response, by sink and result | Expected; latency spikes = sink is slow |
@@ -67,7 +67,7 @@ Check:
 1. Is the sink being called?
 
     ```bash
-    curl http://localhost:9090/metrics | grep alertkube_sink_send_seconds_total
+    curl http://localhost:9090/metrics | grep alertkube_sink_send_seconds_count
     ```
 
     Missing sink metrics usually mean no routing rule matched. `result="error"` means dispatch is failing.
@@ -105,7 +105,7 @@ Check suppression counters:
     ```
 
     The `reason` label tells you why:
-    - **`dedupe` / `muted`** - same fingerprint fired recently (within `muteSeconds`). Wait, trigger from a fresh pod, or lower `muteSeconds` for testing.
+    - **`muted`** - same fingerprint fired recently (within `muteSeconds`). Wait, trigger from a fresh pod, or lower `muteSeconds` for testing.
     - **`silenced`** - a `silences:` config or `alert-silence-until` annotation matched.
     - **`inhibited`** - an inhibition rule suppressed it (e.g., pods on a down node).
     - **`grouped`** - it was the 2nd or later alert in a group within `windowSeconds`.
@@ -116,7 +116,7 @@ Then check the matching mechanism:
     kubectl get cm alertkube-config -o yaml | grep muteSeconds
     ```
 
-- `dedupe` / `muted`: wait, use a fresh object, or lower `muteSeconds` for testing.
+- `muted`: wait, use a fresh object, or lower `muteSeconds` for testing. Also `startup`, `maintenance`, `foreign_shard`, `circuit_open`, and `ratelimited`.
 - `silenced`: inspect config silences and `alert-silence-until` annotations.
 - `inhibited`: inspect source alerts and inhibition rules.
 - `grouped`: check the grouping window and group fields.
@@ -142,7 +142,7 @@ Raise that sink's rate or enable grouping:
 
 ### Pod enrichment is being skipped
 
-**Symptom:** `alertkube_enrichment_saturated_total` is rising, and pod alerts lack the `Container logs` block.
+**Symptom:** `alertkube_enrichment_saturated_total` is rising, and pod alerts lack the `Pod Logs Before Restart`, `Pod Events`, and `Node Events` blocks.
 
 The enrichment worker pool is full. The alert still sends; only log/event enrichment is skipped. Reduce pressure with grouping, a longer `muteSeconds`, or `behavior.disableLogCollection: true`.
 
@@ -171,7 +171,7 @@ Check:
 
 ### High churn on resolved alerts
 
-**Symptom:** `alertkube_alerts_total` with `severity=resolved` is rising rapidly, or PagerDuty incidents are closing and re-opening repeatedly.
+**Symptom:** PagerDuty incidents are closing and re-opening repeatedly. A resolve keeps its original `severity` label (`critical`, `warning`, or `info`); there is no `severity=resolved`.
 
 `resolveTTLSeconds` is probably too short for the workload. It must be greater than 300 seconds and should usually be close to or above `muteSeconds`.
 
@@ -186,14 +186,15 @@ Check:
 ```bash
 curl -s http://localhost:9090/readyz
 # Returns 200 OK once informer caches sync
-# Returns 503 Service Unavailable while syncing or in follower mode (leader-election)
+# Returns 503 while informer caches are still syncing.
+# A leader-election follower reports Ready on purpose (maxUnavailable: 0).
 ```
 
 ### Is the controller alive?
 
 ```bash
 curl -s http://localhost:9090/healthz
-# Always returns 200 OK once the HTTP server starts
+# Returns 503 once the sweep heartbeat is stale (about 120s). A live sweeper returns 200.
 ```
 
 ### Are the API endpoints accessible?
@@ -211,6 +212,5 @@ curl -X POST http://localhost:9090/api/v1/receiver/alerts \
 ## See Also
 
 - [Metrics reference](../reference/metrics.md) - complete metric definitions and label values.
-- [Troubleshooting (main docs)](https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md) - more detailed troubleshooting guide.
 - [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md) - capacity planning and SLOs.
 - [Grafana dashboard](https://github.com/aryasoni98/alertkube/blob/master/docs/grafana-dashboard.json) - importable dashboard for visualization.

@@ -5,7 +5,7 @@ alertkube promises that the same cluster events plus the same config produce the
 ## The Core Rules
 
 - **Watcher rules are explicit.** Conditions such as `CrashLoopBackOff`, `NodeNotReady`, and unavailable Deployments are checked in source code. See [Watcher conditions](../reference/watcher-conditions.md).
-- **Identity is stable.** Every alert uses `sha256(kind|namespace|name|reason)` as its fingerprint.
+- **Identity is stable.** An alert's fingerprint is sha256 over its length-prefixed kind, namespace, name, and reason, cut to 16 hex characters. A receiver alert keeps the upstream Alertmanager fingerprint with an `am-` prefix.
 - **Suppression is rule-based.** Mute windows, silences, annotation silences, and inhibitions are config/code decisions, not learned decisions.
 - **Ordering is fixed.** Matching is first-match-wins, and suppression order is predictable.
 - **Metrics expose outcomes.** `alertkube_alerts_total`, `alertkube_alerts_suppressed_total`, and sink metrics show what happened.

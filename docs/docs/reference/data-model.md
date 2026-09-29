@@ -26,7 +26,7 @@ the rule engine; consumed by the store, router, grouper, and sinks.
 | `Name` | Object or cloud-resource id |
 | `Reason` | Why it fired (`CrashLoopBackOff`, `OOMKilled`). Part of identity |
 | `Severity` | `critical` / `warning` / `info` |
-| `Fingerprint` | `sha256(kind\|namespace\|name\|reason)` — see below |
+| `Fingerprint` | sha256 over length-prefixed kind, namespace, name, reason; first 16 hex characters — see below |
 | `Summary` | Human-readable one-liner |
 | `Labels` | Routing/matching inputs (`node`, `provider`, `region`, …) |
 | `Details` | Enrichment (events, logs, describe). Empty values dropped |
@@ -39,8 +39,13 @@ the rule engine; consumed by the store, router, grouper, and sinks.
 ## Fingerprint
 
 ```
-sha256(kind | namespace | name | reason)
+hex(sha256(len(kind) kind len(namespace) namespace len(name) name len(reason) reason))[:16]
 ```
+
+Each `len` is the field's byte length as a 4-byte big-endian integer, so a `|`
+or any other character inside a name cannot shift into a neighbouring field.
+Example: `Pod`, `default`, `web-server-xyz`, `CrashLoopBackOff` →
+`f0b03a99c75e3eac`.
 
 The spine of the system. It is the dedupe key, the mute key, the resolve
 target, and — since delivery became fingerprint-affine — the dispatch worker
@@ -50,6 +55,11 @@ Note what it **includes**: `reason`. Two problems on one pod are two
 fingerprints and page independently. And what it **excludes**: severity,
 labels, timestamps. A pod that escalates from warning to critical for the same
 reason keeps one identity, so it does not double-page.
+
+Receiver alerts (`Kind: External`) are the exception: a safe upstream
+Alertmanager fingerprint is kept as `am-<upstream fingerprint>`. The prefix
+stops an upstream id from occupying a fingerprint computed for a watched
+object.
 
 Shard ownership deliberately uses `kind/namespace/name` — *not* the
 fingerprint — so every reason on one object, and its delete-resolve, are owned
@@ -61,11 +71,13 @@ What persistence writes: gzipped JSON in a ConfigMap.
 
 | Field | Contents |
 | --- | --- |
+| `Version` | Wire-shape version, currently `1`. A snapshot from a newer version is refused whole and the controller starts cold |
 | `Active` | Currently firing alerts, keyed by fingerprint |
 | `LastSent` | Fingerprint → last send time; the mute window |
 | `RuntimeSilences` | Silences created via the API (not config or CRD) |
 | `Pending` | The delivery outbox |
-| `SavedAt` | Snapshot time, logged on restore |
+| `Escalated` | Fingerprint → escalation rules that already fired for it, so a restart does not re-escalate |
+| `SavedAt` | Snapshot time, logged on restore. A save older than the stored snapshot is refused, unless the stored time is more than 2 minutes ahead |
 
 Losing `LastSent` causes a re-paging storm on restart. Losing `Pending` dangles
 stateful incidents. That is why sharded replicas must not share one object.

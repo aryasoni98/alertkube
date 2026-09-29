@@ -5,7 +5,7 @@ set -euo pipefail
 # scanned (Trivy), and given SLSA provenance by .github/workflows/release.yml -
 # use the release pipeline for anything published, including the :latest tag.
 # Keep IMAGE/TAG in sync with helm/values.yaml.
-TAG="${TAG:-v1.2.1}" # x-release-please-version
+TAG="${TAG:-v2.0.0}" # x-release-please-version
 IMAGE="${IMAGE:-ghcr.io/aryasoni98/alertkube}"
 
 # By default this only builds (no registry push, no :latest tag - the release
@@ -13,10 +13,12 @@ IMAGE="${IMAGE:-ghcr.io/aryasoni98/alertkube}"
 if [[ "${PUSH:-0}" == "1" ]]; then
   docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --build-arg "VERSION=${TAG}" \
     -t "${IMAGE}:${TAG}" \
     --push .
 else
   docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --build-arg "VERSION=${TAG}" \
     -t "${IMAGE}:${TAG}" .
 fi

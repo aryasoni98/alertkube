@@ -22,12 +22,10 @@ mostly about closing that gap and paying down the debt it exposed.
   colliding path. *(done, unreleased, breaking)*
 - **`persist.Store` interface** — the seam a non-ConfigMap backend needs.
   *(done, unreleased)*
-- **OpenTelemetry tracing** — a span per pipeline stage, propagated through the
-  dispatch queue. The most common support question is "why didn't my alert
-  arrive?", and today answering it means correlating six metrics by hand.
+- **OpenTelemetry tracing** — spans on enqueue and dispatch, opt-in via
+  `ALERTKUBE_TRACING_ENABLED`. *(done, unreleased)*
 - **envtest integration tier** — real apiserver, real informer sync, real Lease
-  contention. The sharding bugs above were invisible to both unit tests
-  (fake clientset) and e2e (chainsaw), which is exactly the gap this fills.
+  contention. *(done, unreleased)*
 
 ## Next — v1.4: correlation and state backends
 
