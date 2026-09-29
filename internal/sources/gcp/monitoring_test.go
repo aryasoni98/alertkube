@@ -10,18 +10,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
-type fakePolicyLister struct {
-	byProject map[string][]*monitoringpb.AlertPolicy
-	err       error
-}
-
-func (f *fakePolicyLister) List(_ context.Context, project string) ([]*monitoringpb.AlertPolicy, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.byProject[project], nil
-}
-
 func alertPolicy(name, display string, enabled bool) *monitoringpb.AlertPolicy {
 	return &monitoringpb.AlertPolicy{
 		Name:        name,
@@ -74,12 +62,12 @@ func TestEvaluateAlertPolicy(t *testing.T) {
 }
 
 func TestGCPMonitoringSourcePoll(t *testing.T) {
-	fake := &fakePolicyLister{byProject: map[string][]*monitoringpb.AlertPolicy{
+	fake := fakeLister(map[string][]*monitoringpb.AlertPolicy{
 		"proj-1": {
 			alertPolicy("projects/proj-1/alertPolicies/on", "enabled-policy", true),
 			alertPolicy("projects/proj-1/alertPolicies/off", "disabled-policy", false),
 		},
-	}}
+	}, nil)
 	src := newMonitoringSource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

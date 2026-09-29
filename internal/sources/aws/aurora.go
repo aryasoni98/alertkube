@@ -13,6 +13,11 @@ import (
 
 const sourceAurora = "aws-aurora"
 
+// auroraAPI is the subset of the RDS client the Aurora cluster source uses.
+type auroraAPI interface {
+	DescribeDBClusters(context.Context, *rds.DescribeDBClustersInput, ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error)
+}
+
 type auroraRegion = regionClient[auroraAPI]
 
 // auroraSource alerts on Aurora DB clusters whose status is not healthy. It is
@@ -31,7 +36,7 @@ type auroraSource struct {
 func (s *auroraSource) Name() string { return sourceAurora }
 
 func (s *auroraSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceAurora, s.regions, emit, s.pollRegion)
 }
 
 func (s *auroraSource) pollRegion(ctx context.Context, rc auroraRegion, emit sources.Emit) {

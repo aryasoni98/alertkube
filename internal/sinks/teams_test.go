@@ -2,33 +2,25 @@ package sinks
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
 func TestTeamsSendsAdaptiveCardEnvelope(t *testing.T) {
-	var got map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if err := json.Unmarshal(body, &got); err != nil {
-			t.Errorf("payload is not JSON: %v", err)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	srv, payloads, _ := capture(t)
 	t.Setenv("TEAMS_WEBHOOK_URL", srv.URL)
 
 	a := alert.New(alert.KindPod, "ns", "p", "CrashLoopBackOff", alert.SeverityCritical)
 	a.Summary = "container crashed"
 	a.Annotations["runbook-url"] = "https://wiki/runbooks/crash"
-	if err := NewTeams().Send(context.Background(), a); err != nil {
+	if err := newTeams().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
+	if len(*payloads) != 1 {
+		t.Fatalf("teams webhook got %d posts, want 1", len(*payloads))
+	}
+	got := (*payloads)[0]
 
 	if got["type"] != "message" {
 		t.Fatalf("envelope type = %v, want message", got["type"])
@@ -50,10 +42,32 @@ func TestTeamsSendsAdaptiveCardEnvelope(t *testing.T) {
 	}
 }
 
-func TestTeamsNoURLIsNoop(t *testing.T) {
-	t.Setenv("TEAMS_WEBHOOK_URL", "")
-	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)
-	if err := NewTeams().Send(context.Background(), a); err != nil {
-		t.Fatalf("empty URL must no-op, got %v", err)
+// An alert with no cluster or namespace (a receiver-ingested one, say) shows
+// "-" for those facts, as Mattermost, Discord and Google Chat do, not a blank.
+func TestTeamsFactsDashEmptyValues(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("TEAMS_WEBHOOK_URL", srv.URL)
+
+	a := alert.New(alert.KindPod, "", "api_1", "X", alert.SeverityWarning)
+	if err := newTeams().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if len(*payloads) != 1 {
+		t.Fatalf("teams webhook got %d posts, want 1", len(*payloads))
+	}
+	card := (*payloads)[0]["attachments"].([]any)[0].(map[string]any)["content"].(map[string]any)
+	facts := map[string]string{}
+	for _, blk := range card["body"].([]any) {
+		set, _ := blk.(map[string]any)["facts"].([]any)
+		for _, f := range set {
+			fact := f.(map[string]any)
+			facts[fact["title"].(string)] = fact["value"].(string)
+		}
+	}
+	want := map[string]string{"Cluster": "-", "Namespace": "-", "Name": `api\_1`, "Reason": "X"}
+	for title, value := range want {
+		if facts[title] != value {
+			t.Errorf("fact %s = %q, want %q", title, facts[title], value)
+		}
 	}
 }

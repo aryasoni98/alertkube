@@ -14,9 +14,7 @@ import (
 // Details-stripped clone so the persisted record stays small and does not share
 // mutable maps with the live alert.
 func (d *dispatcher) pendingAdd(id uint64, a *alert.Alert, route []string) {
-	cp := *a
-	cp.Details = nil
-	rec := alert.PendingDelivery{ID: id, Alert: cp.Clone(), Route: slices.Clone(route)}
+	rec := alert.PendingDelivery{ID: id, Alert: a.CloneWithoutDetails(), Route: slices.Clone(route)}
 	d.pendingMu.Lock()
 	d.pending[id] = rec
 	d.pendingGen++

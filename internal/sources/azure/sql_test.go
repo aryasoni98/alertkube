@@ -7,13 +7,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
-type fakeSQLLister struct {
-	dbs []sqlDatabase
-	err error
-}
-
-func (f *fakeSQLLister) List(context.Context) ([]sqlDatabase, error) { return f.dbs, f.err }
-
 func sqlDB(server, name, location, status string) sqlDatabase {
 	return sqlDatabase{server: server, name: name, location: location, status: status}
 }
@@ -78,11 +71,11 @@ func TestResourceGroupFromID(t *testing.T) {
 }
 
 func TestAzureSQLSourcePoll(t *testing.T) {
-	fake := &fakeSQLLister{dbs: []sqlDatabase{
+	items := []sqlDatabase{
 		sqlDB("srv", "good", "eastus", "Online"),
 		sqlDB("srv", "bad", "eastus", "Suspect"),
-	}}
-	src := &azureSQLSource{subs: []azureSQLSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureSQLSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

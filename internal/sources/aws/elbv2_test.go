@@ -12,36 +12,18 @@ import (
 )
 
 type fakeELBV2 struct {
-	lbPages   []*elbv2.DescribeLoadBalancersOutput
-	lbIdx     int
-	tgPages   []*elbv2.DescribeTargetGroupsOutput
-	tgIdx     int
+	lb        pager[elbv2.DescribeLoadBalancersOutput]
+	tg        pager[elbv2.DescribeTargetGroupsOutput]
 	health    map[string]*elbv2.DescribeTargetHealthOutput
-	lbErr     error
-	tgErr     error
 	healthErr error
 }
 
-func (f *fakeELBV2) DescribeLoadBalancers(_ context.Context, _ *elbv2.DescribeLoadBalancersInput, _ ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error) {
-	if f.lbErr != nil {
-		return nil, f.lbErr
-	}
-	out := f.lbPages[f.lbIdx]
-	if f.lbIdx < len(f.lbPages)-1 {
-		f.lbIdx++
-	}
-	return out, nil
+func (f *fakeELBV2) DescribeLoadBalancers(_ context.Context, in *elbv2.DescribeLoadBalancersInput, _ ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error) {
+	return f.lb.next(in.Marker)
 }
 
-func (f *fakeELBV2) DescribeTargetGroups(_ context.Context, _ *elbv2.DescribeTargetGroupsInput, _ ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error) {
-	if f.tgErr != nil {
-		return nil, f.tgErr
-	}
-	out := f.tgPages[f.tgIdx]
-	if f.tgIdx < len(f.tgPages)-1 {
-		f.tgIdx++
-	}
-	return out, nil
+func (f *fakeELBV2) DescribeTargetGroups(_ context.Context, in *elbv2.DescribeTargetGroupsInput, _ ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error) {
+	return f.tg.next(in.Marker)
 }
 
 func (f *fakeELBV2) DescribeTargetHealth(_ context.Context, in *elbv2.DescribeTargetHealthInput, _ ...func(*elbv2.Options)) (*elbv2.DescribeTargetHealthOutput, error) {
@@ -145,15 +127,15 @@ func TestEvaluateTargetGroup(t *testing.T) {
 
 func TestELBV2SourcePoll(t *testing.T) {
 	fake := &fakeELBV2{
-		lbPages: []*elbv2.DescribeLoadBalancersOutput{{
+		lb: pagerOf(&elbv2.DescribeLoadBalancersOutput{
 			LoadBalancers: []elbv2types.LoadBalancer{lbState("broken-lb", elbv2types.LoadBalancerStateEnumFailed)},
-		}},
-		tgPages: []*elbv2.DescribeTargetGroupsOutput{{
+		}),
+		tg: pagerOf(&elbv2.DescribeTargetGroupsOutput{
 			TargetGroups: []elbv2types.TargetGroup{
 				{TargetGroupName: awssdk.String("good-tg"), TargetGroupArn: awssdk.String("arn:good")},
 				{TargetGroupName: awssdk.String("bad-tg"), TargetGroupArn: awssdk.String("arn:bad")},
 			},
-		}},
+		}),
 		health: map[string]*elbv2.DescribeTargetHealthOutput{
 			"arn:good": {TargetHealthDescriptions: thd(elbv2types.TargetHealthStateEnumHealthy)},
 			"arn:bad":  {TargetHealthDescriptions: thd(elbv2types.TargetHealthStateEnumUnhealthy)},

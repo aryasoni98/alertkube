@@ -2,24 +2,16 @@ package gcp
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/option"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
-
-type fakeGCELister struct {
-	byProject map[string][]*compute.Instance
-	err       error
-}
-
-func (f *fakeGCELister) List(_ context.Context, project string) ([]*compute.Instance, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.byProject[project], nil
-}
 
 func gceInstance(name, zone, status string) *compute.Instance {
 	return &compute.Instance{
@@ -72,16 +64,56 @@ func TestEvaluateGCEInstance(t *testing.T) {
 }
 
 func TestGCESourcePoll(t *testing.T) {
-	fake := &fakeGCELister{byProject: map[string][]*compute.Instance{
+	fake := fakeLister(map[string][]*compute.Instance{
 		"proj-1": {
 			gceInstance("good", "us-central1-a", "RUNNING"),
 			gceInstance("bad", "us-east1-b", "REPAIRING"),
 		},
-	}}
+	}, nil)
 	src := newGCESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {
 		t.Fatalf("expected 2 alerts, got %d", len(*got))
+	}
+}
+
+// TestAPIGCEListerKeepsReturnedInstances drives the real aggregated-list
+// adapter against a canned REST page. The instances a page returns are always
+// evaluated; an Unreachables entry must not discard the whole project.
+func TestAPIGCEListerKeepsReturnedInstances(t *testing.T) {
+	const instances = `"items":{"zones/us-central1-a":{"instances":[` +
+		`{"name":"bad","zone":"https://www.googleapis.com/compute/v1/projects/proj-1/zones/us-central1-a","status":"REPAIRING"}]}}`
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"complete list", `{` + instances + `}`},
+		{"unreachable zone", `{` + instances + `,"unreachables":["zones/us-east1-b"]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/projects/proj-1/aggregated/instances" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			svc, err := compute.NewService(context.Background(),
+				option.WithEndpoint(srv.URL+"/"), option.WithHTTPClient(srv.Client()))
+			if err != nil {
+				t.Fatalf("service: %v", err)
+			}
+
+			emit, got := collect()
+			newGCESource([]string{"proj-1"}, (&apiGCELister{svc: svc}).List).Poll(context.Background(), emit)
+
+			if len(*got) != 1 || (*got)[0].Name != "bad" || (*got)[0].Resolved {
+				t.Fatalf("returned instance must be evaluated as firing, got %d alerts: %+v", len(*got), *got)
+			}
+		})
 	}
 }

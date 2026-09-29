@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+func TestEscalationMarksTriggerPersistence(t *testing.T) {
+	s := NewStore(time.Minute, time.Hour, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.StartsAt = time.Now().Add(-10 * time.Minute)
+	s.ShouldSend(a)
+	before := s.Generation()
+	if got := s.Overdue(time.Minute, "rule", nil); len(got) != 1 || s.Generation() == before {
+		t.Fatal("new escalation must trigger a snapshot save")
+	}
+	before = s.Generation()
+	if got := s.Overdue(time.Minute, "rule", nil); len(got) != 0 || s.Generation() != before {
+		t.Fatal("unchanged escalation must not trigger another save")
+	}
+	restored := NewStore(time.Minute, time.Hour, nil)
+	restored.Restore(s.Export())
+	if got := restored.Overdue(time.Minute, "rule", nil); len(got) != 0 {
+		t.Fatal("saved escalation must not repeat after restart")
+	}
+}
+
 // TestEscalationMarksClearedOnResolve verifies the O(1) drop: once an alert
 // resolves, its escalation marks are gone, so a re-fired same-fingerprint alert
 // can escalate again under the same rule.

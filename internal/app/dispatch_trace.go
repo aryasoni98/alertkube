@@ -38,9 +38,11 @@ func enqueueSpan(ctx context.Context, a *alert.Alert, route []string) (context.C
 }
 
 // startDeliverySpan opens the span covering one delivery attempt, parented to
-// the enqueue span via the job's carried linkage. A job with no linkage (a
-// replayed outbox record, whose producing trace ended in a previous process)
-// starts a fresh root - correct, since there is nothing to attach to.
+// the enqueue span via the job's carried linkage. Every job built by enqueue
+// carries one, including replayed outbox records (replay goes through enqueue
+// and gets a fresh root enqueue span, since the producing trace ended in a
+// previous process). The nil guard is defensive: a future job literal that
+// omits traceCtx starts a root span instead of panicking in Tracer().Start.
 func startDeliverySpan(job dispatchJob) oteltrace.Span {
 	parent := job.traceCtx
 	if parent == nil {
@@ -60,7 +62,7 @@ func startDeliverySpan(job dispatchJob) oteltrace.Span {
 // endDeliverySpan closes a delivery span, marking it an error when no sink on
 // the route accepted the alert. That error status is the signal that makes the
 // trace worth having: a red terminal span means the alert reached nobody.
-func endDeliverySpan(span oteltrace.Span, job dispatchJob, delivered bool) {
+func endDeliverySpan(span oteltrace.Span, delivered bool) {
 	if delivered {
 		span.SetStatus(codes.Ok, "")
 	} else {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,20 +28,6 @@ const (
 	secretReadTimeout = 5 * time.Second
 )
 
-// channelCredEnv maps a channel type to the credential env var the matching sink
-// reads. Only types whose single credential fully drives a test send are listed;
-// e.g. telegram is omitted because it also needs a (non-secret) chat id.
-var channelCredEnv = map[string]string{
-	"slack":      "SLACK_WEBHOOK_URL",
-	"discord":    "DISCORD_WEBHOOK_URL",
-	"teams":      "TEAMS_WEBHOOK_URL",
-	"webhook":    "GENERIC_WEBHOOK_URL",
-	"pagerduty":  "PAGERDUTY_ROUTING_KEY",
-	"opsgenie":   "OPSGENIE_API_KEY",
-	"googlechat": "GOOGLECHAT_WEBHOOK_URL",
-	"mattermost": "MATTERMOST_WEBHOOK_URL",
-}
-
 // buildSecretReader wires the opt-in (Phase 2b) Secret-reference channel
 // tester: off unless ALERTKUBE_ALLOW_SECRET_READ=true, which (via the chart)
 // also grants the controller secrets:get in its own namespace. The returned
@@ -59,7 +46,7 @@ func buildSecretReader(clientset kubernetes.Interface) func(ctx context.Context,
 	return func(ctx context.Context, name, key string) (string, error) {
 		s, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("get secret %q: %w", name, err)
 		}
 		b, ok := s.Data[key]
 		if !ok {
@@ -76,13 +63,13 @@ func buildSecretReader(clientset kubernetes.Interface) func(ctx context.Context,
 func newChannelsHandler(d consoleDeps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
-		case req.Method == http.MethodGet && req.URL.Path == metrics.APIPrefix+"/channels":
+		case req.Method == http.MethodGet && req.URL.Path == metrics.ChannelsPath:
 			if !d.readAuthorized(req, w) {
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"channels": d.reg.Names()})
 
-		case req.Method == http.MethodPost && req.URL.Path == metrics.APIPrefix+"/channels/test":
+		case req.Method == http.MethodPost && req.URL.Path == metrics.ChannelsTestPath:
 			user, ok := d.writeGate(req, authz.ResourceAttributes{Group: "alertkube.io", Resource: "channels", Verb: "create"}, w)
 			if !ok {
 				return
@@ -114,7 +101,7 @@ func newChannelsHandler(d consoleDeps) http.Handler {
 			}
 			writeVerdict(w, sendErr)
 
-		case req.Method == http.MethodPost && req.URL.Path == metrics.APIPrefix+"/channels/test-ref":
+		case req.Method == http.MethodPost && req.URL.Path == metrics.ChannelsTestRefPath:
 			d.testChannelBySecretRef(w, req)
 
 		default:
@@ -127,14 +114,14 @@ func newChannelsHandler(d consoleDeps) http.Handler {
 // in a Kubernetes Secret: it reads the referenced key from the controller's own
 // namespace, injects it for a single test send through the matching sink, and
 // returns ok/fail. The credential is never echoed or stored. It is opt-in
-// (secretRead) and write-gated; with the opt-in off it returns 403, so the
+// (secretReader) and write-gated; with the opt-in off it returns 403, so the
 // default install never reads a Secret.
 func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Request) {
 	user, ok := d.writeGate(req, authz.ResourceAttributes{Group: "alertkube.io", Resource: "channels", Verb: "create"}, w)
 	if !ok {
 		return
 	}
-	if !d.secretRead || d.secretReader == nil {
+	if d.secretReader == nil {
 		httpErr(w, http.StatusForbidden, "Secret-reference channel testing is disabled: set api.allowSecretRead=true (grants the controller secrets:get in its namespace)")
 		return
 	}
@@ -148,7 +135,7 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 	if !decodeJSON(w, req, channelBodyLimit, &in) {
 		return
 	}
-	envName, known := channelCredEnv[in.Type]
+	envName, known := sinks.CredentialEnv(in.Type)
 	if !known {
 		httpErr(w, http.StatusBadRequest, "unsupported channel type: "+sanitizeField(in.Type))
 		return
@@ -178,6 +165,11 @@ func (d consoleDeps) testChannelBySecretRef(w http.ResponseWriter, req *http.Req
 	sendCtx, cancel2 := context.WithTimeout(sinks.WithCreds(req.Context(), map[string]string{envName: val}), channelTestTimeout)
 	defer cancel2()
 	sendErr := d.reg.TestSend(sendCtx, in.Type, test)
+	if sendErr != nil && strings.Contains(sendErr.Error(), val) {
+		// Defense in depth: sinks keep credentials out of their errors, but
+		// this reply and log must never carry the Secret value.
+		sendErr = errors.New(strings.ReplaceAll(sendErr.Error(), val, "[REDACTED]"))
+	}
 	metrics.RuntimeMutations.WithLabelValues("channel_test_ref").Inc()
 	if sendErr != nil {
 		klog.Warningf("channel secret-ref test failed: type=%s secret=%s/%s by=%q: %v", in.Type, in.SecretRef.Name, in.SecretRef.Key, user, sendErr)

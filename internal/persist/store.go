@@ -29,13 +29,19 @@ import (
 //   - Save may refuse a snapshot that exceeds the backend's size limit,
 //     reporting an error. Skipping one save is preferable to wedging every
 //     subsequent update.
+//   - Save may refuse to replace a stored snapshot whose SavedAt is later
+//     than this one's. This orders writers by export wall-clock time; it is
+//     not leader fencing. The refusal is an error wrapping ErrStaleSnapshot,
+//     never a nil return: the caller keeps the state unsaved and retries
+//     rather than counting it as saved.
 //
 // Implementations must be safe for concurrent use: the sweeper saves on its own
 // goroutine while shutdown may issue a final save.
 type Store interface {
 	// Load returns the stored snapshot, or (nil, nil) when none exists.
 	Load(ctx context.Context) (*alert.Snapshot, error)
-	// Save writes the snapshot, replacing any previous one.
+	// Save writes the snapshot, replacing any previous one that is not newer.
+	// A refused save is reported as an error.
 	Save(ctx context.Context, snap *alert.Snapshot) error
 }
 

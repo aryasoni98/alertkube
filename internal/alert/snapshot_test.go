@@ -69,6 +69,115 @@ func TestRestoreIgnoresFutureVersionAndNil(t *testing.T) {
 	}
 }
 
+// Every field added since version 1 is additive and omitempty, and a changed
+// fingerprint is still an opaque string. A bump would not protect an upgrade
+// (Restore accepts older versions) but would make a rollback build discard
+// the whole snapshot: active set, mute history, silences and outbox.
+func TestSnapshotVersionStaysOne(t *testing.T) {
+	if SnapshotVersion != 1 {
+		t.Fatalf("SnapshotVersion = %d, want 1: bump it only for an incompatible wire-shape change", SnapshotVersion)
+	}
+}
+
+func TestRestoreReturnsAcceptedCount(t *testing.T) {
+	live := New(KindPod, "ns", "live", "X", SeverityCritical)
+	fresh := New(KindPod, "ns", "fresh", "X", SeverityCritical)
+	bogus := New(KindPod, "ns", "bogus", "X", SeverityCritical)
+	bogus.Kind = "Bogus"
+	tests := []struct {
+		name string
+		snap *Snapshot
+		want int
+	}{
+		{"nil", nil, 0},
+		{"future version", &Snapshot{Version: SnapshotVersion + 1, Active: []*Alert{fresh}}, 0},
+		{"counts only admitted alerts", &Snapshot{Version: SnapshotVersion,
+			Active: []*Alert{live, fresh, bogus, nil, {}}}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStore(time.Minute, time.Minute, nil)
+			s.ShouldSend(live.Clone())
+			if got := s.Restore(tt.snap); got != tt.want {
+				t.Fatalf("Restore accepted %d alerts, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// Only a resolve or Forget of an active fingerprint drops its escalation
+// marks, so a mark restored without its alert would never be pruned and Export
+// would re-persist it on every save.
+func TestRestoreKeepsEscalationMarksOnlyForActiveAlerts(t *testing.T) {
+	live := New(KindPod, "ns", "live", "X", SeverityCritical)
+	restored := New(KindPod, "ns", "restored", "X", SeverityCritical)
+	bogus := New(KindPod, "ns", "bogus", "X", SeverityCritical)
+	bogus.Kind = "Bogus"
+	tests := []struct {
+		name string
+		fp   string
+		want bool
+	}{
+		{"live alert", live.Fingerprint, true},
+		{"restored alert", restored.Fingerprint, true},
+		{"rejected alert", bogus.Fingerprint, false},
+		{"absent alert", "no-such-fingerprint", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStore(time.Minute, time.Minute, nil)
+			s.ShouldSend(live.Clone())
+			s.Restore(&Snapshot{Version: SnapshotVersion,
+				Active:    []*Alert{restored, bogus},
+				Escalated: map[string][]string{tt.fp: {"rule-a"}}})
+			if _, got := s.Export().Escalated[tt.fp]; got != tt.want {
+				t.Fatalf("escalation mark kept = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// SweepResolved skips an alert with a zero EndsAt, so restoring one as-is would
+// leave it active, and its incident open, forever.
+func TestRestoreEndsAt(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	tests := []struct {
+		name   string
+		endsAt time.Time
+		keep   bool
+	}{
+		{"zero EndsAt gets the resolve TTL", time.Time{}, false},
+		{"set EndsAt is kept for catch-up", past, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const ttl = time.Millisecond
+			resolved := 0
+			s := NewStore(time.Minute, ttl, func(*Alert) { resolved++ })
+			a := New(KindPod, "ns", "p", "X", SeverityCritical)
+			a.EndsAt = tt.endsAt
+			before := time.Now()
+			s.Restore(&Snapshot{Version: SnapshotVersion, Active: []*Alert{a}})
+			after := time.Now()
+			got := s.ActiveList()[0].EndsAt
+			switch {
+			case tt.keep && !got.Equal(tt.endsAt):
+				t.Fatalf("EndsAt = %s, want the snapshot's %s", got, tt.endsAt)
+			case !tt.keep && (got.Before(before.Add(ttl)) || got.After(after.Add(ttl))):
+				t.Fatalf("EndsAt = %s, want restore time + resolve TTL", got)
+			}
+			if !a.EndsAt.Equal(tt.endsAt) {
+				t.Fatal("Restore mutated its input snapshot")
+			}
+			time.Sleep(5 * ttl)
+			s.SweepResolved()
+			if resolved != 1 || s.ActiveCount() != 0 {
+				t.Fatalf("sweep resolved %d with %d still active, want 1 and 0", resolved, s.ActiveCount())
+			}
+		})
+	}
+}
+
 func TestGenerationTracksMutations(t *testing.T) {
 	s := NewStore(time.Minute, time.Millisecond, nil)
 	g0 := s.Generation()

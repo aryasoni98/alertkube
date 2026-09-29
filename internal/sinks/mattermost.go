@@ -4,18 +4,17 @@ import (
 	"fmt"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/templates"
 	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
-// NewMattermost posts to a Mattermost incoming webhook. Mattermost accepts the
+func init() { Register("mattermost", func(SinkConfig) Sink { return newMattermost() }) }
+
+// newMattermost posts to a Mattermost incoming webhook. Mattermost accepts the
 // Slack-compatible message format (text + attachments), so this renders a single
 // color-coded attachment with the alert facts. The webhook URL is read on each
 // Send so a Secret rotation is honored without a restart.
-func init() { Register("mattermost", func(SinkConfig) Sink { return NewMattermost() }) }
-
-func NewMattermost() Sink {
-	return &webhookSink{name: "mattermost", credEnv: "MATTERMOST_WEBHOOK_URL", payload: mattermostPayload}
+func newMattermost() Sink {
+	return &chatWebhookSink{name: "mattermost", credEnv: envMattermostWebhookURL, payload: mattermostPayload}
 }
 
 func mattermostPayload(a *alert.Alert) any {
@@ -32,19 +31,19 @@ func mattermostPayload(a *alert.Alert) any {
 	}
 
 	attachment := map[string]any{
-		"fallback": alertTitle(a),
+		"fallback": alertTitlePlain(a),
 		"color":    statusColorHex(a),
-		"title":    textutil.Head(alertTitle(a), 256),
+		"title":    escapeMarkdown(textutil.Head(alertTitlePlain(a), 256)),
 		"text":     textutil.Head(escapeMarkdown(a.Summary), 4096),
 		"fields":   fields,
 		"footer":   fmt.Sprintf("alertkube | %s", a.Kind),
 	}
-	if runbook, ok := templates.Runbook(a); ok {
-		attachment["title_link"] = runbook
+	if runbookURL, ok := runbook(a); ok {
+		attachment["title_link"] = runbookURL
 	}
 
 	return map[string]any{
-		"username":    "alertkube",
+		"username":    slackUsername,
 		"attachments": []map[string]any{attachment},
 	}
 }

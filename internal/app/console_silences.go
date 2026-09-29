@@ -8,6 +8,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/internal/config"
 	"github.com/aryasoni98/alertkube/internal/metrics"
 	"github.com/aryasoni98/alertkube/internal/silence"
 )
@@ -36,8 +37,8 @@ func newSilencesHandler(d consoleDeps) http.Handler {
 			if !decodeJSON(w, req, silenceBodyLimit, &in) {
 				return
 			}
-			if len(in.Matchers) == 0 {
-				httpErr(w, http.StatusBadRequest, "at least one matcher is required")
+			if err := config.SelectiveMatchers("matchers", in.Matchers); err != nil {
+				httpErr(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			until, err := time.Parse(time.RFC3339, in.Until)
@@ -65,7 +66,7 @@ func newSilencesHandler(d consoleDeps) http.Handler {
 			if !ok {
 				return
 			}
-			id := strings.TrimPrefix(req.URL.Path, metrics.APIPrefix+"/silences/")
+			id := strings.TrimPrefix(req.URL.Path, metrics.SilencesIDPrefix)
 			if id == "" || strings.Contains(id, "/") {
 				httpErr(w, http.StatusBadRequest, "silence id required: DELETE /api/v1/silences/{id}")
 				return

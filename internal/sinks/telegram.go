@@ -7,7 +7,6 @@ import (
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 	"github.com/aryasoni98/alertkube/internal/httpx"
-	"github.com/aryasoni98/alertkube/internal/templates"
 	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
@@ -18,27 +17,23 @@ var telegramAPIBase = "https://api.telegram.org"
 // Token and chat id are read on each Send so Secret rotation is honored.
 type telegramSink struct{}
 
-func init() { Register("telegram", func(SinkConfig) Sink { return NewTelegram() }) }
+func init() { Register("telegram", func(SinkConfig) Sink { return newTelegram() }) }
 
-func NewTelegram() Sink { return &telegramSink{} }
+func newTelegram() Sink { return &telegramSink{} }
 
 func (*telegramSink) Name() string                   { return "telegram" }
 func (*telegramSink) Supports(_ alert.Severity) bool { return true }
 
 func (t *telegramSink) Send(ctx context.Context, a *alert.Alert) error {
-	token, ok := requireCred(ctx, "telegram", "TELEGRAM_BOT_TOKEN")
+	token, ok := requireCred(ctx, "telegram", envTelegramBotToken)
 	if !ok {
 		return nil
 	}
-	chatID, ok := requireCred(ctx, "telegram", "TELEGRAM_CHAT_ID")
+	chatID, ok := requireCred(ctx, "telegram", envTelegramChatID)
 	if !ok {
 		return nil
 	}
 
-	status := string(a.Severity)
-	if a.Resolved {
-		status = "resolved"
-	}
 	// Telegram caps messages at 4096 chars and rejects malformed HTML under
 	// parse_mode=HTML. Truncate the free-form summary (the only unbounded
 	// field) in raw form *before* escaping, so a cut can never land inside an
@@ -48,18 +43,14 @@ func (t *telegramSink) Send(ctx context.Context, a *alert.Alert) error {
 		summary = textutil.Head(summary, 3000) + "…"
 	}
 	text := fmt.Sprintf(
-		"<b>[%s] %s %s/%s: %s</b>\n%s\n<code>cluster=%s fp=%s</code>",
-		html.EscapeString(status),
-		html.EscapeString(string(a.Kind)),
-		html.EscapeString(a.Namespace),
-		html.EscapeString(a.Name),
-		html.EscapeString(a.Reason),
+		"<b>%s</b>\n%s\n<code>cluster=%s fp=%s</code>",
+		alertTitleHTML(a),
 		html.EscapeString(summary),
 		html.EscapeString(a.Cluster),
 		html.EscapeString(a.Fingerprint),
 	)
-	if runbook, ok := templates.Runbook(a); ok {
-		text += fmt.Sprintf("\n<a href=\"%s\">Runbook</a>", html.EscapeString(runbook))
+	if runbookURL, ok := runbook(a); ok {
+		text += fmt.Sprintf("\n<a href=\"%s\">Runbook</a>", html.EscapeString(runbookURL))
 	}
 
 	payload := map[string]any{

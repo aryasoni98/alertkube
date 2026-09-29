@@ -12,10 +12,10 @@ import (
 	"github.com/aryasoni98/alertkube/internal/config"
 )
 
-// NewHPA fires when an autoscaler is pinned at maxReplicas while still
+// newHPA fires when an autoscaler is pinned at maxReplicas while still
 // wanting to scale up - the workload is saturated and the only remedies
 // (raise max, add capacity) need a human.
-func NewHPA(cfg *config.Config) *simple[*autoscalingv2.HorizontalPodAutoscaler] {
+func newHPA(cfg *config.Config) *simple[*autoscalingv2.HorizontalPodAutoscaler] {
 	return newSimple("hpa", alert.KindHPA, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Autoscaling().V2().HorizontalPodAutoscalers().Informer()
@@ -44,4 +44,4 @@ func evaluateHPA(hpa *autoscalingv2.HorizontalPodAutoscaler, emit Emit) {
 	}
 }
 
-func init() { Register(func(o Opts) Watcher { return NewHPA(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newHPA(o.Config) }) }

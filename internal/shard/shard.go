@@ -59,7 +59,7 @@ func (s *Sharder) Owns(key string) bool {
 	// Compute the modulo in uint64 to avoid a narrowing int->uint32 conversion
 	// of s.total. total is a small, positive, operator-set value, but the wider
 	// arithmetic is bounds-safe regardless (CWE-190/681).
-	return int(uint64(h.Sum32())%uint64(s.total)) == s.index
+	return int(uint64(h.Sum32())%uint64(s.total)) == s.index //nolint:gosec // G115: Enabled() guarantees total > 1
 }
 
 func (s *Sharder) shardOr() *Sharder {

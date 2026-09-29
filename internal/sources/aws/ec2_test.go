@@ -12,20 +12,11 @@ import (
 )
 
 type fakeEC2 struct {
-	pages []*ec2.DescribeInstanceStatusOutput
-	idx   int
-	err   error
+	pager[ec2.DescribeInstanceStatusOutput]
 }
 
-func (f *fakeEC2) DescribeInstanceStatus(_ context.Context, _ *ec2.DescribeInstanceStatusInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstanceStatusOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeEC2) DescribeInstanceStatus(_ context.Context, in *ec2.DescribeInstanceStatusInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstanceStatusOutput, error) {
+	return f.next(in.NextToken)
 }
 
 func instStatus(id string, sys, inst ec2types.SummaryStatus) ec2types.InstanceStatus {
@@ -91,10 +82,11 @@ func TestEC2SourcePollPaginates(t *testing.T) {
 	page2 := &ec2.DescribeInstanceStatusOutput{
 		InstanceStatuses: []ec2types.InstanceStatus{instStatus("i-good", ec2types.SummaryStatusOk, ec2types.SummaryStatusOk)},
 	}
-	fake := &fakeEC2{pages: []*ec2.DescribeInstanceStatusOutput{page1, page2}}
+	fake := &fakeEC2{pager: pagerOf(page1, page2)}
 	src := &ec2Source{regions: []ec2Region{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
+	wantTokens(t, fake.tokens, "", "more") // page 2 must be requested with page 1's token
 
 	if len(*got) != 2 {
 		t.Fatalf("expected 2 alerts across 2 pages, got %d", len(*got))

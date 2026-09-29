@@ -9,15 +9,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
-type fakeAlertsLister struct {
-	alerts []*armalertsmanagement.Alert
-	err    error
-}
-
-func (f *fakeAlertsLister) List(context.Context) ([]*armalertsmanagement.Alert, error) {
-	return f.alerts, f.err
-}
-
 func azAlert(name, condition, sev, rule, target string) *armalertsmanagement.Alert {
 	mc := armalertsmanagement.MonitorCondition(condition)
 	sv := armalertsmanagement.Severity(sev)
@@ -47,6 +38,7 @@ func TestEvaluateAzureAlert(t *testing.T) {
 		{"fired sev4 info", azAlert("a3", "Fired", "Sev4", "info-rule", "vm-3"), true, false, alert.SeverityInfo},
 		{"resolved resolves", azAlert("a4", "Resolved", "Sev1", "cpu-rule", "vm-1"), true, true, ""},
 		{"empty name skipped", azAlert("", "Fired", "Sev1", "r", "t"), false, false, ""},
+		{"missing essentials skipped", &armalertsmanagement.Alert{Name: sp("bare")}, false, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,11 +71,11 @@ func TestEvaluateAzureAlert(t *testing.T) {
 }
 
 func TestAzureMonitorSourcePoll(t *testing.T) {
-	fake := &fakeAlertsLister{alerts: []*armalertsmanagement.Alert{
+	items := []*armalertsmanagement.Alert{
 		azAlert("fired-1", "Fired", "Sev1", "cpu-rule", "vm-1"),
 		azAlert("resolved-1", "Resolved", "Sev2", "mem-rule", "vm-2"),
-	}}
-	src := &azureMonitorSource{subs: []azureMonitorSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureMonitorSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 

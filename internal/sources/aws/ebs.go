@@ -13,6 +13,11 @@ import (
 
 const sourceEBS = "aws-ebs"
 
+// ebsAPI is the subset of the EC2 client the EBS volume-status source uses.
+type ebsAPI interface {
+	DescribeVolumeStatus(context.Context, *ec2.DescribeVolumeStatusInput, ...func(*ec2.Options)) (*ec2.DescribeVolumeStatusOutput, error)
+}
+
 type ebsRegion = regionClient[ebsAPI]
 
 // ebsSource alerts on EBS volumes whose status check is impaired - the storage
@@ -29,7 +34,7 @@ type ebsSource struct {
 func (s *ebsSource) Name() string { return sourceEBS }
 
 func (s *ebsSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceEBS, s.regions, emit, s.pollRegion)
 }
 
 func (s *ebsSource) pollRegion(ctx context.Context, rc ebsRegion, emit sources.Emit) {

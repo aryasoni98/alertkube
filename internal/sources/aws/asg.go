@@ -14,6 +14,11 @@ import (
 
 const sourceASG = "aws-asg"
 
+// autoscalingAPI is the subset of the Auto Scaling client the ASG source uses.
+type autoscalingAPI interface {
+	DescribeAutoScalingGroups(context.Context, *autoscaling.DescribeAutoScalingGroupsInput, ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
+}
+
 type asgRegion = regionClient[autoscalingAPI]
 
 // asgSource alerts on Auto Scaling Groups whose healthy in-service capacity is
@@ -26,7 +31,7 @@ type asgSource struct {
 func (s *asgSource) Name() string { return sourceASG }
 
 func (s *asgSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceASG, s.regions, emit, s.pollRegion)
 }
 
 func (s *asgSource) pollRegion(ctx context.Context, rc asgRegion, emit sources.Emit) {

@@ -31,14 +31,18 @@ func TestCloudProvidersSelfRegister(t *testing.T) {
 		default:
 			continue
 		}
-		if !p.Enabled(cfg) {
+		bound := p.Bind(cfg)
+		if !bound.Enabled {
 			t.Errorf("%s: Enabled should be true when its section is enabled", name)
 		}
-		if p.PollSeconds(cfg) != 42 {
-			t.Errorf("%s: PollSeconds = %d, want 42", name, p.PollSeconds(cfg))
+		if bound.PollSeconds != 42 {
+			t.Errorf("%s: PollSeconds = %d, want 42", name, bound.PollSeconds)
+		}
+		if bound.Build == nil {
+			t.Errorf("%s: Bind must supply Build", name)
 		}
 		// A zero-value config must report disabled.
-		if p.Enabled(&config.Config{}) {
+		if p.Bind(&config.Config{}).Enabled {
 			t.Errorf("%s: Enabled should be false for a zero config", name)
 		}
 	}

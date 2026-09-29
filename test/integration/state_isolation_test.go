@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -42,7 +43,7 @@ func TestShardedStateIsIsolatedPerShard(t *testing.T) {
 	ctx := context.Background()
 
 	// Three shards save concurrently, each with its own alert set.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cfg := shardedConfig(i)
 		store := persist.NewConfigMapStore(clientset, ns, cfg.Persistence.ConfigMapName)
 		a := alert.New(alert.KindPod, "ns", shardName(i), "Boom", alert.SeverityCritical)
@@ -53,7 +54,7 @@ func TestShardedStateIsIsolatedPerShard(t *testing.T) {
 	}
 
 	// Every shard must read back exactly its own state.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cfg := shardedConfig(i)
 		store := persist.NewConfigMapStore(clientset, ns, cfg.Persistence.ConfigMapName)
 		got, err := store.Load(ctx)
@@ -104,6 +105,10 @@ func shardName(i int) string { return []string{"pod-a", "pod-b", "pod-c"}[i] }
 // bug (the sweeper retries on its next 30s tick and the object is never left
 // corrupt) but it is not a case production reaches either, so asserting it here
 // would only encode a false requirement.
+//
+// The writer whose snapshot is older than the one already stored is refused
+// with ErrStaleSnapshot. That is the stale-leader guard, not lost state: the
+// newer snapshot is the one kept.
 func TestConcurrentSavesDuringHandoffDoNotLoseState(t *testing.T) {
 	const ns = "save-conflict"
 	mustNamespace(t, ns)
@@ -112,17 +117,25 @@ func TestConcurrentSavesDuringHandoffDoNotLoseState(t *testing.T) {
 	store := persist.NewConfigMapStore(clientset, ns, "alertkube-state")
 	const writers = 2 // outgoing leader + incoming leader
 	done := make(chan error, writers)
-	for i := 0; i < writers; i++ {
+	for range writers {
 		go func() {
 			a := alert.New(alert.KindPod, "ns", "p", "Boom", alert.SeverityCritical)
 			snap := &alert.Snapshot{Active: []*alert.Alert{a}, SavedAt: time.Now()}
 			done <- store.Save(ctx, snap)
 		}()
 	}
-	for i := 0; i < writers; i++ {
-		if err := <-done; err != nil {
+	succeeded := 0
+	for i := range writers {
+		err := <-done
+		switch {
+		case err == nil:
+			succeeded++
+		case !errors.Is(err, persist.ErrStaleSnapshot):
 			t.Fatalf("save %d failed during a simulated handoff: %v (RetryOnConflict should absorb the 409)", i, err)
 		}
+	}
+	if succeeded == 0 {
+		t.Fatal("no save succeeded during a simulated handoff; the newest snapshot must be written")
 	}
 
 	got, err := store.Load(ctx)
@@ -145,7 +158,7 @@ func TestSaveUnderHeavyContentionLeavesValidState(t *testing.T) {
 	store := persist.NewConfigMapStore(clientset, ns, "alertkube-state")
 	const writers = 8
 	done := make(chan error, writers)
-	for i := 0; i < writers; i++ {
+	for range writers {
 		go func() {
 			a := alert.New(alert.KindPod, "ns", "p", "Boom", alert.SeverityCritical)
 			snap := &alert.Snapshot{Active: []*alert.Alert{a}, SavedAt: time.Now()}
@@ -153,7 +166,7 @@ func TestSaveUnderHeavyContentionLeavesValidState(t *testing.T) {
 		}()
 	}
 	succeeded := 0
-	for i := 0; i < writers; i++ {
+	for range writers {
 		if err := <-done; err == nil {
 			succeeded++
 		}

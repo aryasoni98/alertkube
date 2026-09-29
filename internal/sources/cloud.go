@@ -1,6 +1,9 @@
 package sources
 
 import (
+	"context"
+	"errors"
+
 	"k8s.io/klog/v2"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
@@ -8,8 +11,9 @@ import (
 )
 
 // Shared helpers for the polled cloud providers (AWS/Azure/GCP). Each provider
-// package wraps these with its own provider constant so call sites stay terse
-// while the emit/resolve/error shape lives in exactly one place.
+// package wraps EmitFiring to attach its own provider label; its emitResolve and
+// pollErr are plain pass-throughs. The emit/resolve/error shape lives in exactly
+// one place.
 //
 // Identity convention: the provider scope (AWS region, Azure subscription, GCP
 // "project/location") rides in the alert Namespace, and the resource id in Name,
@@ -45,17 +49,31 @@ func EmitResolve(emit Emit, k alert.Kind, scope, name string) {
 // PollErr records a per-source poll failure on the shared metric and logs it,
 // so a blinded cloud source is observable without crashing the controller.
 func PollErr(source, scope string, err error) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
 	metrics.CloudPollErrors.WithLabelValues(source).Inc()
 	klog.Warningf("%s poll failed (%s): %v", source, scope, err)
 }
 
-// StrVal dereferences a *string, returning "" for nil. Cloud SDK response
-// fields are overwhelmingly *string; this is the shared nil-safe accessor.
-func StrVal(s *string) string {
-	if s == nil {
-		return ""
+// MaxPages is the runaway guard for one paginated cloud list, not a routine
+// truncation limit: at SDK default page sizes it is tens of thousands of
+// resources, far past a real account. It stops a pager whose token keeps
+// changing but never ends; the AWS and Cloud SQL loops also stop sooner on a
+// token that does not advance.
+const MaxPages = 1000
+
+// PollTruncated records a paginated list that stopped before its last page on
+// the shared metric and logs why. Resources on the unfetched pages are absent
+// from the list, so they are neither re-fired nor resolved this poll. scope may
+// be empty when the caller does not know it (the Azure pagers).
+func PollTruncated(source, scope, why string) {
+	metrics.CloudPollTruncated.WithLabelValues(source).Inc()
+	where := ""
+	if scope != "" {
+		where = " (" + scope + ")"
 	}
-	return *s
+	klog.Warningf("%s poll truncated%s: %s; remaining pages were not fetched", source, where, why)
 }
 
 // Compact drops the nil entries a disabled source toggle leaves behind, so a
@@ -70,6 +88,22 @@ func Compact(srcs []Source) []Source {
 		}
 	}
 	return out
+}
+
+// BuildAll runs a provider's deferred source builders in order and compacts the
+// result. The first construction error aborts the provider, so a misconfigured
+// client is reported once instead of leaving a partly built provider. A builder
+// for a disabled service returns (nil, nil), which Compact drops.
+func BuildAll(builders ...func() (Source, error)) ([]Source, error) {
+	srcs := make([]Source, 0, len(builders))
+	for _, build := range builders {
+		s, err := build()
+		if err != nil {
+			return nil, err
+		}
+		srcs = append(srcs, s)
+	}
+	return Compact(srcs), nil
 }
 
 // Scope joins a provider parent scope (Azure subscription, GCP project) with a

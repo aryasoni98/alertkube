@@ -14,6 +14,11 @@ import (
 
 const sourceVPN = "aws-vpn"
 
+// vpnAPI is the subset of the EC2 client the VPN connection source uses.
+type vpnAPI interface {
+	DescribeVpnConnections(context.Context, *ec2.DescribeVpnConnectionsInput, ...func(*ec2.Options)) (*ec2.DescribeVpnConnectionsOutput, error)
+}
+
 type vpnRegion = regionClient[vpnAPI]
 
 // vpnSource alerts on Site-to-Site VPN connections with degraded tunnel
@@ -29,7 +34,7 @@ type vpnSource struct {
 func (s *vpnSource) Name() string { return sourceVPN }
 
 func (s *vpnSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceVPN, s.regions, emit, s.pollRegion)
 }
 
 func (s *vpnSource) pollRegion(ctx context.Context, rc vpnRegion, emit sources.Emit) {

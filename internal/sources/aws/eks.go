@@ -7,12 +7,21 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
+	"golang.org/x/time/rate"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 	"github.com/aryasoni98/alertkube/internal/sources"
 )
 
 const sourceEKS = "aws-eks"
+
+// eksAPI is the subset of the EKS client the EKS source uses.
+type eksAPI interface {
+	ListClusters(context.Context, *eks.ListClustersInput, ...func(*eks.Options)) (*eks.ListClustersOutput, error)
+	DescribeCluster(context.Context, *eks.DescribeClusterInput, ...func(*eks.Options)) (*eks.DescribeClusterOutput, error)
+	ListNodegroups(context.Context, *eks.ListNodegroupsInput, ...func(*eks.Options)) (*eks.ListNodegroupsOutput, error)
+	DescribeNodegroup(context.Context, *eks.DescribeNodegroupInput, ...func(*eks.Options)) (*eks.DescribeNodegroupOutput, error)
+}
 
 type eksRegion = regionClient[eksAPI]
 
@@ -28,54 +37,93 @@ type eksSource struct {
 func (s *eksSource) Name() string { return sourceEKS }
 
 func (s *eksSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceEKS, s.regions, emit, s.pollRegion)
 }
 
+// pollRegion describes each listed cluster as its page arrives, so a
+// ListClusters failure on a later page still leaves the earlier clusters
+// evaluated.
 func (s *eksSource) pollRegion(ctx context.Context, rc eksRegion, emit sources.Emit) {
-	names, err := listClusters(ctx, rc.client)
-	if err != nil {
-		pollErr(sourceEKS, rc.region, err)
-		return
-	}
-	for _, name := range names {
-		out, err := rc.client.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: awssdk.String(name)})
-		if err != nil {
-			pollErr(sourceEKS, rc.region, err)
-			continue
-		}
-		if out == nil || out.Cluster == nil {
-			continue
-		}
-		evaluateEKSCluster(rc.region, out.Cluster, emit)
-		s.pollNodegroups(ctx, rc, name, emit)
-	}
-}
-
-// pollNodegroups lists and evaluates the node groups of one cluster. EKS does
-// not embed node groups in DescribeCluster (unlike AKS/GKE), so this issues
-// ListNodegroups + DescribeNodegroup per cluster.
-func (s *eksSource) pollNodegroups(ctx context.Context, rc eksRegion, cluster string, emit sources.Emit) {
+	lim := newDescribeLimiter()
 	forEachPage(ctx, sourceEKS, rc.region, func(ctx context.Context, token *string) (*string, error) {
-		list, err := rc.client.ListNodegroups(ctx, &eks.ListNodegroupsInput{ClusterName: awssdk.String(cluster), NextToken: token})
+		list, err := rc.client.ListClusters(ctx, &eks.ListClustersInput{NextToken: token})
 		if err != nil {
 			return nil, err
 		}
-		for _, ng := range list.Nodegroups {
-			out, err := rc.client.DescribeNodegroup(ctx, &eks.DescribeNodegroupInput{
-				ClusterName:   awssdk.String(cluster),
-				NodegroupName: awssdk.String(ng),
-			})
+		for _, name := range list.Clusters {
+			if err := waitDescribe(ctx, lim); err != nil {
+				return nil, err
+			}
+			out, err := rc.client.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: awssdk.String(name)})
 			if err != nil {
 				pollErr(sourceEKS, rc.region, err)
 				continue
 			}
-			if out == nil || out.Nodegroup == nil {
+			if out == nil || out.Cluster == nil {
 				continue
 			}
-			evaluateNodegroup(rc.region, cluster, out.Nodegroup, emit)
+			evaluateEKSCluster(rc.region, out.Cluster, emit)
+			if err := s.pollNodegroups(ctx, rc, lim, name, emit); err != nil {
+				return nil, err
+			}
 		}
 		return list.NextToken, nil
 	})
+}
+
+// pollNodegroups evaluates the node groups of one cluster. EKS does not embed
+// node groups in DescribeCluster (unlike AKS/GKE), so this issues
+// ListNodegroups + DescribeNodegroup per cluster. A describe API error is
+// recorded and skips only that node group. The describe-limiter error, and a
+// node-group list that ran out of time, are returned instead, so pollRegion
+// stops the region and records it once.
+func (s *eksSource) pollNodegroups(ctx context.Context, rc eksRegion, lim *rate.Limiter, cluster string, emit sources.Emit) error {
+	names, err := s.listNodegroups(ctx, rc, cluster)
+	if err != nil {
+		return err
+	}
+	for _, ng := range names {
+		if err := waitDescribe(ctx, lim); err != nil {
+			return err
+		}
+		out, err := rc.client.DescribeNodegroup(ctx, &eks.DescribeNodegroupInput{
+			ClusterName:   awssdk.String(cluster),
+			NodegroupName: awssdk.String(ng),
+		})
+		if err != nil {
+			pollErr(sourceEKS, rc.region, err)
+			continue
+		}
+		if out == nil || out.Nodegroup == nil {
+			continue
+		}
+		evaluateNodegroup(rc.region, cluster, out.Nodegroup, emit)
+	}
+	return nil
+}
+
+// listNodegroups returns the node group names of one cluster. A list API
+// error is recorded and ends the list early; names from the pages already
+// fetched are kept, so they are still evaluated. Once ctx is done the error
+// is returned unrecorded instead, for pollRegion to record once for the
+// region.
+func (s *eksSource) listNodegroups(ctx context.Context, rc eksRegion, cluster string) ([]string, error) {
+	var names []string
+	err := walkPages(ctx, sourceEKS, rc.region, func(ctx context.Context, token *string) (*string, error) {
+		list, err := rc.client.ListNodegroups(ctx, &eks.ListNodegroupsInput{ClusterName: awssdk.String(cluster), NextToken: token})
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, list.Nodegroups...)
+		return list.NextToken, nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		pollErr(sourceEKS, rc.region, err)
+	}
+	return names, nil
 }
 
 // evaluateNodegroup maps a node group's status + control-plane health onto a
@@ -133,23 +181,6 @@ func issueSummary[T any](issues []T, extract func(T) (code, msg string)) string 
 		}
 	}
 	return strings.Join(parts, "; ")
-}
-
-// listClusters pages through ListClusters and returns every cluster name.
-func listClusters(ctx context.Context, client eksAPI) ([]string, error) {
-	var names []string
-	var token *string
-	for {
-		out, err := client.ListClusters(ctx, &eks.ListClustersInput{NextToken: token})
-		if err != nil {
-			return nil, err
-		}
-		names = append(names, out.Clusters...)
-		if out.NextToken == nil || *out.NextToken == "" {
-			return names, nil
-		}
-		token = out.NextToken
-	}
 }
 
 // evaluateEKSCluster maps one cluster's state onto a single firing-or-resolve

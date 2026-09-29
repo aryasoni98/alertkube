@@ -15,10 +15,12 @@ func (s *fakeSource) Name() string                       { return s.name }
 func (s *fakeSource) Poll(context.Context, sources.Emit) {}
 
 func TestBuildSubBuildsOneListerPerSubscription(t *testing.T) {
-	var got []subLister[string]
+	var got []sources.Scoped[string]
 	build := buildSub(true, []string{"sub-a", "sub-b"},
-		func(sub string) (string, error) { return "lister-" + sub, nil },
-		func(ls []subLister[string]) sources.Source {
+		func(sub string) (func(context.Context) ([]string, error), error) {
+			return func(context.Context) ([]string, error) { return []string{"lister-" + sub}, nil }, nil
+		},
+		func(ls []sources.Scoped[string]) sources.Source {
 			got = ls
 			return &fakeSource{name: "svc"}
 		})
@@ -30,14 +32,23 @@ func TestBuildSubBuildsOneListerPerSubscription(t *testing.T) {
 	if src == nil {
 		t.Fatal("enabled service must build a Source")
 	}
-	if len(got) != 2 || got[0].subscription != "sub-a" || got[0].lister != "lister-sub-a" {
-		t.Fatalf("subscription listers = %+v, want each subscription paired with its own lister", got)
+	if len(got) != 2 {
+		t.Fatalf("subscription listers = %+v, want one per subscription", got)
+	}
+	for i, want := range []string{"sub-a", "sub-b"} {
+		items, err := got[i].List(context.Background())
+		if got[i].Scope != want || err != nil || len(items) != 1 || items[0] != "lister-"+want {
+			t.Fatalf("scope %d = %q listing %v (err %v), want each subscription paired with its own lister", i, got[i].Scope, items, err)
+		}
 	}
 }
 
 func TestBuildSubSkipsDisabledAndEmpty(t *testing.T) {
-	never := func(string) (string, error) { t.Fatal("lister constructor must not run"); return "", nil }
-	wrap := func([]subLister[string]) sources.Source { return &fakeSource{name: "svc"} }
+	never := func(string) (func(context.Context) ([]string, error), error) {
+		t.Fatal("lister constructor must not run")
+		return nil, nil
+	}
+	wrap := func([]sources.Scoped[string]) sources.Source { return &fakeSource{name: "svc"} }
 
 	for _, tc := range []struct {
 		name    string
@@ -64,8 +75,8 @@ func TestBuildSubSkipsDisabledAndEmpty(t *testing.T) {
 func TestBuildSubPropagatesClientError(t *testing.T) {
 	boom := errors.New("bad credential")
 	src, err := buildSub(true, []string{"sub-a"},
-		func(string) (string, error) { return "", boom },
-		func([]subLister[string]) sources.Source { t.Fatal("Source must not be built"); return nil })()
+		func(string) (func(context.Context) ([]string, error), error) { return nil, boom },
+		func([]sources.Scoped[string]) sources.Source { t.Fatal("Source must not be built"); return nil })()
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the client-construction error", err)
 	}

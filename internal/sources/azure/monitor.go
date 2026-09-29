@@ -11,36 +11,29 @@ import (
 
 const sourceAzureMonitor = "azure-monitor"
 
-// alertsLister lists fired Azure Monitor alerts for one subscription. The real
-// adapter drains the GetAll pager; tests provide a fake returning a slice.
-type alertsLister interface {
-	List(ctx context.Context) ([]*armalertsmanagement.Alert, error)
-}
-
+// armAlertsLister lists fired Azure Monitor alerts for one subscription by
+// draining the GetAll pager; tests provide a fake returning a slice.
 type armAlertsLister struct {
 	client *armalertsmanagement.AlertsClient
 }
 
 func (l *armAlertsLister) List(ctx context.Context) ([]*armalertsmanagement.Alert, error) {
-	return drainPager(ctx, l.client.NewGetAllPager(nil),
+	pageCount := int64(250)
+	window := armalertsmanagement.TimeRangeThirtyD
+	return drainPager(ctx, sourceAzureMonitor, l.client.NewGetAllPager(&armalertsmanagement.AlertsClientGetAllOptions{
+		PageCount: &pageCount,
+		TimeRange: &window,
+	}),
 		func(r armalertsmanagement.AlertsClientGetAllResponse) []*armalertsmanagement.Alert { return r.Value })
 }
 
-type azureMonitorSubscription = subLister[alertsLister]
-
-// azureMonitorSource ingests fired Azure Monitor alerts (Alerts Management).
-// An alert whose monitorCondition is Fired pages (severity mapped from
-// Sev0-Sev4); Resolved resolves. This is the Azure analog of the AWS
+// newAzureMonitorSource ingests fired Azure Monitor alerts (Alerts
+// Management). An alert whose monitorCondition is Fired pages (severity mapped
+// from Sev0-Sev4); Resolved resolves. This is the Azure analog of the AWS
 // CloudWatch-alarm source: one source covering every metric/log/activity-log
 // alert configured in the subscription.
-type azureMonitorSource struct {
-	subs []azureMonitorSubscription
-}
-
-func (s *azureMonitorSource) Name() string { return sourceAzureMonitor }
-
-func (s *azureMonitorSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollBySubscription(ctx, sourceAzureMonitor, s.subs, emit, evaluateAzureAlert)
+func newAzureMonitorSource(subs []sources.Scoped[*armalertsmanagement.Alert]) sources.Source {
+	return sources.NewListSource(sourceAzureMonitor, subs, evaluateAzureAlert)
 }
 
 func evaluateAzureAlert(subscription string, al *armalertsmanagement.Alert, emit sources.Emit) {
@@ -51,19 +44,16 @@ func evaluateAzureAlert(subscription string, al *armalertsmanagement.Alert, emit
 	if name == "" {
 		return
 	}
-	var condition, rule, target string
-	sev := alert.SeverityWarning
-	if al.Properties != nil && al.Properties.Essentials != nil {
-		e := al.Properties.Essentials
-		if e.MonitorCondition != nil {
-			condition = string(*e.MonitorCondition)
-		}
-		if e.Severity != nil {
-			sev = azureSeverity(string(*e.Severity))
-		}
-		rule = strVal(e.AlertRule)
-		target = strVal(e.TargetResourceName)
+	if al.Properties == nil || al.Properties.Essentials == nil || al.Properties.Essentials.MonitorCondition == nil {
+		return
 	}
+	e := al.Properties.Essentials
+	condition := string(*e.MonitorCondition)
+	sev := alert.SeverityWarning
+	if e.Severity != nil {
+		sev = azureSeverity(string(*e.Severity))
+	}
+	rule, target := strVal(e.AlertRule), strVal(e.TargetResourceName)
 	if condition == string(armalertsmanagement.MonitorConditionResolved) {
 		emitResolve(emit, alert.KindAzureMonitorAlert, subscription, name)
 		return

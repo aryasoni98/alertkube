@@ -3,7 +3,7 @@ package alert
 import "slices"
 
 // Correlation is derived, non-persisted context attached to an active alert by
-// the correlation engine (internal/correlate). Nil when correlation is disabled
+// a future correlation engine. Nil when correlation is disabled
 // or the alert stands alone. It is recomputed each interval and never written to
 // the persisted Snapshot, so it must not influence dedupe/fingerprint state.
 type Correlation struct {

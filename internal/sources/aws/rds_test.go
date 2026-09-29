@@ -12,20 +12,11 @@ import (
 )
 
 type fakeRDS struct {
-	pages []*rds.DescribeDBInstancesOutput
-	idx   int
-	err   error
+	pager[rds.DescribeDBInstancesOutput]
 }
 
-func (f *fakeRDS) DescribeDBInstances(_ context.Context, _ *rds.DescribeDBInstancesInput, _ ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeRDS) DescribeDBInstances(_ context.Context, in *rds.DescribeDBInstancesInput, _ ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {
+	return f.next(in.Marker)
 }
 
 func dbInstance(id, status string) rdstypes.DBInstance {
@@ -111,10 +102,11 @@ func TestRDSSourcePollPaginates(t *testing.T) {
 	page2 := &rds.DescribeDBInstancesOutput{
 		DBInstances: []rdstypes.DBInstance{dbInstance("db-good", "available")},
 	}
-	fake := &fakeRDS{pages: []*rds.DescribeDBInstancesOutput{page1, page2}}
+	fake := &fakeRDS{pager: pagerOf(page1, page2)}
 	src := &rdsSource{regions: []rdsRegion{{region: "eu-west-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
+	wantTokens(t, fake.tokens, "", "more") // page 2 must be requested with page 1's token
 
 	if len(*got) != 2 {
 		t.Fatalf("expected 2 alerts across 2 pages, got %d", len(*got))

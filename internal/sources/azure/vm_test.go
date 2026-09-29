@@ -9,15 +9,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
 
-type fakeVMLister struct {
-	vms []*armcompute.VirtualMachine
-	err error
-}
-
-func (f *fakeVMLister) List(context.Context) ([]*armcompute.VirtualMachine, error) {
-	return f.vms, f.err
-}
-
 func vm(name, location, provState string) *armcompute.VirtualMachine {
 	return &armcompute.VirtualMachine{
 		Name:       sp(name),
@@ -66,11 +57,11 @@ func TestEvaluateVM(t *testing.T) {
 }
 
 func TestAzureVMSourcePoll(t *testing.T) {
-	fake := &fakeVMLister{vms: []*armcompute.VirtualMachine{
+	items := []*armcompute.VirtualMachine{
 		vm("good", "eastus", "Succeeded"),
 		vm("bad", "westus", "Failed"),
-	}}
-	src := &azureVMSource{subs: []azureVMSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureVMSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

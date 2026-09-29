@@ -75,6 +75,24 @@ func livenessOK() bool {
 // differed from the native alert dump by a single path segment.
 const APIPrefix = "/api/v1"
 
+// API sub-routes that an installed handler re-dispatches on or that another
+// package builds a URL from. They are shared so the mux registration and the
+// handler's own path switch cannot drift apart: a route renamed on one side
+// only would fall through to 405 on the other.
+const (
+	// ReceiverPath is the Alertmanager-compatible receiver.
+	ReceiverPath = APIPrefix + "/receiver/alerts"
+	// SilencesPath lists (GET) and creates (POST) runtime silences;
+	// SilencesIDPrefix + {id} deletes one (DELETE).
+	SilencesPath     = APIPrefix + "/silences"
+	SilencesIDPrefix = SilencesPath + "/"
+	// ChannelsPath lists sinks (GET); ChannelsTestPath and ChannelsTestRefPath
+	// test-fire one (POST).
+	ChannelsPath        = APIPrefix + "/channels"
+	ChannelsTestPath    = ChannelsPath + "/test"
+	ChannelsTestRefPath = ChannelsPath + "/test-ref"
+)
+
 const (
 	// readHeaderTimeout and readTimeout bound the request side (slowloris,
 	// oversized receiver bodies).
@@ -144,13 +162,13 @@ func registerAPIRoutes(mux *http.ServeMux) {
 	mux.Handle(APIPrefix+"/config/validate", &ValidateHandler)
 	// /silences (GET/POST) and /silences/{id} (DELETE) share one installed
 	// handler that routes internally by method and path.
-	mux.Handle(APIPrefix+"/silences", &SilencesHandler)
-	mux.Handle(APIPrefix+"/silences/", &SilencesHandler)
+	mux.Handle(SilencesPath, &SilencesHandler)
+	mux.Handle(SilencesIDPrefix, &SilencesHandler)
 	// /channels (GET list) and /channels/test (POST test-fire) share one
 	// installed handler that routes internally.
-	mux.Handle(APIPrefix+"/channels", &ChannelsHandler)
-	mux.Handle(APIPrefix+"/channels/test", &ChannelsHandler)
-	mux.Handle(APIPrefix+"/channels/test-ref", &ChannelsHandler)
+	mux.Handle(ChannelsPath, &ChannelsHandler)
+	mux.Handle(ChannelsTestPath, &ChannelsHandler)
+	mux.Handle(ChannelsTestRefPath, &ChannelsHandler)
 	// GET /deadletter: permanently-abandoned deliveries (read-only).
 	mux.Handle(APIPrefix+"/deadletter", &DeadLetterHandler)
 	// The Alertmanager-compatible receiver now has its own path segment. It
@@ -159,7 +177,7 @@ func registerAPIRoutes(mux *http.ServeMux) {
 	// meanings (dump active alerts vs. inject alerts). Wrapped so its write
 	// budget is the tighter receiverWriteTimeout, not the generous server-wide
 	// writeTimeout that /metrics and the alert dump need for large responses.
-	mux.Handle(APIPrefix+"/receiver/alerts", http.TimeoutHandler(&ReceiverHandler, receiverWriteTimeout, "receiver handler timeout"))
+	mux.Handle(ReceiverPath, http.TimeoutHandler(&ReceiverHandler, receiverWriteTimeout, "receiver handler timeout"))
 
 	// Deprecated pre-v1 aliases, kept for one minor release. One handler
 	// serves them all because it derives the target from the request path.
@@ -187,7 +205,7 @@ func registerAPIRoutes(mux *http.ServeMux) {
 func alertsRoute() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			http.Redirect(w, r, APIPrefix+"/receiver/alerts", http.StatusPermanentRedirect)
+			http.Redirect(w, r, ReceiverPath, http.StatusPermanentRedirect)
 			return
 		}
 		AlertsHandler.ServeHTTP(w, r)
@@ -206,7 +224,7 @@ func deprecatedAlias() http.Handler {
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
-		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		http.Redirect(w, r, target, http.StatusPermanentRedirect) //nolint:gosec // G710: path is rooted at APIPrefix, never an external URL
 	})
 }
 

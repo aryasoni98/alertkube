@@ -9,7 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
 func capture(t *testing.T) (*httptest.Server, *[]map[string]any, *[]string) {
@@ -17,6 +21,9 @@ func capture(t *testing.T) (*httptest.Server, *[]map[string]any, *[]string) {
 	payloads := &[]map[string]any{}
 	paths := &[]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", ct)
+		}
 		body, _ := io.ReadAll(r.Body)
 		var p map[string]any
 		if err := json.Unmarshal(body, &p); err != nil {
@@ -36,7 +43,7 @@ func TestDiscordSend(t *testing.T) {
 
 	a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
 	a.Summary = "container OOMKilled"
-	if err := NewDiscord().Send(context.Background(), a); err != nil {
+	if err := newDiscord().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	embeds := (*payloads)[0]["embeds"].([]any)
@@ -60,7 +67,7 @@ func TestTelegramSendEscapesHTML(t *testing.T) {
 
 	a := alert.New(alert.KindPod, "ns", "p<script>", "CrashLoopBackOff", alert.SeverityWarning)
 	a.Summary = "x < y & z"
-	if err := NewTelegram().Send(context.Background(), a); err != nil {
+	if err := newTelegram().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if !strings.Contains((*paths)[0], "/bottok123/sendMessage") {
@@ -84,7 +91,7 @@ func TestOpsgenieTriggerAndResolve(t *testing.T) {
 	t.Setenv("OPSGENIE_API_KEY", "key")
 	t.Setenv("OPSGENIE_API_URL", srv.URL)
 
-	s := NewOpsgenie()
+	s := newOpsgenie()
 	a := alert.New(alert.KindJob, "ns", "batch-1", "JobFailed", alert.SeverityCritical)
 	a.Summary = "job failed"
 	if err := s.Send(context.Background(), a); err != nil {
@@ -109,8 +116,38 @@ func TestOpsgenieTriggerAndResolve(t *testing.T) {
 	}
 }
 
+// Opsgenie's message and description are plain text: markdown escapes would
+// show as literal backslashes, and every title starts with "[severity]".
+func TestOpsgenieSendsPlainText(t *testing.T) {
+	cases := []struct {
+		name, reason, want string
+	}{
+		{name: "short", reason: "CrashLoopBackOff", want: "[critical] Pod prod/api_server-1: CrashLoopBackOff"},
+		{name: "cut at 130", reason: strings.Repeat("_", 200), want: textutil.Head("[critical] Pod prod/api_server-1: "+strings.Repeat("_", 200), 130)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, payloads, _ := capture(t)
+			t.Setenv("OPSGENIE_API_KEY", "key")
+			t.Setenv("OPSGENIE_API_URL", srv.URL)
+			a := alert.New(alert.KindPod, "prod", "api_server-1", tc.reason, alert.SeverityCritical)
+			a.Summary = "container (app) restarted *5* times"
+			if err := newOpsgenie().Send(context.Background(), a); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			p := (*payloads)[0]
+			if p["message"] != tc.want {
+				t.Errorf("message = %q, want %q", p["message"], tc.want)
+			}
+			if p["description"] != a.Summary {
+				t.Errorf("description = %q, want %q", p["description"], a.Summary)
+			}
+		})
+	}
+}
+
 func TestOpsgenieSeverityGate(t *testing.T) {
-	s := NewOpsgenie()
+	s := newOpsgenie()
 	if s.Supports(alert.SeverityInfo) {
 		t.Fatalf("info must not open Opsgenie alerts")
 	}
@@ -119,16 +156,47 @@ func TestOpsgenieSeverityGate(t *testing.T) {
 	}
 }
 
-func TestNewSinksNoopWithoutCreds(t *testing.T) {
-	t.Setenv("DISCORD_WEBHOOK_URL", "")
-	t.Setenv("TELEGRAM_BOT_TOKEN", "")
-	t.Setenv("TELEGRAM_CHAT_ID", "")
-	t.Setenv("OPSGENIE_API_KEY", "")
+// TestRegisteredSinksNoopWithoutCredential covers the "configure only the
+// sinks you use" contract for the whole registry: with its credentials unset
+// a sink returns nil and records a SinkNoop instead of sending or failing.
+// Every registered sink must be listed, so a new one cannot skip the check.
+func TestRegisteredSinksNoopWithoutCredential(t *testing.T) {
+	credEnvs := map[string][]string{
+		"slack":      {envSlackBotToken, envSlackWebhookURL},
+		"discord":    {envDiscordWebhookURL},
+		"googlechat": {envGoogleChatWebhookURL},
+		"mattermost": {envMattermostWebhookURL},
+		"teams":      {envTeamsWebhookURL},
+		"webhook":    {envGenericWebhookURL},
+		"pagerduty":  {envPagerDutyRoutingKey},
+		"opsgenie":   {envOpsgenieAPIKey},
+		"telegram":   {envTelegramBotToken, envTelegramChatID},
+	}
+	noCredential := map[string]bool{"stdout": true}
+
+	reg := BuildDefault(SinkConfig{Cluster: "c"})
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
-	for _, s := range []Sink{NewDiscord(), NewTelegram(), NewOpsgenie()} {
-		if err := s.Send(context.Background(), a); err != nil {
-			t.Fatalf("%s: unconfigured sink must no-op, got %v", s.Name(), err)
+	for _, name := range reg.Names() {
+		envs, ok := credEnvs[name]
+		if !ok && !noCredential[name] {
+			t.Errorf("sink %q is missing from the no-credential table", name)
+			continue
 		}
+		if !ok {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			for _, env := range envs {
+				t.Setenv(env, "")
+			}
+			noops := testutil.ToFloat64(metrics.SinkNoop.WithLabelValues(name))
+			if err := reg.TestSend(context.Background(), name, a); err != nil {
+				t.Fatalf("unconfigured sink must no-op, got %v", err)
+			}
+			if got := testutil.ToFloat64(metrics.SinkNoop.WithLabelValues(name)); got != noops+1 {
+				t.Fatalf("SinkNoop = %v, want %v", got, noops+1)
+			}
+		})
 	}
 }
 
@@ -146,7 +214,7 @@ func TestRunbookURLGuardNewSinks(t *testing.T) {
 		*payloads = (*payloads)[:0]
 		a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
 		a.Annotations["runbook-url"] = runbook
-		for _, s := range []Sink{NewDiscord(), NewTeams(), NewTelegram()} {
+		for _, s := range []Sink{newDiscord(), newTeams(), newTelegram()} {
 			if err := s.Send(context.Background(), a); err != nil {
 				t.Fatalf("%s send: %v", s.Name(), err)
 			}
@@ -182,7 +250,7 @@ func TestChatSinksNeutralizeMarkdownInjection(t *testing.T) {
 		t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
 		t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
 		t.Setenv("TEAMS_WEBHOOK_URL", srv.URL)
-		for _, s := range []Sink{NewDiscord(), NewMattermost(), NewTeams()} {
+		for _, s := range []Sink{newDiscord(), newMattermost(), newTeams()} {
 			*payloads = (*payloads)[:0]
 			a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
 			a.Summary = inject
@@ -202,13 +270,13 @@ func TestChatSinksNeutralizeMarkdownInjection(t *testing.T) {
 		t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)
 		a := alert.New(alert.KindPod, "ns", "p", "OOMKilled", alert.SeverityCritical)
 		a.Summary = inject
-		if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+		if err := newGoogleChat().Send(context.Background(), a); err != nil {
 			t.Fatalf("send: %v", err)
 		}
 		// The rendered card widgets must not carry a raw <b> tag.
-		cards, _ := json.Marshal((*payloads)[0]["cardsV2"])
-		if strings.Contains(string(cards), "<b>") {
-			t.Fatalf("googlechat: unescaped HTML in card: %s", cards)
+		raw, _ := json.Marshal((*payloads)[0])
+		if strings.Contains(string(raw), "<b>") {
+			t.Fatalf("googlechat: unescaped HTML in payload: %s", raw)
 		}
 	})
 }
@@ -221,7 +289,7 @@ func TestGoogleChatSend(t *testing.T) {
 	a.Cluster = "prod"
 	a.Summary = "container OOMKilled"
 	a.Annotations["runbook-url"] = "https://wiki.example/runbook"
-	if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+	if err := newGoogleChat().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	p := (*payloads)[0]
@@ -244,7 +312,7 @@ func TestGoogleChatRunbookGuard(t *testing.T) {
 	t.Setenv("GOOGLECHAT_WEBHOOK_URL", srv.URL)
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityWarning)
 	a.Annotations["runbook-url"] = "javascript:alert(1)"
-	if err := NewGoogleChat().Send(context.Background(), a); err != nil {
+	if err := newGoogleChat().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	raw, _ := json.Marshal((*payloads)[0])
@@ -260,7 +328,7 @@ func TestMattermostSend(t *testing.T) {
 	a := alert.New(alert.KindJob, "ns", "batch-1", "JobFailed", alert.SeverityWarning)
 	a.Cluster = "prod"
 	a.Summary = "job failed"
-	if err := NewMattermost().Send(context.Background(), a); err != nil {
+	if err := newMattermost().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	p := (*payloads)[0]
@@ -283,7 +351,7 @@ func TestMattermostResolvedColor(t *testing.T) {
 	t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
 	a.Resolved = true
-	if err := NewMattermost().Send(context.Background(), a); err != nil {
+	if err := newMattermost().Send(context.Background(), a); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	att := (*payloads)[0]["attachments"].([]any)[0].(map[string]any)
@@ -292,13 +360,76 @@ func TestMattermostResolvedColor(t *testing.T) {
 	}
 }
 
-func TestGoogleChatMattermostNoopWithoutCreds(t *testing.T) {
-	t.Setenv("GOOGLECHAT_WEBHOOK_URL", "")
-	t.Setenv("MATTERMOST_WEBHOOK_URL", "")
-	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
-	for _, s := range []Sink{NewGoogleChat(), NewMattermost()} {
-		if err := s.Send(context.Background(), a); err != nil {
-			t.Fatalf("%s: unconfigured sink must no-op, got %v", s.Name(), err)
-		}
+// The Slack header says RESOLVED on a resolve, so the attachment bar must
+// turn green too instead of keeping the severity color.
+func TestSlackResolvedColor(t *testing.T) {
+	cases := []struct {
+		name     string
+		resolved bool
+		want     string
+	}{
+		{name: "firing", want: alert.SeverityCritical.Color()},
+		{name: "resolved", resolved: true, want: alert.ResolvedColorHex},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, payloads, _ := capture(t)
+			t.Setenv("SLACK_BOT_TOKEN", "")
+			t.Setenv("SLACK_WEBHOOK_URL", srv.URL)
+			a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+			a.Resolved = tc.resolved
+			if err := newSlack("c", nil).Send(context.Background(), a); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			att := (*payloads)[0]["attachments"].([]any)[0].(map[string]any)
+			if att["color"] != tc.want {
+				t.Fatalf("color = %v, want %v", att["color"], tc.want)
+			}
+		})
+	}
+}
+
+// Mattermost's fallback is the plain-text notification body, so it carries
+// no markdown escapes. The attachment title renders markdown and stays
+// escaped, but it is cut before escaping so the cut cannot split a pair.
+func TestMattermostTitleAndFallback(t *testing.T) {
+	srv, payloads, _ := capture(t)
+	t.Setenv("MATTERMOST_WEBHOOK_URL", srv.URL)
+	// Byte 256 of the escaped title falls inside a \_ pair.
+	a := alert.New(alert.KindPod, "ns", "p", strings.Repeat("_", 300), alert.SeverityCritical)
+	if err := newMattermost().Send(context.Background(), a); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	att := (*payloads)[0]["attachments"].([]any)[0].(map[string]any)
+	plain := alertTitlePlain(a)
+	if att["fallback"] != plain {
+		t.Errorf("fallback = %q, want %q", att["fallback"], plain)
+	}
+	title := att["title"].(string)
+	if !strings.HasPrefix(title, `\[critical\]`) {
+		t.Fatalf("title is not markdown-escaped: %q", textutil.Head(title, 24))
+	}
+	got, ok := unescapeMarkdown(title)
+	if !ok {
+		t.Fatalf("title ends in a dangling escape: %q", textutil.Tail(title, 12))
+	}
+	if want := textutil.Head(plain, 256); got != want {
+		t.Fatalf("unescaped title = %q, want %q", got, want)
+	}
+}
+
+// unescapeMarkdown reverses escapeMarkdown. ok is false when s ends in a lone
+// backslash, which is what a cut through an escape pair leaves.
+func unescapeMarkdown(s string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' {
+			i++
+			if i == len(s) {
+				return b.String(), false
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String(), true
 }

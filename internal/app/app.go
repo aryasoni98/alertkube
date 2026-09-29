@@ -3,14 +3,18 @@ package app
 import (
 	"context"
 	"flag"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
-	// Register client-go auth plugins (gcp, azure, oidc, exec) so a local run
-	// against a kubeconfig that uses one of them can authenticate.
+	// Register client-go's auth-provider plugins (only oidc in current
+	// client-go; gcp and azure were removed upstream) so a local run against
+	// a kubeconfig that uses one can authenticate. exec credential plugins are
+	// built into client-go and need no import.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/client-go/dynamic"
@@ -25,8 +29,13 @@ import (
 )
 
 const (
-	sweepInterval = 30 * time.Second
-	appName       = "alertkube"
+	appName = "alertkube"
+	// httpShutdownTimeout bounds the HTTP server shutdown once the controller
+	// has returned. Every server shares it (see shutdownServers).
+	httpShutdownTimeout = 5 * time.Second
+	// traceFlushTimeout bounds the final flush of queued spans. Both come
+	// after controllerDrainBudget in the shutdown budget (pipeline.go).
+	traceFlushTimeout = 5 * time.Second
 )
 
 // version is overridden at build time via
@@ -66,6 +75,9 @@ func Run() {
 	if err != nil {
 		klog.Fatalf("config: %v", err)
 	}
+	for _, w := range cfg.PollDeadlineWarnings() {
+		klog.Warningf("config: %s", w)
+	}
 
 	// The shard identity is resolved here, before anything that depends on it:
 	// the leader Lease name, the persisted-state ConfigMap name, and the
@@ -102,7 +114,7 @@ func Run() {
 	// A failure here is never fatal: losing traces must not stop alerting.
 	traceShutdown := trace.Init(ctx, version)
 	defer func() {
-		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), traceFlushTimeout)
 		if err := traceShutdown(flushCtx); err != nil {
 			klog.Warningf("tracing shutdown: %v", err)
 		}
@@ -136,13 +148,26 @@ func Run() {
 		runController(ctx, clientset, dynClient, cfg, flags.watchNamespace, sharder)
 	}
 
+	shutdownServers(srvs)
+}
+
+// shutdownServers stops every HTTP server at once under one
+// httpShutdownTimeout. One after another, a separate API listener (APIAddr)
+// would add a second slice to the shutdown budget.
+func shutdownServers(srvs []*http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+	defer cancel()
+	var wg sync.WaitGroup
 	for _, srv := range srvs {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			klog.Warningf("http server shutdown: %v", err)
-		}
-		shutdownCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.Shutdown(ctx); err != nil {
+				klog.Warningf("http server shutdown: %v", err)
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 func parseFlags() runtimeFlags {

@@ -6,9 +6,11 @@ type AWS struct {
 	// Regions to poll. Each AWS API call is per-region, so every region
 	// here multiplies the per-poll API call count.
 	Regions []string `yaml:"regions"`
-	// PollSeconds is the interval between polls. Must be below
+	// PollSeconds is the interval between polls. It must be below
 	// resolveTTLSeconds or a still-firing alarm false-resolves between
 	// polls (Validate enforces this, mirroring the informer-resync rule).
+	// Each poll is cancelled after PollDeadlineFactor intervals; a deadline
+	// at or above the TTL is logged as a startup warning.
 	PollSeconds int `yaml:"pollSeconds"`
 	// Source toggles. At least one must be true when Enabled.
 	EKS         bool `yaml:"eks"`
@@ -40,7 +42,8 @@ type Azure struct {
 	Enabled       bool     `yaml:"enabled"`
 	Subscriptions []string `yaml:"subscriptions"`
 	PollSeconds   int      `yaml:"pollSeconds"`
-	AKS           bool     `yaml:"aks"`
+	// AKS enables AKS managed-cluster and node-pool health alerts.
+	AKS bool `yaml:"aks"`
 	// Monitor enables ingesting fired Azure Monitor alerts (Alerts
 	// Management): an alert with monitorCondition Fired pages, Resolved
 	// resolves.
@@ -49,9 +52,11 @@ type Azure struct {
 	VMs bool `yaml:"vms"`
 	// Storage enables Azure Storage account availability alerts.
 	Storage bool `yaml:"storage"`
-	// SQL enables Azure SQL Database health alerts (Suspect/Offline/Inaccessible).
+	// SQL enables Azure SQL Database health alerts (Suspect/Offline/
+	// Inaccessible/EmergencyMode/Shutdown).
 	SQL bool `yaml:"sql"`
-	// Redis enables Azure Cache for Redis provisioning-health alerts.
+	// Redis enables Azure Cache for Redis provisioning-health alerts (Failed
+	// is critical; recovering from a scale failure is a warning).
 	Redis bool `yaml:"redis"`
 }
 
@@ -60,7 +65,8 @@ type GCP struct {
 	Enabled     bool     `yaml:"enabled"`
 	Projects    []string `yaml:"projects"`
 	PollSeconds int      `yaml:"pollSeconds"`
-	GKE         bool     `yaml:"gke"`
+	// GKE enables GKE cluster and node-pool health alerts.
+	GKE bool `yaml:"gke"`
 	// Monitoring enables a Cloud Monitoring posture source: it alerts when
 	// an alert policy is disabled. GCP's Go SDK exposes no fired-incident
 	// listing, so this surfaces monitoring-coverage posture, not fired

@@ -11,9 +11,9 @@ import (
 	"github.com/aryasoni98/alertkube/internal/config"
 )
 
-// NewDaemonSet fires when scheduled pods are unavailable on nodes that
+// newDaemonSet fires when scheduled pods are unavailable on nodes that
 // should run them.
-func NewDaemonSet(cfg *config.Config) *simple[*appsv1.DaemonSet] {
+func newDaemonSet(cfg *config.Config) *simple[*appsv1.DaemonSet] {
 	return newSimple("daemonset", alert.KindDaemonSet, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().DaemonSets().Informer()
@@ -22,6 +22,11 @@ func NewDaemonSet(cfg *config.Config) *simple[*appsv1.DaemonSet] {
 }
 
 func evaluateDaemonSet(ds *appsv1.DaemonSet, emit Emit) {
+	// Skip status written before the controller observed the current spec
+	// (see evaluateDeployment); it does not suppress a rollout's shortfall.
+	if ds.Status.ObservedGeneration < ds.Generation {
+		return
+	}
 	if ds.Status.NumberUnavailable > 0 {
 		a := alert.New(alert.KindDaemonSet, ds.Namespace, ds.Name, "DaemonSetUnavailable", alert.SeverityWarning)
 		a.Summary = fmt.Sprintf("daemonset %s/%s: %d of %d node(s) unavailable",
@@ -33,4 +38,4 @@ func evaluateDaemonSet(ds *appsv1.DaemonSet, emit Emit) {
 	}
 }
 
-func init() { Register(func(o Opts) Watcher { return NewDaemonSet(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newDaemonSet(o.Config) }) }

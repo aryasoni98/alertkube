@@ -5,17 +5,16 @@ import (
 	"html"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/templates"
 	"github.com/aryasoni98/alertkube/internal/textutil"
 )
 
-// NewGoogleChat posts a card to a Google Chat space via an incoming webhook.
+func init() { Register("googlechat", func(SinkConfig) Sink { return newGoogleChat() }) }
+
+// newGoogleChat posts a card to a Google Chat space via an incoming webhook.
 // The webhook URL is read on each Send so a Secret rotation is honored without
 // a process restart (mirrors the other webhook sinks).
-func init() { Register("googlechat", func(SinkConfig) Sink { return NewGoogleChat() }) }
-
-func NewGoogleChat() Sink {
-	return &webhookSink{name: "googlechat", credEnv: "GOOGLECHAT_WEBHOOK_URL", payload: googleChatPayload}
+func newGoogleChat() Sink {
+	return &chatWebhookSink{name: "googlechat", credEnv: envGoogleChatWebhookURL, payload: googleChatPayload}
 }
 
 func googleChatPayload(a *alert.Alert) any {
@@ -29,10 +28,10 @@ func googleChatPayload(a *alert.Alert) any {
 		{"decoratedText": map[string]any{"topLabel": "Reason", "text": html.EscapeString(orDash(a.Reason))}},
 		{"textParagraph": map[string]any{"text": html.EscapeString(textutil.Head(a.Summary, 4096))}},
 	}
-	if runbook, ok := templates.Runbook(a); ok {
+	if runbookURL, ok := runbook(a); ok {
 		widgets = append(widgets, map[string]any{
 			"buttonList": map[string]any{"buttons": []map[string]any{
-				{"text": "Runbook", "onClick": map[string]any{"openLink": map[string]any{"url": runbook}}},
+				{"text": "Runbook", "onClick": map[string]any{"openLink": map[string]any{"url": runbookURL}}},
 			}},
 		})
 	}
@@ -41,7 +40,7 @@ func googleChatPayload(a *alert.Alert) any {
 		"cardId": "alertkube-" + a.Fingerprint,
 		"card": map[string]any{
 			"header": map[string]any{
-				"title":    textutil.Head(alertTitle(a), 200),
+				"title":    textutil.Head(alertTitleHTML(a), 200),
 				"subtitle": fmt.Sprintf("%s | fp=%s", a.Kind, a.Fingerprint),
 			},
 			"sections": []map[string]any{{"widgets": widgets}},
@@ -50,7 +49,7 @@ func googleChatPayload(a *alert.Alert) any {
 	// `text` gives a plain fallback in notifications/clients that do not render
 	// cards; `cardsV2` is the modern card format.
 	return map[string]any{
-		"text":    alertTitle(a),
+		"text":    alertTitleHTML(a),
 		"cardsV2": []map[string]any{card},
 	}
 }

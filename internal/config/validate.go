@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/internal/filter"
 )
 
 // Startup validation. Every rule here rejects a configuration that would
@@ -21,6 +24,15 @@ import (
 // must therefore exceed it, or a still-firing condition expires between
 // resyncs and re-pages every cycle; Validate enforces that relationship.
 const InformerResyncSeconds = 300
+
+// PollDeadlineFactor is the multiple of pollSeconds after which the cloud
+// source runner cancels a poll (sources.runOne). A poll that overruns its
+// interval delays the next one, so a firing cloud alert can go up to
+// PollDeadlineFactor intervals without being re-fired. Validate only requires
+// pollSeconds below the resolve TTL, as earlier releases did, so existing
+// configs keep loading; PollDeadlineWarnings reports configs where a slow
+// poll can outlast the TTL.
+const PollDeadlineFactor = 2
 
 // KnownSinks lists the sink names registered at startup; routing rules may
 // only reference these. Kept here so Validate can fail fast on typos
@@ -40,11 +52,14 @@ var KnownSinks = map[string]bool{
 	"mattermost": true,
 }
 
-// Validate runs each section validator in config-file order and returns the
-// first failure, so an operator fixing a bad config sees problems reported
-// top-down rather than in an arbitrary order.
+// Validate runs each section validator in a fixed order and returns the first
+// failure, so the same bad config always reports the same error. The order is
+// close to the Config field order but not the same: behavior runs after
+// silences, for one. Do not reorder the slice; that changes which error a
+// config with several defects reports.
 func (c *Config) Validate() error {
 	sections := []func() error{
+		c.validateFilters,
 		c.validateRouting,
 		c.validateSeverityOverrides,
 		c.validateSinkRates,
@@ -85,11 +100,10 @@ func validateSinkNames(field string, names []string) error {
 	return nil
 }
 
-// validateSeverity rejects anything outside the three-level vocabulary shared
-// by severity overrides and rules.
+// validateSeverity rejects anything outside alert's three-level vocabulary,
+// shared by severity overrides and rules.
 func validateSeverity(field, severity string) error {
-	switch severity {
-	case "critical", "warning", "info":
+	if alert.Severity(severity).Valid() {
 		return nil
 	}
 	return fmt.Errorf("%s: severity must be critical|warning|info, got %q", field, severity)
@@ -139,10 +153,66 @@ func validatePollInterval(provider string, poll, resolveTTL int) error {
 	return nil
 }
 
+// PollDeadlineWarnings returns one message per enabled cloud provider whose
+// poll deadline (PollDeadlineFactor x pollSeconds) is not below the resolve
+// TTL. Such a config is valid, but a poll that runs toward its deadline can
+// leave a firing alert un-refreshed past the TTL, so it false-resolves and
+// re-pages. The caller logs these at startup.
+func (c *Config) PollDeadlineWarnings() []string {
+	var out []string
+	for _, p := range []struct {
+		name    string
+		enabled bool
+		poll    int
+	}{
+		{"aws", c.AWS.Enabled, c.AWS.PollSeconds},
+		{"azure", c.Azure.Enabled, c.Azure.PollSeconds},
+		{"gcp", c.GCP.Enabled, c.GCP.PollSeconds},
+	} {
+		if p.enabled && PollDeadlineFactor*p.poll >= c.Behavior.ResolveTTLSeconds {
+			out = append(out, fmt.Sprintf("%s.pollSeconds (%d) x %d is not below behavior.resolveTTLSeconds (%d): a poll that runs toward its deadline can let a firing alert false-resolve and re-page; lower pollSeconds or raise the TTL", p.name, p.poll, PollDeadlineFactor, c.Behavior.ResolveTTLSeconds))
+		}
+	}
+	return out
+}
+
 // --- sections ---------------------------------------------------------------
+
+func (c *Config) validateFilters() error {
+	fields := []struct{ name, raw string }{
+		{"filters.watchedNamespaces", c.Filters.WatchedNamespaces},
+		{"filters.ignoredNamespaces", c.Filters.IgnoredNamespaces},
+		{"filters.watchedPodNamePrefixes", c.Filters.WatchedPodNamePrefixes},
+		{"filters.ignoredPodNamePrefixes", c.Filters.IgnoredPodNamePrefixes},
+	}
+	for _, f := range fields {
+		if err := filter.Validate(f.name, f.raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (c *Config) validateRouting() error {
 	for i, r := range c.Routing {
+		field := fmt.Sprintf("routing[%d].match", i)
+		switch {
+		case len(r.Match) == 0:
+			if i != len(c.Routing)-1 {
+				return fmt.Errorf("%s: empty match is a catch-all and must be the final route (routing[%d] would be unreachable)", field, i+1)
+			}
+		case i == len(c.Routing)-1:
+			// The final route may be a catch-all, as match: {} is: it
+			// shadows no later route and suppresses nothing. Only require
+			// its patterns to compile.
+			if err := checkMatcherPatterns(field, r.Match); err != nil {
+				return err
+			}
+		default:
+			if err := SelectiveMatchers(field, r.Match); err != nil {
+				return err
+			}
+		}
 		if err := validateSinkNames(fmt.Sprintf("routing[%d]", i), r.Sinks); err != nil {
 			return err
 		}
@@ -180,6 +250,12 @@ func (c *Config) validateSinkRates() error {
 
 func (c *Config) validateInhibitions() error {
 	for i, inh := range c.Inhibitions {
+		if err := SelectiveMatchers(fmt.Sprintf("inhibitions[%d].source", i), inh.Source); err != nil {
+			return err
+		}
+		if err := SelectiveMatchers(fmt.Sprintf("inhibitions[%d].target", i), inh.Target); err != nil {
+			return err
+		}
 		if inh.Duration == "" {
 			continue
 		}
@@ -192,6 +268,9 @@ func (c *Config) validateInhibitions() error {
 
 func (c *Config) validateSilences() error {
 	for i, s := range c.Silences {
+		if err := SelectiveMatchers(fmt.Sprintf("silences[%d].matchers", i), s.Matchers); err != nil {
+			return err
+		}
 		if _, err := time.Parse(time.RFC3339, s.Until); err != nil {
 			return fmt.Errorf("silences[%d]: until must be RFC3339: %w", i, err)
 		}
@@ -227,6 +306,9 @@ func (c *Config) validateEscalations() error {
 	for i, esc := range c.Escalations {
 		field := fmt.Sprintf("escalations[%d]", i)
 		if err := requirePositive(field+": afterMinutes", esc.AfterMinutes); err != nil {
+			return err
+		}
+		if err := SelectiveMatchers(field+".match", esc.Match); err != nil {
 			return err
 		}
 		if err := validateSinkNames(field, esc.Sinks); err != nil {
@@ -307,10 +389,15 @@ func (c *Config) validateGCP() error {
 }
 
 func (c *Config) validateRules() error {
+	names := map[string]int{}
 	for i, ru := range c.Rules {
 		if ru.Name == "" {
 			return fmt.Errorf("rules[%d]: name is required", i)
 		}
+		if prev, ok := names[ru.Name]; ok {
+			return fmt.Errorf("rules[%d]: duplicate name %q (also rules[%d])", i, ru.Name, prev)
+		}
+		names[ru.Name] = i
 		field := fmt.Sprintf("rules[%d] (%s)", i, ru.Name)
 		if err := validateSeverity(field, ru.Severity); err != nil {
 			return err
@@ -337,17 +424,30 @@ func validateRuleCondition(field string, ru Rule) error {
 	}
 	switch {
 	case ru.Count != nil:
+		if err := checkMatcherPatterns(field+".count.match", ru.Count.Match); err != nil {
+			return err
+		}
 		if err := requirePositive(field+": count.threshold", ru.Count.Threshold); err != nil {
 			return err
 		}
 		return requirePositive(field+": windowSeconds (count rule)", ru.WindowSeconds)
 	case len(ru.All) > 0:
+		for i, m := range ru.All {
+			if err := checkMatcherPatterns(fmt.Sprintf("%s.all[%d]", field, i), m); err != nil {
+				return err
+			}
+		}
 		return requirePositive(field+": windowSeconds (all rule)", ru.WindowSeconds)
 	default:
+		if err := checkMatcherPatterns(field+".absent.match", ru.Absent.Match); err != nil {
+			return err
+		}
 		return requirePositive(field+": absent.forSeconds", ru.Absent.ForSeconds)
 	}
 }
 
+// validateMaintenance defers to MaintenanceWindow.validate, which also owns
+// the SelectiveMatchers check.
 func (c *Config) validateMaintenance() error {
 	for i, w := range c.Maintenance {
 		if err := w.validate(); err != nil {
@@ -357,21 +457,14 @@ func (c *Config) validateMaintenance() error {
 	return nil
 }
 
-// validateCorrelation bounds the engine's tunables. A zero means "use the
-// engine default", so only explicitly-set values are range-checked, and the
-// whole section is skipped while the engine is off.
+// validateCorrelation rejects correlation.enabled: true and checks nothing
+// else. Nothing reads intervalSeconds, maxHops or blastRadiusCap, so they are
+// parsed but not range-checked.
 func (c *Config) validateCorrelation() error {
 	if !c.Correlation.Enabled {
 		return nil
 	}
-	if v := c.Correlation.IntervalSeconds; v != 0 && v < 5 {
-		return fmt.Errorf("correlation.intervalSeconds (%d) must be >= 5", v)
-	}
-	if v := c.Correlation.MaxHops; v != 0 && (v < 1 || v > 5) {
-		return fmt.Errorf("correlation.maxHops (%d) must be in [1,5]", v)
-	}
-	if v := c.Correlation.BlastRadiusCap; v != 0 && (v < 1 || v > 500) {
-		return fmt.Errorf("correlation.blastRadiusCap (%d) must be in [1,500]", v)
-	}
-	return nil
+	// The topology package exists; the engine that would consume it does not.
+	// Accepting enabled: true would boot a controller that silently ignores the knob.
+	return errors.New("correlation.enabled is not implemented (see docs/design/2026-07-10-correlation-engine-design.md); leave it false")
 }

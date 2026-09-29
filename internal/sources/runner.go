@@ -3,10 +3,13 @@ package sources
 import (
 	"context"
 	"math/rand/v2"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/aryasoni98/alertkube/internal/config"
 )
 
 // maxStartupJitter caps the random delay before a source's first poll. Spreading
@@ -15,6 +18,23 @@ import (
 // a synchronized error spike. Bounded so startup still surfaces cloud alerts
 // quickly.
 const maxStartupJitter = 5 * time.Second
+
+// pollDeadlineFactor sets each poll's deadline as a multiple of the poll
+// interval. The deadline exists so a hung provider call cannot silence a
+// source for the rest of the process lifetime. It is not one interval because
+// a healthy poll of a large inventory (many regions, rate-limited describe
+// calls) can outrun its interval, and cutting it there would skip the same
+// tail of resources on every poll until their alerts TTL-resolved. The ticker
+// coalesces missed ticks, so an overrunning poll delays the next one instead
+// of overlapping it. Two matches CloudTrail's lookback of twice the interval:
+// once the ticker is running, polls start at most about two intervals apart.
+// A poll cut off at its deadline returns a little later, after teardown, so
+// CloudTrail also starts each window where the previous one ended.
+//
+// A firing cloud alert is therefore re-fired up to about two intervals apart,
+// which is why config.PollDeadlineWarnings recommends resolveTTLSeconds above
+// PollDeadlineFactor x pollSeconds.
+const pollDeadlineFactor = config.PollDeadlineFactor
 
 // Run polls every source on its own goroutine until ctx is cancelled, then
 // blocks until all in-flight polls return. Add it to the controller
@@ -49,10 +69,15 @@ func runOne(ctx context.Context, interval time.Duration, emit Emit, s Source) {
 		// the Kubernetes watchers. Mirrors watchers.recoverHandler.
 		defer func() {
 			if r := recover(); r != nil {
-				klog.Errorf("source %s panicked in Poll (recovered): %v", s.Name(), r)
+				klog.Errorf("source %s panicked in Poll (recovered): %v\n%s", s.Name(), r, debug.Stack())
 			}
 		}()
-		s.Poll(ctx, emit)
+		// Bound the poll so a hung provider call cannot silence the source
+		// for the rest of the process lifetime. The deferred cancel also
+		// releases the context when Poll panics.
+		pollCtx, cancel := context.WithTimeout(ctx, pollDeadlineFactor*interval)
+		defer cancel()
+		s.Poll(pollCtx, emit)
 	}
 	// Stagger the first poll by a bounded random delay so concurrent sources do
 	// not all call the provider API at the same instant. Cap at the interval so
@@ -90,5 +115,5 @@ func startupJitter(interval time.Duration) time.Duration {
 	if limit <= 0 {
 		return 0
 	}
-	return time.Duration(rand.Int64N(int64(limit)))
+	return time.Duration(rand.Int64N(int64(limit))) //nolint:gosec // startup jitter, not a secret
 }

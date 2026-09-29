@@ -36,14 +36,12 @@ type consoleDeps struct {
 	// deadLetter is the ring of permanently-abandoned deliveries served by
 	// GET /api/deadletter. nil disables the endpoint (serves an empty list).
 	deadLetter *deadLetterLog
-	// secretRead enables the opt-in Secret-reference channel test (Phase 2b).
-	// Off by default: the test-ref endpoint returns 403 unless this is set, so
-	// the default install keeps its zero-secrets-read posture.
-	secretRead bool
 	// secretReader reads one key from a Secret in the controller's own
-	// namespace. nil when secretRead is false. It never returns the value to
-	// the client - only the controller uses it to inject a credential for a
-	// single test send.
+	// namespace for the opt-in Secret-reference channel test (Phase 2b). nil
+	// by default: the test-ref endpoint returns 403 unless it is set, so the
+	// default install keeps its zero-secrets-read posture. It never returns the
+	// value to the client - only the controller uses it to inject a credential
+	// for a single test send.
 	secretReader func(ctx context.Context, name, key string) (string, error)
 }
 
@@ -70,7 +68,6 @@ func buildConsoleDeps(clientset kubernetes.Interface, cfg *config.Config, store 
 	default:
 		klog.Infof("console write auth: token mode (shared ALERTKUBE_API_WRITE_TOKEN)")
 	}
-	secretReader := buildSecretReader(clientset)
 	return consoleDeps{
 		apiToken:     apiToken,
 		writeGate:    newWriteGate(writeToken, rbacAuth),
@@ -79,8 +76,7 @@ func buildConsoleDeps(clientset kubernetes.Interface, cfg *config.Config, store 
 		silStore:     silStore,
 		reg:          reg,
 		deadLetter:   deadLetter,
-		secretRead:   secretReader != nil,
-		secretReader: secretReader,
+		secretReader: buildSecretReader(clientset),
 	}
 }
 

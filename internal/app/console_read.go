@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"gopkg.in/yaml.v3"
@@ -76,11 +77,11 @@ func newConfigHandler(d consoleDeps) http.Handler {
 func renderConfigBody(cfg *config.Config) ([]byte, error) {
 	raw, err := yaml.Marshal(cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 	var m map[string]any
 	if err := yaml.Unmarshal(raw, &m); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reparse config: %w", err)
 	}
 	return json.Marshal(map[string]any{"config": m, "yaml": string(raw)})
 }

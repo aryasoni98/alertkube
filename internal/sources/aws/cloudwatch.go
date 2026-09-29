@@ -13,6 +13,11 @@ import (
 
 const sourceCloudWatch = "aws-cloudwatch"
 
+// cloudwatchAPI is the subset of the CloudWatch client the alarms source uses.
+type cloudwatchAPI interface {
+	DescribeAlarms(context.Context, *cloudwatch.DescribeAlarmsInput, ...func(*cloudwatch.Options)) (*cloudwatch.DescribeAlarmsOutput, error)
+}
+
 type cwRegion = regionClient[cloudwatchAPI]
 
 // cloudWatchSource turns CloudWatch alarms into alerts. An alarm in ALARM
@@ -29,12 +34,16 @@ type cloudWatchSource struct {
 func (s *cloudWatchSource) Name() string { return sourceCloudWatch }
 
 func (s *cloudWatchSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceCloudWatch, s.regions, emit, s.pollRegion)
 }
 
 func (s *cloudWatchSource) pollRegion(ctx context.Context, rc cwRegion, emit sources.Emit) {
 	forEachPage(ctx, sourceCloudWatch, rc.region, func(ctx context.Context, token *string) (*string, error) {
-		out, err := rc.client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{NextToken: token})
+		out, err := rc.client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{
+			NextToken: token,
+			// Omitting AlarmTypes returns only metric alarms.
+			AlarmTypes: []cwtypes.AlarmType{cwtypes.AlarmTypeMetricAlarm, cwtypes.AlarmTypeCompositeAlarm},
+		})
 		if err != nil {
 			return nil, err
 		}

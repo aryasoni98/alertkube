@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func shardedCfg(name string) *Config {
 	c := &Config{}
@@ -54,7 +57,7 @@ func TestApplyShardScopeRejectsSharedExplicitName(t *testing.T) {
 		t.Fatal("a shared state ConfigMap under sharding must be rejected: each shard would clobber the others")
 	}
 	// The message has to tell the operator what to type, not just that they are wrong.
-	if got := err.Error(); !contains(got, "alertkube-prod-state-1") {
+	if got := err.Error(); !strings.Contains(got, "alertkube-prod-state-1") {
 		t.Fatalf("error must suggest the shard-scoped name, got: %s", got)
 	}
 }
@@ -79,13 +82,4 @@ func TestApplyShardScopeRejectsWrongShardSuffix(t *testing.T) {
 	if err := c.ApplyShardScope(1, true); err == nil {
 		t.Fatal("a name scoped to another shard must be rejected")
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

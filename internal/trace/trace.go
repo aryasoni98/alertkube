@@ -79,9 +79,9 @@ func Init(ctx context.Context, serviceVersion string) func(context.Context) erro
 		sdktrace.WithResource(newResource(serviceVersion)),
 		// Parent-based sampling with an always-on root: an alert's trace starts
 		// here, and a half-sampled alert pipeline is worse than none - the
-		// missing span is indistinguishable from a dropped alert, which is
-		// exactly the confusion this is meant to remove. Operators who need
-		// less volume set OTEL_TRACES_SAMPLER.
+		// missing span is indistinguishable from a dropped alert. This option
+		// overwrites OTEL_TRACES_SAMPLER; volume is all-or-nothing via
+		// ALERTKUBE_TRACING_ENABLED.
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
 	)
 	otel.SetTracerProvider(tp)

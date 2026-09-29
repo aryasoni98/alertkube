@@ -26,6 +26,13 @@ func emitResolve(emit Emit, kind alert.Kind, ns, name string) {
 	emit(&alert.Alert{Kind: kind, Namespace: ns, Name: name, Resolved: true})
 }
 
+// isResync reports an informer resync. client-go delivers the cached object
+// as both old and new, so a transition diff sees no change. Callers must
+// re-assert standing conditions so Store.Touch keeps EndsAt alive.
+func isResync[T any](old, cur *T) bool {
+	return old != nil && old == cur
+}
+
 // objFromDelete unwraps the cache.DeletedFinalStateUnknown tombstone the
 // informer may deliver on Delete (when the watch missed the final state) and
 // type-asserts the underlying object to T.
@@ -79,10 +86,10 @@ func recoverHandler(where string) {
 	}
 }
 
-// register attaches a handler to an informer and logs any registration
+// addHandler attaches a handler to an informer and logs any registration
 // error. client-go ≥ 0.27 returns a registration handle + error from
 // AddEventHandler; we don't need the handle but must not drop the error.
-func register(name string, inf cache.SharedIndexInformer, h cache.ResourceEventHandler) {
+func addHandler(name string, inf cache.SharedIndexInformer, h cache.ResourceEventHandler) {
 	if _, err := inf.AddEventHandler(h); err != nil {
 		klog.Errorf("watcher %s: register event handler: %v", name, err)
 	}
@@ -92,7 +99,7 @@ func register(name string, inf cache.SharedIndexInformer, h cache.ResourceEventH
 // state. It owns the struct/Name/Setup boilerplate so each resource kind
 // only supplies its informer getter and evaluate function. Watchers that
 // diff old vs new state (pod, node, cronjob) implement Watcher directly.
-type simple[T interface{ GetNamespace() string }] struct {
+type simple[T metav1.Object] struct {
 	name     string
 	kind     alert.Kind
 	ns       nsFilter
@@ -100,7 +107,7 @@ type simple[T interface{ GetNamespace() string }] struct {
 	eval     func(T, Emit)
 }
 
-func newSimple[T interface{ GetNamespace() string }](
+func newSimple[T metav1.Object](
 	name string,
 	kind alert.Kind,
 	cfg config.Filters,
@@ -112,54 +119,20 @@ func newSimple[T interface{ GetNamespace() string }](
 
 func (w *simple[T]) Name() string { return w.name }
 
+// Setup evaluates the current object on Add and Update, and resolves every
+// active alert for the object on Delete. Without the delete-resolve a
+// deleted-while-firing object lingers in the active set until resolveTTL
+// elapses, and its mute record blocks a same-named replacement from
+// re-paging in the meantime.
 func (w *simple[T]) Setup(_ context.Context, f informers.SharedInformerFactory, emit Emit) {
-	h := handleCurrent(w.name, w.ns, func(o T) { w.eval(o, emit) })
-	h.DeleteFunc = func(obj interface{}) {
-		defer recoverHandler(w.name + ".Delete")
-		w.resolveOnDelete(obj, emit)
-	}
-	register(w.name, w.informer(f), h)
-}
-
-// evaluate is exposed for tests, which drive evaluation directly without
-// an informer.
-func (w *simple[T]) evaluate(o T, emit Emit) { w.eval(o, emit) }
-
-// resolveOnDelete handles an object deletion: it resolves every active alert
-// for the object. Without it a deleted-while-firing object lingers in the
-// active set until resolveTTL elapses, and its mute record blocks a
-// same-named replacement from re-paging in the meantime. Split out from
-// Setup so tests can drive it without an informer (mirrors evaluate).
-func (w *simple[T]) resolveOnDelete(obj interface{}, emit Emit) {
-	m, ok := objFromDelete[metav1.Object](obj)
-	if !ok || !w.ns.allows(m.GetNamespace()) {
-		return
-	}
-	emitResolve(emit, w.kind, m.GetNamespace(), m.GetName())
-}
-
-// handleCurrent builds Add/Update handlers that type-assert to T, apply
-// the namespace filter, recover panics, and call eval with the current
-// object. Watchers whose evaluation needs only the latest state use it;
-// watchers that diff old vs new (pod, node, cronjob) use handleDiff.
-func handleCurrent[T interface{ GetNamespace() string }](name string, ns nsFilter, eval func(T)) cache.ResourceEventHandlerFuncs {
-	handle := func(obj interface{}, where string) {
-		defer recoverHandler(where)
-		o, ok := obj.(T)
-		if !ok || !ns.allows(o.GetNamespace()) {
-			return
-		}
-		eval(o)
-	}
-	return cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { handle(obj, name+".Add") },
-		UpdateFunc: func(_, cur interface{}) { handle(cur, name+".Update") },
-	}
+	keep := func(o T) bool { return w.ns.allows(o.GetNamespace()) }
+	addHandler(w.name, w.informer(f),
+		handleDiff(w.name, w.kind, emit, keep, true, func(_, cur T) { w.eval(cur, emit) }))
 }
 
 // handleDiff builds Add/Update/Delete handlers for watchers that compare old
-// vs new state. It owns the same scaffolding handleCurrent does (type-assert,
-// keep filter, panic recovery) plus the delete-resolve contract:
+// vs new state, and backs simple. It owns the handler scaffolding
+// (type-assert, keep filter, panic recovery) plus the delete-resolve contract:
 //   - keep filters objects (nil accepts all - used by the cluster-scoped node
 //     watcher); it runs on both change and delete events.
 //   - onChange receives (old, cur); old is the zero value (nil pointer) on Add

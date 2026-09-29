@@ -14,6 +14,11 @@ import (
 
 const sourceEC2 = "aws-ec2"
 
+// ec2API is the subset of the EC2 client the status-check source uses.
+type ec2API interface {
+	DescribeInstanceStatus(context.Context, *ec2.DescribeInstanceStatusInput, ...func(*ec2.Options)) (*ec2.DescribeInstanceStatusOutput, error)
+}
+
 type ec2Region = regionClient[ec2API]
 
 // ec2Source alerts on EC2 instances whose system or instance status check is
@@ -28,7 +33,7 @@ type ec2Source struct {
 func (s *ec2Source) Name() string { return sourceEC2 }
 
 func (s *ec2Source) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceEC2, s.regions, emit, s.pollRegion)
 }
 
 func (s *ec2Source) pollRegion(ctx context.Context, rc ec2Region, emit sources.Emit) {

@@ -12,6 +12,11 @@ import (
 
 const sourceElastiCache = "aws-elasticache"
 
+// elastiCacheAPI is the subset of the ElastiCache client the cluster-status source uses.
+type elastiCacheAPI interface {
+	DescribeCacheClusters(context.Context, *elasticache.DescribeCacheClustersInput, ...func(*elasticache.Options)) (*elasticache.DescribeCacheClustersOutput, error)
+}
+
 type ecRegion = regionClient[elastiCacheAPI]
 
 // elastiCacheSource alerts on ElastiCache clusters whose status indicates a
@@ -26,7 +31,7 @@ type elastiCacheSource struct {
 func (s *elastiCacheSource) Name() string { return sourceElastiCache }
 
 func (s *elastiCacheSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceElastiCache, s.regions, emit, s.pollRegion)
 }
 
 func (s *elastiCacheSource) pollRegion(ctx context.Context, rc ecRegion, emit sources.Emit) {

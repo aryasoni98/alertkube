@@ -12,20 +12,11 @@ import (
 )
 
 type fakeEFS struct {
-	pages []*efs.DescribeFileSystemsOutput
-	idx   int
-	err   error
+	pager[efs.DescribeFileSystemsOutput]
 }
 
-func (f *fakeEFS) DescribeFileSystems(_ context.Context, _ *efs.DescribeFileSystemsInput, _ ...func(*efs.Options)) (*efs.DescribeFileSystemsOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeEFS) DescribeFileSystems(_ context.Context, in *efs.DescribeFileSystemsInput, _ ...func(*efs.Options)) (*efs.DescribeFileSystemsOutput, error) {
+	return f.next(in.Marker)
 }
 
 func fileSystem(id string, state efstypes.LifeCycleState) efstypes.FileSystemDescription {
@@ -77,12 +68,12 @@ func TestEvaluateFileSystem(t *testing.T) {
 }
 
 func TestEFSSourcePoll(t *testing.T) {
-	fake := &fakeEFS{pages: []*efs.DescribeFileSystemsOutput{{
+	fake := &fakeEFS{pager: pagerOf(&efs.DescribeFileSystemsOutput{
 		FileSystems: []efstypes.FileSystemDescription{
 			fileSystem("good", efstypes.LifeCycleStateAvailable),
 			fileSystem("bad", efstypes.LifeCycleStateError),
 		},
-	}}}
+	})}
 	src := &efsSource{regions: []efsRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

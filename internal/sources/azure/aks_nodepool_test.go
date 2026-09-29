@@ -17,7 +17,7 @@ func agentPool(name, provState string, power *armcontainerservice.Code) *armcont
 	return p
 }
 
-func aksClusterWithPools(name, location string, pools ...*armcontainerservice.ManagedClusterAgentPoolProfile) armcontainerservice.ManagedCluster {
+func aksClusterWithPools(name, location string, pools ...*armcontainerservice.ManagedClusterAgentPoolProfile) *armcontainerservice.ManagedCluster {
 	c := aksCluster(name, location, "Succeeded", codePtr(armcontainerservice.CodeRunning))
 	c.Properties.AgentPoolProfiles = pools
 	return c
@@ -54,10 +54,10 @@ func TestEvaluateAKSNodePools(t *testing.T) {
 }
 
 func TestAKSSourcePollIncludesNodePools(t *testing.T) {
-	fake := &fakeAKSLister{clusters: []armcontainerservice.ManagedCluster{
+	items := []*armcontainerservice.ManagedCluster{
 		aksClusterWithPools("cl", "eastus", agentPool("np", "Failed", nil)),
-	}}
-	src := &aksSource{subs: []aksSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAKSSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 
@@ -73,5 +73,15 @@ func TestAKSSourcePollIncludesNodePools(t *testing.T) {
 	}
 	if !clusterResolve || !poolCritical {
 		t.Fatalf("expected cluster resolve + node pool critical; clusterResolve=%v poolCritical=%v", clusterResolve, poolCritical)
+	}
+}
+
+// TestEvaluateAKSNilCluster: a nil entry from the pager is skipped at both
+// levels rather than dereferenced.
+func TestEvaluateAKSNilCluster(t *testing.T) {
+	emit, got := collect()
+	evaluateAKS("sub-1", nil, emit)
+	if len(*got) != 0 {
+		t.Fatalf("nil cluster must emit nothing, got %d", len(*got))
 	}
 }

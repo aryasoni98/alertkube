@@ -2,6 +2,7 @@ package alert
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -63,83 +64,81 @@ func (s Severity) Valid() bool {
 // Kind identifies the resource type that produced the alert.
 type Kind string
 
-const (
-	KindPod         Kind = "Pod"
-	KindNode        Kind = "Node"
-	KindDeployment  Kind = "Deployment"
-	KindReplicaSet  Kind = "ReplicaSet"
-	KindPVC         Kind = "PersistentVolumeClaim"
-	KindJob         Kind = "Job"
-	KindDaemonSet   Kind = "DaemonSet"
-	KindStatefulSet Kind = "StatefulSet"
-	KindCronJob     Kind = "CronJob"
-	KindHPA         Kind = "HorizontalPodAutoscaler"
-	KindService     Kind = "Service"
+// knownKinds is filled by kind() at each declaration. Valid is a map lookup,
+// so a new kind cannot be named without being accepted on snapshot restore.
+var knownKinds = map[Kind]struct{}{}
+
+func kind(name string) Kind {
+	k := Kind(name)
+	if _, dup := knownKinds[k]; dup {
+		panic("alert: duplicate kind " + name)
+	}
+	knownKinds[k] = struct{}{}
+	return k
+}
+
+var (
+	KindPod         = kind("Pod")
+	KindNode        = kind("Node")
+	KindDeployment  = kind("Deployment")
+	KindReplicaSet  = kind("ReplicaSet")
+	KindPVC         = kind("PersistentVolumeClaim")
+	KindJob         = kind("Job")
+	KindDaemonSet   = kind("DaemonSet")
+	KindStatefulSet = kind("StatefulSet")
+	KindCronJob     = kind("CronJob")
+	KindHPA         = kind("HorizontalPodAutoscaler")
+	KindService     = kind("Service")
 	// AWS cloud-source kinds. Unlike the workload kinds above (produced by
 	// informer-driven watchers), these are produced by the polled AWS
 	// sources in internal/sources/aws. Namespace carries the AWS region and
 	// Name carries the resource identifier (cluster name, alarm name,
 	// instance id), so a resolve targets exactly one cloud resource.
-	KindEKSCluster         Kind = "EKSCluster"
-	KindCloudWatchAlarm    Kind = "CloudWatchAlarm"
-	KindEC2Instance        Kind = "EC2Instance"
-	KindLoadBalancer       Kind = "LoadBalancer"
-	KindTargetGroup        Kind = "TargetGroup"
-	KindRDSInstance        Kind = "RDSInstance"
-	KindDynamoDBTable      Kind = "DynamoDBTable"
-	KindElastiCacheCluster Kind = "ElastiCacheCluster"
-	KindS3Bucket           Kind = "S3Bucket"
-	KindCloudTrailEvent    Kind = "CloudTrailEvent"
-	KindAKSCluster         Kind = "AKSCluster"
-	KindGKECluster         Kind = "GKECluster"
-	KindAzureMonitorAlert  Kind = "AzureMonitorAlert"
-	KindGCPAlertPolicy     Kind = "GCPAlertPolicy"
-	KindEKSNodegroup       Kind = "EKSNodegroup"
-	KindAKSNodePool        Kind = "AKSNodePool"
-	KindGKENodePool        Kind = "GKENodePool"
-	KindAzureVM            Kind = "AzureVM"
-	KindGCEInstance        Kind = "GCEInstance"
-	KindCloudSQLInstance   Kind = "CloudSQLInstance"
-	KindASG                Kind = "AutoScalingGroup"
-	KindKMSKey             Kind = "KMSKey"
-	KindAzureStorage       Kind = "AzureStorageAccount"
-	KindEBSVolume          Kind = "EBSVolume"
-	KindAuroraCluster      Kind = "AuroraCluster"
-	KindNATGateway         Kind = "NATGateway"
-	KindEFSFileSystem      Kind = "EFSFileSystem"
-	KindRoute53HealthCheck Kind = "Route53HealthCheck"
-	KindACMCertificate     Kind = "ACMCertificate"
-	KindVPNConnection      Kind = "VPNConnection"
-	KindAzureSQLDatabase   Kind = "AzureSQLDatabase"
-	KindAzureRedis         Kind = "AzureRedisCache"
+	KindEKSCluster         = kind("EKSCluster")
+	KindCloudWatchAlarm    = kind("CloudWatchAlarm")
+	KindEC2Instance        = kind("EC2Instance")
+	KindLoadBalancer       = kind("LoadBalancer")
+	KindTargetGroup        = kind("TargetGroup")
+	KindRDSInstance        = kind("RDSInstance")
+	KindDynamoDBTable      = kind("DynamoDBTable")
+	KindElastiCacheCluster = kind("ElastiCacheCluster")
+	KindS3Bucket           = kind("S3Bucket")
+	KindCloudTrailEvent    = kind("CloudTrailEvent")
+	KindAKSCluster         = kind("AKSCluster")
+	KindGKECluster         = kind("GKECluster")
+	KindAzureMonitorAlert  = kind("AzureMonitorAlert")
+	KindGCPAlertPolicy     = kind("GCPAlertPolicy")
+	KindEKSNodegroup       = kind("EKSNodegroup")
+	KindAKSNodePool        = kind("AKSNodePool")
+	KindGKENodePool        = kind("GKENodePool")
+	KindAzureVM            = kind("AzureVM")
+	KindGCEInstance        = kind("GCEInstance")
+	KindCloudSQLInstance   = kind("CloudSQLInstance")
+	KindASG                = kind("AutoScalingGroup")
+	KindKMSKey             = kind("KMSKey")
+	KindAzureStorage       = kind("AzureStorageAccount")
+	KindEBSVolume          = kind("EBSVolume")
+	KindAuroraCluster      = kind("AuroraCluster")
+	KindNATGateway         = kind("NATGateway")
+	KindEFSFileSystem      = kind("EFSFileSystem")
+	KindRoute53HealthCheck = kind("Route53HealthCheck")
+	KindACMCertificate     = kind("ACMCertificate")
+	KindVPNConnection      = kind("VPNConnection")
+	KindAzureSQLDatabase   = kind("AzureSQLDatabase")
+	KindAzureRedis         = kind("AzureRedisCache")
 	// KindDerived marks an alert produced by a user-authored rule
 	// (internal/rules) correlating other alerts, not by a watcher or source.
-	KindDerived Kind = "Derived"
+	KindDerived = kind("Derived")
 	// KindExternal marks alerts ingested through the Alertmanager
 	// webhook receiver rather than produced by a watcher.
-	KindExternal Kind = "External"
+	KindExternal = kind("External")
 )
 
-// Valid reports whether k is a known kind. Used to reject untrusted values
+// valid reports whether k is a known kind. Used to reject untrusted values
 // (e.g. a poisoned persisted snapshot) before they enter the store.
-func (k Kind) Valid() bool {
-	switch k {
-	case KindPod, KindNode, KindDeployment, KindReplicaSet, KindPVC, KindJob, KindDaemonSet,
-		KindStatefulSet, KindCronJob, KindHPA, KindService, KindExternal,
-		KindEKSCluster, KindCloudWatchAlarm, KindEC2Instance,
-		KindLoadBalancer, KindTargetGroup, KindRDSInstance,
-		KindDynamoDBTable, KindElastiCacheCluster, KindS3Bucket, KindCloudTrailEvent,
-		KindAKSCluster, KindGKECluster, KindAzureMonitorAlert, KindGCPAlertPolicy,
-		KindEKSNodegroup, KindAKSNodePool, KindGKENodePool,
-		KindAzureVM, KindGCEInstance, KindCloudSQLInstance, KindDerived,
-		KindASG, KindKMSKey, KindAzureStorage,
-		KindEBSVolume, KindAuroraCluster, KindNATGateway,
-		KindEFSFileSystem, KindRoute53HealthCheck,
-		KindACMCertificate, KindVPNConnection,
-		KindAzureSQLDatabase, KindAzureRedis:
-		return true
-	}
-	return false
+func (k Kind) valid() bool {
+	_, ok := knownKinds[k]
+	return ok
 }
 
 // Control annotation keys change alertkube behavior (silencing, channel
@@ -199,17 +198,37 @@ func (a *Alert) Clone() *Alert {
 	return &cp
 }
 
+// CloneWithoutDetails is Clone with the enrichment Details dropped. Details
+// (logs, events) only matter for the trigger message, so the copies that are
+// kept around - the recent ring, snapshot entries and outbox records - discard
+// them before cloning to bound their size.
+func (a *Alert) CloneWithoutDetails() *Alert {
+	cp := *a
+	cp.Details = nil
+	return cp.Clone()
+}
+
+// fingerprintLen is the hex truncation. Widened from 12 in the same change
+// that length-prefixed the preimage; both invalidate persisted fingerprints.
+const fingerprintLen = 16
+
 // ComputeFingerprint hashes the identity tuple so equivalent alerts dedupe.
-// sha256 rather than sha1: collision resistance is irrelevant here, but it
-// keeps security scanners quiet and costs nothing. Truncated to 12 hex
-// chars for log/footer readability. NOTE: changing this function changes
-// every fingerprint - persisted snapshots from older versions then fail to
-// match live alerts, so re-fires inside the mute window re-page once after
-// the upgrade. Bump SnapshotVersion if the change must invalidate state.
+// Each field is length-prefixed, so a "|" inside a name cannot be rearranged
+// into a different field and produce the same hash. Truncated for log and
+// footer readability. Changing this function changes every fingerprint:
+// persisted snapshots then fail to match live alerts, and standing conditions
+// re-page once after upgrade. It does not bump SnapshotVersion, which gates the
+// wire shape: restored alerts keep their old fingerprints and resolve when
+// their TTL lapses.
 func ComputeFingerprint(kind Kind, ns, name, reason string) string {
 	h := sha256.New()
-	h.Write([]byte(string(kind) + "|" + ns + "|" + name + "|" + reason))
-	return hex.EncodeToString(h.Sum(nil))[:12]
+	for _, field := range []string{string(kind), ns, name, reason} {
+		var n [4]byte
+		binary.BigEndian.PutUint32(n[:], uint32(len(field))) //nolint:gosec // G115: identity fields are object names and reasons, never near 4 GiB
+		h.Write(n[:])
+		h.Write([]byte(field))
+	}
+	return hex.EncodeToString(h.Sum(nil))[:fingerprintLen]
 }
 
 // New constructs an Alert and fills the fingerprint.
@@ -226,6 +245,21 @@ func New(kind Kind, ns, name, reason string, sev Severity) *Alert {
 		Annotations: map[string]string{},
 		StartsAt:    time.Now(),
 	}
+}
+
+// fieldKeys are the matcher keys FieldValue resolves against an alert field
+// instead of Labels. Keep it in step with the switch below:
+// TestFieldKeysResolveToFields fails if a listed key falls through to Labels.
+var fieldKeys = map[string]bool{
+	"severity": true, "kind": true, "namespace": true,
+	"node": true, "reason": true, "name": true,
+}
+
+// IsFieldKey reports whether key names an alert field rather than a label.
+// An empty matcher value on a label key matches every alert that lacks the
+// label; on a field key it matches only alerts whose field is empty.
+func IsFieldKey(key string) bool {
+	return fieldKeys[key]
 }
 
 // FieldValue resolves a label-style key against the alert's well-known fields,
@@ -249,6 +283,26 @@ func (a *Alert) FieldValue(key string) string {
 	}
 }
 
+// IsPatternKey reports whether a matcher value for key is a regular expression
+// (compiled by CompilePattern) rather than an exact string.
+func IsPatternKey(key string) bool {
+	return key == "namespace" || key == "reason"
+}
+
+// CompilePattern compiles a namespace/reason matcher value the way MatchLabels
+// evaluates it: anchored with ^ and $ unless the pattern already starts or
+// ends with them, so `prod-.*` does not match `dev-prod-tools`.
+func CompilePattern(pattern string) (*regexp.Regexp, error) {
+	anchored := pattern
+	if !strings.HasPrefix(anchored, "^") {
+		anchored = "^" + anchored
+	}
+	if !strings.HasSuffix(anchored, "$") {
+		anchored += "$"
+	}
+	return regexp.Compile(anchored)
+}
+
 // MatchLabels reports whether a label-equality map matches.
 // `namespace` and `reason` accept a regular expression (anchored automatically
 // at both ends so `prod-.*` does not match `dev-prod-tools`). All other keys
@@ -256,7 +310,7 @@ func (a *Alert) FieldValue(key string) string {
 func (a *Alert) MatchLabels(want map[string]string) bool {
 	for k, v := range want {
 		got := a.FieldValue(k)
-		if k == "namespace" || k == "reason" {
+		if IsPatternKey(k) {
 			if !matchOrRegex(got, v) {
 				return false
 			}
@@ -296,14 +350,7 @@ func matchOrRegex(s, pattern string) bool {
 	re, ok := regexCache[pattern]
 	regexCacheMu.RUnlock()
 	if !ok {
-		anchored := pattern
-		if !strings.HasPrefix(anchored, "^") {
-			anchored = "^" + anchored
-		}
-		if !strings.HasSuffix(anchored, "$") {
-			anchored = anchored + "$"
-		}
-		compiled, err := regexp.Compile(anchored)
+		compiled, err := CompilePattern(pattern)
 		if err != nil {
 			// Invalid pattern: fall back to literal equality. Only memoize the
 			// nil sentinel while there is room, so a flood of distinct invalid
@@ -345,5 +392,5 @@ func (a *Alert) GroupKey(by []string) string {
 }
 
 func (a *Alert) String() string {
-	return fmt.Sprintf("[%s] %s %s/%s reason=%s fp=%s", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason, a.Fingerprint)
+	return fmt.Sprintf("[%s] %s %q/%q reason=%q fp=%s resolved=%t", a.Severity, a.Kind, a.Namespace, a.Name, a.Reason, a.Fingerprint, a.Resolved)
 }

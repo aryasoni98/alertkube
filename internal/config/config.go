@@ -1,6 +1,14 @@
 package config
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+	"time"
+)
 
 // Config is the YAML-driven runtime configuration.
 type Config struct {
@@ -204,10 +212,9 @@ type RuleAbsent struct {
 	ForSeconds int               `yaml:"forSeconds"`
 }
 
-// Correlation configures the topology-aware alert correlation engine
-// (internal/correlate). Disabled by default. Zero numeric values mean "use the
-// engine default". Enabling requires the extra list/watch RBAC in the chart; see
-// docs/superpowers/specs/2026-07-10-correlation-engine-design.md.
+// Correlation configures topology-aware alert correlation. Disabled by default.
+// validateCorrelation rejects enabled: true until an engine consumes
+// internal/topology. See docs/design/2026-07-10-correlation-engine-design.md.
 type Correlation struct {
 	Enabled         bool `yaml:"enabled"`
 	IntervalSeconds int  `yaml:"intervalSeconds"`
@@ -255,4 +262,23 @@ type Escalation struct {
 	Match        map[string]string `yaml:"match"`
 	AfterMinutes int               `yaml:"afterMinutes"`
 	Sinks        []string          `yaml:"sinks"`
+}
+
+// EscalationKey is stable across config reordering. The index used to be the
+// key, so inserting a rule re-escalated every standing alert.
+func EscalationKey(esc Escalation) string {
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(esc.Match)) {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(esc.Match[k])
+		b.WriteByte('\n')
+	}
+	fmt.Fprintf(&b, "#%d", esc.AfterMinutes)
+	for _, sink := range esc.Sinks {
+		b.WriteByte('|')
+		b.WriteString(sink)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:8])
 }

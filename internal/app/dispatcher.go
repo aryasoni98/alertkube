@@ -26,9 +26,13 @@ import (
 const (
 	defaultDispatchWorkers   = 16
 	defaultDispatchQueueSize = 2048
-	// dispatchDrainTimeout bounds how long shutdown waits for the workers to
+	// dispatchDrainTimeout bounds how long Shutdown waits for the workers to
 	// finish the queued backlog. Each in-flight send is itself capped by the
-	// per-sink timeout budget; this is the ceiling on the whole drain.
+	// per-sink timeout budget; this is the ceiling on the whole drain. The
+	// controller passes an earlier shutdown deadline that keeps time back for
+	// the final save (see the shutdown budget at finalSaveTimeout in
+	// pipeline.go). Must stay >= dispatchTimeout so a send that has just
+	// started is not cut off.
 	dispatchDrainTimeout = 30 * time.Second
 	// maxResolveRetries bounds how many times a failed resolve is re-queued.
 	// A firing alert that fails delivery retries via the store (MarkFailed ->
@@ -85,10 +89,20 @@ type dispatcher struct {
 	// impossible. The cost is head-of-line blocking within a bucket - one slow
 	// delivery stalls only the fingerprints that hash to its worker - which is
 	// why the worker count should be sized up rather than down.
-	queues  []chan dispatchJob
-	stop    chan struct{}
-	workers int
-	wg      sync.WaitGroup
+	queues []chan dispatchJob
+	// queueMu[i] serializes producers on queues[i], and draining[i] (guarded
+	// by it) records that submit has dropped a job from that queue after stop
+	// closed. From then on every later job for the queue is dropped too, so it
+	// stays in the outbox behind the dropped one instead of taking a slot a
+	// worker frees and being delivered first: a RESOLVE delivered ahead of its
+	// outboxed FIRE would close the incident, and the next boot would replay
+	// the FIRE and open one that nothing resolves. The drop decision and the
+	// flag must be atomic with respect to the next submit, which is why the
+	// lock is held while a producer is parked on a full queue.
+	queueMu  []sync.Mutex
+	draining []bool
+	stop     chan struct{}
+	wg       sync.WaitGroup
 
 	// mu guards closed and serializes enqueue against Shutdown so the jobs
 	// channel is never sent-on after it is closed. Held as RLock by enqueue
@@ -97,6 +111,9 @@ type dispatcher struct {
 	closed bool
 	// Every caller of Shutdown waits for the same drain, including concurrent callers.
 	shutdownOnce sync.Once
+	// stopOnce closes stop once: controller shutdown closes it early through
+	// unblockProducers, and Shutdown closes it for every other caller.
+	stopOnce sync.Once
 
 	// onDeadLetter, when set, records a delivery the dispatcher permanently
 	// abandoned (no retry path). nil = no dead-letter capture (e.g. tests).
@@ -141,11 +158,12 @@ func newDispatcher(reg *sinks.Registry, workers, queueSize int) *dispatcher {
 		queues[i] = make(chan dispatchJob, perQueue)
 	}
 	return &dispatcher{
-		reg:     reg,
-		queues:  queues,
-		stop:    make(chan struct{}),
-		workers: workers,
-		pending: map[uint64]alert.PendingDelivery{},
+		reg:      reg,
+		queues:   queues,
+		queueMu:  make([]sync.Mutex, workers),
+		draining: make([]bool, workers),
+		stop:     make(chan struct{}),
+		pending:  map[uint64]alert.PendingDelivery{},
 	}
 }
 
@@ -155,14 +173,17 @@ func newDispatcher(reg *sinks.Registry, workers, queueSize int) *dispatcher {
 // fingerprint and so always land on the same worker, in enqueue order. Alerts
 // enqueued before a fingerprint was computed fall back to object identity,
 // which is stable for the same object across its lifetime.
-func (d *dispatcher) queueFor(a *alert.Alert) chan dispatchJob {
+func (d *dispatcher) queueFor(a *alert.Alert) chan dispatchJob { return d.queues[d.queueIndex(a)] }
+
+// queueIndex is the index of the queue queueFor returns.
+func (d *dispatcher) queueIndex(a *alert.Alert) int {
 	key := a.Fingerprint
 	if key == "" {
-		key = string(a.Kind) + "/" + a.Namespace + "/" + a.Name
+		key = shardKey(a) // the same object identity key shard ownership uses
 	}
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
-	return d.queues[uint64(h.Sum32())%uint64(len(d.queues))]
+	return int(uint64(h.Sum32()) % uint64(len(d.queues))) //nolint:gosec // G115: the result is below len(d.queues), so it fits an int
 }
 
 // queuedTotal is the number of jobs buffered across every worker queue. Used
@@ -185,9 +206,8 @@ func dispatchQueueSize() int { return env.IntOr("ALERTKUBE_DISPATCH_QUEUE", defa
 // (by Shutdown), then exits, so a shutdown delivers the queued backlog before
 // the workers stop.
 func (d *dispatcher) Start() {
-	klog.Infof("dispatch pool: %d workers, %d queued alerts per worker (deliveries are fingerprint-affine so a FIRE and its RESOLVE cannot reorder)", d.workers, cap(d.queues[0]))
-	for i := range d.workers {
-		q := d.queues[i]
+	klog.Infof("dispatch pool: %d workers, %d queued alerts per worker (deliveries are fingerprint-affine so a FIRE and its RESOLVE cannot reorder)", len(d.queues), cap(d.queues[0]))
+	for _, q := range d.queues {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
@@ -195,39 +215,46 @@ func (d *dispatcher) Start() {
 				d.observeDepth()
 				span := startDeliverySpan(job)
 				delivered := dispatch(d.reg, job.a, job.route)
-				endDeliverySpan(span, job, delivered)
-				if delivered {
-					d.pendingDone(job.id) // delivered: ack the outbox record
-					continue
-				}
-				switch {
-				case job.onFail != nil:
-					// Firing path: roll back dedupe so the next firing retries
-					// (as a fresh enqueue); this outbox record is done.
-					job.onFail()
-					d.pendingDone(job.id)
-				case job.a.Resolved && job.retries < maxResolveRetries:
-					// A lost resolve would leave a stateful incident dangling;
-					// re-queue it after a short delay (bounded attempts). Keep
-					// the outbox record - the delivery is still pending.
-					d.scheduleResolveRetry(job)
-				default:
-					// No retry path left: an exhausted resolve (incident may
-					// dangle) or a fire-once alert (ephemeral event, group
-					// summary, escalation) that failed. Dead-letter it so the
-					// permanently-undelivered alert is visible, not just logged.
-					if job.a.Resolved {
-						klog.Warningf("resolve for %s failed delivery after %d retries; dead-lettering (incident may dangle)", job.a, maxResolveRetries)
-					} else {
-						klog.Warningf("%s failed delivery with no retry path; dead-lettering", job.a)
-					}
-					if d.onDeadLetter != nil {
-						d.onDeadLetter(job.a)
-					}
-					d.pendingDone(job.id)
-				}
+				endDeliverySpan(span, delivered)
+				d.settle(job, delivered)
 			}
 		}()
+	}
+}
+
+// settle handles the outcome of one delivery attempt on the worker that made
+// it: ack the outbox record, roll back a firing alert's dedupe, re-queue a
+// failed resolve, or dead-letter a delivery with no retry path left.
+func (d *dispatcher) settle(job dispatchJob, delivered bool) {
+	if delivered {
+		d.pendingDone(job.id) // delivered: ack the outbox record
+		return
+	}
+	switch {
+	case job.onFail != nil:
+		// Firing path: roll back dedupe so the next firing retries
+		// (as a fresh enqueue); this outbox record is done.
+		job.onFail()
+		d.pendingDone(job.id)
+	case job.a.Resolved && job.retries < maxResolveRetries:
+		// A lost resolve would leave a stateful incident dangling;
+		// re-queue it after a short delay (bounded attempts). Keep
+		// the outbox record - the delivery is still pending.
+		d.scheduleResolveRetry(job)
+	default:
+		// No retry path left: an exhausted resolve (incident may
+		// dangle) or a fire-once alert (ephemeral event, group
+		// summary, escalation) that failed. Dead-letter it so the
+		// permanently-undelivered alert is visible, not just logged.
+		if job.a.Resolved {
+			klog.Warningf("resolve for %s failed delivery after %d retries; dead-lettering (incident may dangle)", job.a, maxResolveRetries)
+		} else {
+			klog.Warningf("%s failed delivery with no retry path; dead-lettering", job.a)
+		}
+		if d.onDeadLetter != nil {
+			d.onDeadLetter(job.a)
+		}
+		d.pendingDone(job.id)
 	}
 }
 
@@ -269,7 +296,19 @@ func (d *dispatcher) submit(job dispatchJob) {
 	// Fingerprint-affine: this job goes to the one worker that handles every
 	// delivery for its alert, so it can never overtake an earlier delivery for
 	// the same fingerprint.
-	q := d.queueFor(job.a)
+	i := d.queueIndex(job.a)
+	q := d.queues[i]
+	// Producers behind one parked on this queue wait on queueMu, so the
+	// blocked time below counts from before the lock.
+	blockedSince := time.Now()
+	d.queueMu[i].Lock()
+	defer d.queueMu[i].Unlock()
+	if d.draining[i] {
+		// An earlier job for this queue was dropped into the outbox; keep this
+		// one behind it (see draining).
+		metrics.DispatchDropped.Inc()
+		return
+	}
 	select {
 	case q <- job:
 		d.observeDepth()
@@ -277,17 +316,17 @@ func (d *dispatcher) submit(job dispatchJob) {
 	default:
 	}
 	// Queue full: record the backpressure, then block until a worker drains a
-	// slot or shutdown begins (close(stop) unblocks us so Shutdown can proceed).
+	// slot or shutdown begins (unblockProducers closes stop and releases us).
 	// The caller here is usually an informer handler, so the time spent parked
 	// is time Kubernetes event processing is stalled - measure it, or the only
 	// symptom is events being handled late with nothing to point at.
 	metrics.DispatchQueueFull.Inc()
-	blockedSince := time.Now()
 	select {
 	case q <- job:
 		metrics.DispatchEnqueueBlocked.Observe(time.Since(blockedSince).Seconds())
 		d.observeDepth()
 	case <-d.stop:
+		d.draining[i] = true
 		metrics.DispatchEnqueueBlocked.Observe(time.Since(blockedSince).Seconds())
 		metrics.DispatchDropped.Inc()
 	}
@@ -303,15 +342,29 @@ func (d *dispatcher) scheduleResolveRetry(job dispatchJob) {
 	time.AfterFunc(resolveRetryDelay, func() { d.submit(job) })
 }
 
+// unblockProducers releases every producer parked in submit on a full queue.
+// From then on a submit that finds its queue full drops the job instead of
+// waiting. Controller shutdown calls it first: an informer handler or the
+// sweeper parked in submit would otherwise hold up stopInformers and wg.Wait,
+// which run before Shutdown, for as long as a stuck sink holds the worker.
+// With persistence on, a dropped job is not lost: enqueue records it in the
+// outbox before submit, so the final state save persists it and it is
+// replayed on the next startup. After the first such drop on a queue, every
+// later job for that queue is dropped too (see draining), so replay by ID
+// keeps a FIRE ahead of its RESOLVE.
+func (d *dispatcher) unblockProducers() { d.stopOnce.Do(func() { close(d.stop) }) }
+
 // Shutdown stops accepting new work, drains the queued backlog through the
-// workers, and returns once they finish or dispatchDrainTimeout elapses. It is
-// safe against producers still calling enqueue during a shutdown race: closing
-// stop unblocks any backpressured enqueue, and the write lock guarantees no
-// send is in flight when the jobs channel is closed.
-func (d *dispatcher) Shutdown() {
+// workers, and returns once they finish, ctx is done, or dispatchDrainTimeout
+// elapses, whichever comes first. Jobs still queued or in flight then stay in
+// the outbox for the final state save. It is safe against producers still
+// calling enqueue during a shutdown race: closing stop unblocks any
+// backpressured enqueue, and the write lock guarantees no send is in flight
+// when the jobs channel is closed.
+func (d *dispatcher) Shutdown(ctx context.Context) {
 	d.shutdownOnce.Do(func() {
 		// Unblock backpressured producers before taking the write lock.
-		close(d.stop)
+		d.unblockProducers()
 		d.mu.Lock()
 		d.closed = true
 		for _, q := range d.queues {
@@ -319,6 +372,8 @@ func (d *dispatcher) Shutdown() {
 		}
 		d.mu.Unlock()
 
+		drainCtx, cancel := context.WithTimeout(ctx, dispatchDrainTimeout)
+		defer cancel()
 		done := make(chan struct{})
 		go func() {
 			d.wg.Wait()
@@ -326,8 +381,11 @@ func (d *dispatcher) Shutdown() {
 		}()
 		select {
 		case <-done:
-		case <-time.After(dispatchDrainTimeout):
-			klog.Warningf("dispatch drain timed out after %s with %d alert(s) still queued; abandoning them", dispatchDrainTimeout, d.queuedTotal())
+		case <-drainCtx.Done():
+			d.pendingMu.Lock()
+			undelivered := len(d.pending)
+			d.pendingMu.Unlock()
+			klog.Warningf("dispatch drain stopped at its deadline with %d alert(s) still queued; abandoning them (%d undelivered stay in the outbox)", d.queuedTotal(), undelivered)
 		}
 	})
 }

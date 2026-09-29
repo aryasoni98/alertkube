@@ -50,9 +50,9 @@ func TestEvaluateGKENodePools(t *testing.T) {
 }
 
 func TestGKESourcePollIncludesNodePools(t *testing.T) {
-	fake := &fakeGKELister{byProject: map[string][]*containerpb.Cluster{
+	fake := fakeLister(map[string][]*containerpb.Cluster{
 		"proj-1": {gkeClusterWithPools("cl", "us-east1", containerpb.Cluster_RUNNING, nodePool("np", containerpb.NodePool_ERROR))},
-	}}
+	}, nil)
 	src := newGKESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -20,11 +23,14 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read config %s: %w", path, err)
 		}
-		if err := yaml.Unmarshal(raw, c); err != nil {
+		set, err := decodeConfig(raw, c)
+		if err != nil {
 			return nil, fmt.Errorf("parse config %s: %w", path, err)
 		}
+		c.applyEnvDefaults(set)
+	} else {
+		c.applyEnvDefaults(nil)
 	}
-	c.applyEnvDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -37,14 +43,67 @@ func Load(path string) (*Config, error) {
 // Env defaults are applied so the verdict matches a real Load.
 func ParseAndValidate(raw []byte) error {
 	c := &Config{}
-	if err := yaml.Unmarshal(raw, c); err != nil {
+	set, err := decodeConfig(raw, c)
+	if err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
-	c.applyEnvDefaults()
+	c.applyEnvDefaults(set)
 	return c.Validate()
 }
 
-func (c *Config) applyEnvDefaults() {
+// decodeConfig rejects keys that are not struct fields and reports which
+// mapping paths were present. A typo used to load as a zero value and the
+// controller booted healthy with the feature off. An explicit 0 or false is
+// present; an omitted key is not, so env fallbacks apply only to omitted keys.
+func decodeConfig(raw []byte, c *Config) (map[string]bool, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	err := dec.Decode(c)
+	if errors.Is(err, io.EOF) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return nil, errors.New("config must contain exactly one YAML document")
+	}
+	// Decode mappings through YAML's own alias/merge handling so presence and
+	// values agree, including explicit zero values inherited from anchors.
+	var fields map[string]any
+	if err := yaml.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	walkFields("", fields, set)
+	return set, nil
+}
+
+// walkFields records mapping paths such as "behavior.muteSeconds". Sequence
+// items are present as a whole; their children are not separate keys.
+func walkFields(prefix string, fields map[string]any, set map[string]bool) {
+	for key, value := range fields {
+		path := key
+		if prefix != "" {
+			path = prefix + "." + key
+		}
+		set[path] = true
+		if children, ok := value.(map[string]any); ok {
+			walkFields(path, children, set)
+		}
+	}
+}
+
+func (c *Config) applyEnvDefaults(set map[string]bool) {
+	absent := func(path string) bool { return !set[path] }
+	// intDefault fills dst from key, or def, only when path was left out of
+	// the YAML. TestPresentKeysBeatEnv pins every path passed here.
+	intDefault := func(path, key string, dst *int, def int) {
+		if absent(path) {
+			*dst = env.IntOr(key, def)
+		}
+	}
 	if c.Cluster == "" {
 		c.Cluster = os.Getenv("CLUSTER_NAME")
 	}
@@ -60,24 +119,14 @@ func (c *Config) applyEnvDefaults() {
 	if c.Filters.IgnoredPodNamePrefixes == "" {
 		c.Filters.IgnoredPodNamePrefixes = os.Getenv("IGNORED_POD_NAME_PREFIXES")
 	}
-	if c.Behavior.MuteSeconds == 0 {
-		c.Behavior.MuteSeconds = env.IntOr("MUTE_SECONDS", 600)
-	}
-	if c.Behavior.IgnoreRestartCount == 0 {
-		c.Behavior.IgnoreRestartCount = env.IntOr("IGNORE_RESTART_COUNT", 30)
-	}
-	if !c.Behavior.IgnoreRestartsWithExitCodeZero {
+	intDefault("behavior.muteSeconds", "MUTE_SECONDS", &c.Behavior.MuteSeconds, 600)
+	intDefault("behavior.ignoreRestartCount", "IGNORE_RESTART_COUNT", &c.Behavior.IgnoreRestartCount, 30)
+	if absent("behavior.ignoreRestartsWithExitCodeZero") {
 		c.Behavior.IgnoreRestartsWithExitCodeZero = os.Getenv("IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO") == "true"
 	}
-	if c.Behavior.ResolveTTLSeconds == 0 {
-		c.Behavior.ResolveTTLSeconds = env.IntOr("RESOLVE_TTL_SECONDS", 600)
-	}
-	if c.Behavior.StartupGraceSeconds == 0 {
-		c.Behavior.StartupGraceSeconds = env.IntOr("STARTUP_GRACE_SECONDS", 0)
-	}
-	if c.Behavior.PVCPendingSeconds == 0 {
-		c.Behavior.PVCPendingSeconds = env.IntOr("PVC_PENDING_SECONDS", 300)
-	}
+	intDefault("behavior.resolveTTLSeconds", "RESOLVE_TTL_SECONDS", &c.Behavior.ResolveTTLSeconds, 600)
+	intDefault("behavior.startupGraceSeconds", "STARTUP_GRACE_SECONDS", &c.Behavior.StartupGraceSeconds, 0)
+	intDefault("behavior.pvcPendingSeconds", "PVC_PENDING_SECONDS", &c.Behavior.PVCPendingSeconds, 300)
 	if c.Channels.Critical == "" {
 		c.Channels.Critical = env.Or("SLACK_CHANNEL_CRITICAL", "alerts-critical")
 	}
@@ -94,7 +143,7 @@ func (c *Config) applyEnvDefaults() {
 		// Empty stays empty (co-located) unless an address is supplied.
 		c.APIAddr = os.Getenv("ALERTKUBE_API_ADDR")
 	}
-	if c.Grouping.WindowSeconds == 0 {
+	if absent("grouping.windowSeconds") {
 		c.Grouping.WindowSeconds = 30
 	}
 	if c.Persistence.ConfigMapName == "" {
@@ -109,14 +158,12 @@ func (c *Config) applyEnvDefaults() {
 				c.AWS.Regions = []string{r}
 			}
 		}
-		if c.AWS.PollSeconds == 0 {
-			c.AWS.PollSeconds = env.IntOr("AWS_POLL_SECONDS", 60)
-		}
+		intDefault("aws.pollSeconds", "AWS_POLL_SECONDS", &c.AWS.PollSeconds, 60)
 	}
-	if c.Azure.Enabled && c.Azure.PollSeconds == 0 {
-		c.Azure.PollSeconds = env.IntOr("AZURE_POLL_SECONDS", 60)
+	if c.Azure.Enabled {
+		intDefault("azure.pollSeconds", "AZURE_POLL_SECONDS", &c.Azure.PollSeconds, 60)
 	}
-	if c.GCP.Enabled && c.GCP.PollSeconds == 0 {
-		c.GCP.PollSeconds = env.IntOr("GCP_POLL_SECONDS", 60)
+	if c.GCP.Enabled {
+		intDefault("gcp.pollSeconds", "GCP_POLL_SECONDS", &c.GCP.PollSeconds, 60)
 	}
 }

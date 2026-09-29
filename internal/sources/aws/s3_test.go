@@ -116,7 +116,7 @@ func TestS3SourcePoll(t *testing.T) {
 	byName := map[string]*alert.Alert{}
 	for _, a := range *got {
 		byName[a.Name] = a
-		if a.Kind != alert.KindS3Bucket || a.Namespace != s3Scope {
+		if a.Kind != alert.KindS3Bucket || a.Namespace != globalScope {
 			t.Errorf("bad identity for %s: kind=%s ns=%s", a.Name, a.Kind, a.Namespace)
 		}
 	}

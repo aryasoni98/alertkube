@@ -13,17 +13,17 @@ import (
 	"github.com/aryasoni98/alertkube/internal/httpx"
 )
 
-// webhookHTTPSink POSTs the Alert struct as JSON to a generic endpoint.
+// genericWebhookSink POSTs the Alert struct as JSON to a generic endpoint.
 // URL and HMAC secret are read on each Send so a Secret rotation is
 // picked up without a process restart.
-type webhookHTTPSink struct{}
+type genericWebhookSink struct{}
 
-func init() { Register("webhook", func(SinkConfig) Sink { return NewWebhook() }) }
+func init() { Register("webhook", func(SinkConfig) Sink { return newWebhook() }) }
 
-func NewWebhook() Sink { return &webhookHTTPSink{} }
+func newWebhook() Sink { return &genericWebhookSink{} }
 
-func (*webhookHTTPSink) Name() string                   { return "webhook" }
-func (*webhookHTTPSink) Supports(_ alert.Severity) bool { return true }
+func (*genericWebhookSink) Name() string                   { return "webhook" }
+func (*genericWebhookSink) Supports(_ alert.Severity) bool { return true }
 
 // Send POSTs the alert payload as JSON. When `GENERIC_WEBHOOK_SECRET`
 // is set, an HMAC-SHA256 signature of the body is added in
@@ -31,8 +31,8 @@ func (*webhookHTTPSink) Supports(_ alert.Severity) bool { return true }
 // header to mitigate replay. Transient failures (network, 429, 5xx) are
 // retried with backoff; the timestamp + signature are recomputed per
 // attempt so retries stay within the receiver's replay window.
-func (*webhookHTTPSink) Send(ctx context.Context, a *alert.Alert) error {
-	url, ok := requireCred(ctx, "webhook", "GENERIC_WEBHOOK_URL")
+func (*genericWebhookSink) Send(ctx context.Context, a *alert.Alert) error {
+	url, ok := requireCred(ctx, "webhook", envGenericWebhookURL)
 	if !ok {
 		return nil
 	}
@@ -40,7 +40,7 @@ func (*webhookHTTPSink) Send(ctx context.Context, a *alert.Alert) error {
 		req.Header.Set("User-Agent", "alertkube")
 		ts := time.Now().UTC().Format(time.RFC3339)
 		req.Header.Set("X-Alertkube-Timestamp", ts)
-		if secret := os.Getenv("GENERIC_WEBHOOK_SECRET"); secret != "" {
+		if secret := os.Getenv(envGenericWebhookSecret); secret != "" {
 			mac := hmac.New(sha256.New, []byte(secret))
 			mac.Write([]byte(ts))
 			mac.Write([]byte{'.'})

@@ -57,10 +57,10 @@ func TestJobEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewJob(&config.Config{})
+			w := newJob(&config.Config{})
 
 			var got []*alert.Alert
-			w.evaluate(tc.job, func(a *alert.Alert) { got = append(got, a) })
+			w.eval(tc.job, func(a *alert.Alert) { got = append(got, a) })
 
 			if tc.wantNone {
 				if len(got) != 0 {

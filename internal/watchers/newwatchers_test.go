@@ -20,40 +20,53 @@ func collect() (Emit, *[]*alert.Alert) {
 	return func(a *alert.Alert) { *got = append(*got, a) }, got
 }
 
+func TestDaemonSetIgnoresStaleGeneration(t *testing.T) {
+	w := newDaemonSet(&config.Config{})
+	emit, got := collect()
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "logger", Generation: 3},
+		Status:     appsv1.DaemonSetStatus{NumberUnavailable: 2, ObservedGeneration: 2},
+	}
+	w.eval(ds, emit)
+	if len(*got) != 0 {
+		t.Fatalf("stale daemonset status fired: %v", *got)
+	}
+}
+
 func TestDaemonSetUnavailableFires(t *testing.T) {
-	w := NewDaemonSet(&config.Config{})
+	w := newDaemonSet(&config.Config{})
 	emit, got := collect()
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "logger"},
 		Status:     appsv1.DaemonSetStatus{DesiredNumberScheduled: 5, NumberReady: 3, NumberUnavailable: 2},
 	}
-	w.evaluate(ds, emit)
+	w.eval(ds, emit)
 	if len(*got) != 1 || (*got)[0].Reason != "DaemonSetUnavailable" {
 		t.Fatalf("got %v", *got)
 	}
 	ds.Status.NumberUnavailable = 0
-	w.evaluate(ds, emit)
+	w.eval(ds, emit)
 	if len(*got) != 1 {
 		t.Fatalf("healthy daemonset must not fire")
 	}
 }
 
 func TestStatefulSetShortfall(t *testing.T) {
-	w := NewStatefulSet(&config.Config{})
+	w := newStatefulSet(&config.Config{})
 	emit, got := collect()
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "db", Generation: 2},
 		Spec:       appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
 		Status:     appsv1.StatefulSetStatus{ReadyReplicas: 1, ObservedGeneration: 2},
 	}
-	w.evaluate(sts, emit)
+	w.eval(sts, emit)
 	if len(*got) != 1 || (*got)[0].Reason != "StatefulSetReplicasUnavailable" {
 		t.Fatalf("got %v", *got)
 	}
 
 	// Stale generation must not fire.
 	sts.Status.ObservedGeneration = 1
-	w.evaluate(sts, emit)
+	w.eval(sts, emit)
 	if len(*got) != 1 {
 		t.Fatalf("unobserved generation must not fire")
 	}
@@ -61,14 +74,14 @@ func TestStatefulSetShortfall(t *testing.T) {
 	// Fully ready must not fire.
 	sts.Status.ObservedGeneration = 2
 	sts.Status.ReadyReplicas = 3
-	w.evaluate(sts, emit)
+	w.eval(sts, emit)
 	if len(*got) != 1 {
 		t.Fatalf("ready statefulset must not fire")
 	}
 }
 
 func TestCronJobMissingSuccess(t *testing.T) {
-	w := NewCronJob(&config.Config{})
+	w := newCronJob(&config.Config{})
 	emit, got := collect()
 
 	t0 := metav1.NewTime(time.Now().Add(-2 * time.Hour))
@@ -98,10 +111,17 @@ func TestCronJobMissingSuccess(t *testing.T) {
 	if len(*got) != 1 {
 		t.Fatalf("same schedule time must not fire")
 	}
+
+	// Resync of a still-failing schedule re-asserts.
+	stuck := cj(&t1, nil)
+	w.evaluate(stuck, stuck, emit)
+	if len(*got) != 2 || (*got)[1].Reason != "CronJobMissingSuccess" {
+		t.Fatalf("resync must re-assert CronJobMissingSuccess, got %v", *got)
+	}
 }
 
 func TestCronJobSuspendTransition(t *testing.T) {
-	w := NewCronJob(&config.Config{})
+	w := newCronJob(&config.Config{})
 	emit, got := collect()
 	off := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "b"},
 		Spec: batchv1.CronJobSpec{Suspend: ptr.To(false)}}
@@ -111,15 +131,65 @@ func TestCronJobSuspendTransition(t *testing.T) {
 	if len(*got) != 1 || (*got)[0].Reason != "CronJobSuspended" {
 		t.Fatalf("got %v", *got)
 	}
-	// Already suspended -> no re-fire.
-	w.evaluate(on, on, emit)
+	// A later object that is still suspended is not a transition.
+	steady := on.DeepCopy()
+	w.evaluate(on, steady, emit)
 	if len(*got) != 1 {
 		t.Fatalf("steady suspended state must not re-fire")
+	}
+	// Resync delivers the same pointer. Add never alerts, so neither does it.
+	w.evaluate(on, on, emit)
+	if len(*got) != 1 {
+		t.Fatalf("resync must not re-assert CronJobSuspended, got %v", *got)
+	}
+}
+
+func TestCronJobResync(t *testing.T) {
+	now := time.Now()
+	at := func(d time.Duration) *metav1.Time { ts := metav1.NewTime(now.Add(-d)); return &ts }
+	running := []v1.ObjectReference{{Namespace: "ns", Name: "backup-123"}}
+	cases := []struct {
+		name    string
+		suspend *bool
+		sched   *metav1.Time
+		success *metav1.Time
+		active  []v1.ObjectReference
+		want    string // "" means no alert
+	}{
+		{name: "active run with an older success", sched: at(time.Minute), success: at(41 * time.Minute), active: running},
+		{name: "first run still active", sched: at(time.Minute), active: running},
+		{name: "no active run and success before the schedule", sched: at(time.Minute), success: at(41 * time.Minute), want: "CronJobMissingSuccess"},
+		{name: "no active run and no success ever", sched: at(time.Minute), want: "CronJobMissingSuccess"},
+		{name: "no active run and success after the schedule", sched: at(time.Hour), success: at(59 * time.Minute)},
+		{name: "never scheduled"},
+		{name: "long-suspended job", suspend: ptr.To(true), sched: at(90 * 24 * time.Hour), success: at(91 * 24 * time.Hour)},
+		{name: "long-suspended job never scheduled", suspend: ptr.To(true)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newCronJob(&config.Config{})
+			emit, got := collect()
+			cj := &batchv1.CronJob{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "backup"},
+				Spec:       batchv1.CronJobSpec{Suspend: tc.suspend},
+				Status:     batchv1.CronJobStatus{LastScheduleTime: tc.sched, LastSuccessfulTime: tc.success, Active: tc.active},
+			}
+			w.evaluate(cj, cj, emit)
+			if tc.want == "" {
+				if len(*got) != 0 {
+					t.Fatalf("resync fired %v", *got)
+				}
+				return
+			}
+			if len(*got) != 1 || (*got)[0].Reason != tc.want {
+				t.Fatalf("got %v, want one %s", *got, tc.want)
+			}
+		})
 	}
 }
 
 func TestHPAMaxedOut(t *testing.T) {
-	w := NewHPA(&config.Config{})
+	w := newHPA(&config.Config{})
 	emit, got := collect()
 	hpa := &autoscalingv2.HorizontalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "api"},
@@ -136,14 +206,14 @@ func TestHPAMaxedOut(t *testing.T) {
 			}},
 		},
 	}
-	w.evaluate(hpa, emit)
+	w.eval(hpa, emit)
 	if len(*got) != 1 || (*got)[0].Reason != "HPAMaxedOut" {
 		t.Fatalf("got %v", *got)
 	}
 
 	// At max but not scaling-limited -> quiet.
 	hpa.Status.Conditions[0].Status = v1.ConditionFalse
-	w.evaluate(hpa, emit)
+	w.eval(hpa, emit)
 	if len(*got) != 1 {
 		t.Fatalf("unlimited HPA at max must not fire")
 	}

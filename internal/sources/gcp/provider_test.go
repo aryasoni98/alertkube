@@ -73,13 +73,13 @@ func TestBuildProjectPropagatesClientError(t *testing.T) {
 	}
 }
 
-// projectSource must poll every configured project through one lister and hand
+// perProject must poll every configured project through one lister and hand
 // each listed item to the service's evaluator, tagged with its own project.
-func TestProjectSourcePollsEveryProject(t *testing.T) {
+func TestPerProjectPollsEveryProject(t *testing.T) {
 	type seen struct{ project, item string }
 	var got []seen
-	src := newProjectSource("gcp-test", []string{"proj-a", "proj-b"},
-		projectListerFunc(func(_ context.Context, project string) ([]string, error) {
+	src := sources.NewListSource("gcp-test",
+		perProject([]string{"proj-a", "proj-b"}, func(_ context.Context, project string) ([]string, error) {
 			return []string{project + "-1", project + "-2"}, nil
 		}),
 		func(project string, item string, _ sources.Emit) {
@@ -104,12 +104,4 @@ func TestProjectSourcePollsEveryProject(t *testing.T) {
 			t.Fatalf("item %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-}
-
-// projectListerFunc adapts a function to projectLister so the generic can be
-// driven without a service-specific fake.
-type projectListerFunc func(ctx context.Context, project string) ([]string, error)
-
-func (f projectListerFunc) List(ctx context.Context, project string) ([]string, error) {
-	return f(ctx, project)
 }

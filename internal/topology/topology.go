@@ -1,5 +1,5 @@
 // Package topology answers "what is related to what" over the live Kubernetes
-// object set, for the correlation engine (internal/correlate). It runs its own
+// object set, for a future correlation engine. It runs its own
 // shared-informer factory so a missing RBAC verb self-disables correlation
 // without affecting the core watchers; queries then return empty.
 package topology

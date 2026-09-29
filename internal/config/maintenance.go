@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,14 +17,14 @@ import (
 // midnight (Start > End, e.g. 23:00-02:00) is supported and spans into the next
 // day.
 type MaintenanceWindow struct {
-	// Name is a human label for logs/console (optional).
+	// Name is an optional human label, shown in /api/v1/config (console).
 	Name string `yaml:"name"`
 	// Matchers selects which alerts this window suppresses, with the same
 	// semantics as silence matchers (namespace/reason accept anchored regexes).
 	Matchers map[string]string `yaml:"matchers"`
 	// Start and End are "HH:MM" local times. Start == End is an empty window
-	// (suppresses nothing); use 00:00-00:00 to mean "never" and rely on Days,
-	// or 00:00-23:59 for an all-day window.
+	// that suppresses nothing on any day, whatever Days says. End is
+	// exclusive, so 00:00-23:59 covers every minute of the day but the last.
 	Start string `yaml:"start"`
 	End   string `yaml:"end"`
 	// Days optionally restricts the window to weekdays (lowercase 3-letter:
@@ -50,11 +51,33 @@ var weekdayByAbbrev = map[string]time.Weekday{
 	"wed": time.Wednesday, "thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday,
 }
 
+// zoneCache memoizes time.LoadLocation by IANA zone name. LoadLocation reads
+// and parses zoneinfo on every call, and Active runs on the routing path for
+// every alert a window matches. Names come only from config maintenance
+// windows, which are immutable for the process lifetime (ADR-0005), so the
+// cache is bounded by config size. Failed lookups are not stored: validate
+// rejects an unknown zone at load, so none reaches Active in a running
+// controller.
+var zoneCache sync.Map // zone name -> *time.Location
+
+// loadZone returns the location for name, reading zoneinfo only on first use.
+func loadZone(name string) (*time.Location, error) {
+	if l, ok := zoneCache.Load(name); ok {
+		return l.(*time.Location), nil
+	}
+	l, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, err
+	}
+	cached, _ := zoneCache.LoadOrStore(name, l)
+	return cached.(*time.Location), nil
+}
+
 // validate checks the window's fields are parseable. Called from Config.Validate
 // so a bad window fails at load instead of silently never matching.
 func (w MaintenanceWindow) validate() error {
-	if len(w.Matchers) == 0 {
-		return fmt.Errorf("matchers is empty (would suppress every alert)")
+	if err := SelectiveMatchers("matchers", w.Matchers); err != nil {
+		return err
 	}
 	if _, err := minutesOfDay(w.Start); err != nil {
 		return fmt.Errorf("start: %w", err)
@@ -68,7 +91,7 @@ func (w MaintenanceWindow) validate() error {
 		}
 	}
 	if w.Timezone != "" {
-		if _, err := time.LoadLocation(w.Timezone); err != nil {
+		if _, err := loadZone(w.Timezone); err != nil {
 			return fmt.Errorf("timezone %q: %w", w.Timezone, err)
 		}
 	}
@@ -82,7 +105,7 @@ func (w MaintenanceWindow) validate() error {
 func (w MaintenanceWindow) Active(t time.Time) bool {
 	loc := time.UTC
 	if w.Timezone != "" {
-		if l, err := time.LoadLocation(w.Timezone); err == nil {
+		if l, err := loadZone(w.Timezone); err == nil {
 			loc = l
 		}
 	}

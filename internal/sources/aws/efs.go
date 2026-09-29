@@ -13,6 +13,11 @@ import (
 
 const sourceEFS = "aws-efs"
 
+// efsAPI is the subset of the EFS client the file-system source uses.
+type efsAPI interface {
+	DescribeFileSystems(context.Context, *efs.DescribeFileSystemsInput, ...func(*efs.Options)) (*efs.DescribeFileSystemsOutput, error)
+}
+
 type efsRegion = regionClient[efsAPI]
 
 // efsSource alerts on EFS file systems in the "error" lifecycle state - the only
@@ -26,7 +31,7 @@ type efsSource struct {
 func (s *efsSource) Name() string { return sourceEFS }
 
 func (s *efsSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceEFS, s.regions, emit, s.pollRegion)
 }
 
 func (s *efsSource) pollRegion(ctx context.Context, rc efsRegion, emit sources.Emit) {

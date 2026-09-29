@@ -11,8 +11,8 @@ import (
 	"github.com/aryasoni98/alertkube/internal/config"
 )
 
-// NewStatefulSet fires when ready replicas fall below desired.
-func NewStatefulSet(cfg *config.Config) *simple[*appsv1.StatefulSet] {
+// newStatefulSet fires when ready replicas fall below desired.
+func newStatefulSet(cfg *config.Config) *simple[*appsv1.StatefulSet] {
 	return newSimple("statefulset", alert.KindStatefulSet, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().StatefulSets().Informer()
@@ -28,8 +28,9 @@ func evaluateStatefulSet(sts *appsv1.StatefulSet, emit Emit) {
 	if desired == 0 || sts.Status.ReadyReplicas >= desired {
 		return
 	}
-	// ObservedGeneration guard: a spec change the controller has not yet
-	// acted on would otherwise fire a stale shortfall alert.
+	// ObservedGeneration guard: skip status written before the controller
+	// observed the current spec (see evaluateDeployment); it does not
+	// suppress a scale-up or rollout shortfall.
 	if sts.Status.ObservedGeneration < sts.Generation {
 		return
 	}
@@ -41,4 +42,4 @@ func evaluateStatefulSet(sts *appsv1.StatefulSet, emit Emit) {
 	emit(a)
 }
 
-func init() { Register(func(o Opts) Watcher { return NewStatefulSet(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newStatefulSet(o.Config) }) }

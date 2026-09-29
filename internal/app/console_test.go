@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
+	"k8s.io/klog/v2"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 	"github.com/aryasoni98/alertkube/internal/authz"
@@ -23,17 +25,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/sinks"
 )
 
-// recSink is a Sink that records sends, for channel test-fire coverage.
-type recSink struct {
-	name string
-	got  int
-	err  error
-}
-
-func (s *recSink) Name() string                             { return s.name }
-func (s *recSink) Send(context.Context, *alert.Alert) error { s.got++; return s.err }
-func (s *recSink) Supports(alert.Severity) bool             { return true }
-
 func TestDeadLetterHandler(t *testing.T) {
 	d, _, _ := testDeps("tok", "", nil)
 	dl := newDeadLetterLog()
@@ -42,16 +33,11 @@ func TestDeadLetterHandler(t *testing.T) {
 	h := newDeadLetterHandler(d)
 
 	// No token -> 401.
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/deadletter", nil))
-	if rec.Code != http.StatusUnauthorized {
+	if rec := do(h, http.MethodGet, "/api/v1/deadletter", "", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: got %d, want 401", rec.Code)
 	}
 	// With token -> 200 and the recorded entry.
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deadletter", nil)
-	req.Header.Set("Authorization", "Bearer tok")
-	h.ServeHTTP(rec, req)
+	rec := do(h, http.MethodGet, "/api/v1/deadletter", "tok", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("with token: got %d, want 200", rec.Code)
 	}
@@ -80,26 +66,20 @@ func TestPprofGating(t *testing.T) {
 		t.Fatal("pprof should be enabled with env set + token")
 	}
 	// No token -> 401.
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
-	if rec.Code != http.StatusUnauthorized {
+	if rec := do(h, http.MethodGet, "/debug/pprof/", "", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("pprof without token: got %d, want 401", rec.Code)
 	}
 	// Correct token -> served (200).
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
-	req.Header.Set("Authorization", "Bearer secret-token")
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec := do(h, http.MethodGet, "/debug/pprof/", "secret-token", ""); rec.Code != http.StatusOK {
 		t.Fatalf("pprof with token: got %d, want 200", rec.Code)
 	}
 }
 
-func testDeps(apiToken, writeToken string, rbac *authz.RBACAuthorizer) (consoleDeps, *silence.Store, *recSink) {
+func testDeps(apiToken, writeToken string, rbac *authz.RBACAuthorizer) (consoleDeps, *silence.Store, *testSink) {
 	st := alert.NewStore(time.Minute, time.Minute, func(*alert.Alert) {})
 	sil := silence.NewStore()
 	reg := sinks.NewRegistry()
-	sink := &recSink{name: "slack"}
+	sink := &testSink{name: "slack"}
 	reg.Add(sink)
 	d := consoleDeps{
 		apiToken:  apiToken,
@@ -150,9 +130,9 @@ func TestConsoleRoutesThroughServer(t *testing.T) {
 			if rec := request(http.MethodGet, "/channels", "read-secret", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "slack") {
 				t.Fatalf("channel list: %d %s", rec.Code, rec.Body.String())
 			}
-			before := sink.got
-			if rec := request(http.MethodPost, "/channels/test", "write-secret", `{"sink":"slack"}`); rec.Code != http.StatusOK || sink.got != before+1 {
-				t.Fatalf("channel test: %d %s; sends=%d", rec.Code, rec.Body.String(), sink.got-before)
+			before := sink.count()
+			if rec := request(http.MethodPost, "/channels/test", "write-secret", `{"sink":"slack"}`); rec.Code != http.StatusOK || sink.count() != before+1 {
+				t.Fatalf("channel test: %d %s; sends=%d", rec.Code, rec.Body.String(), sink.count()-before)
 			}
 			if rec := request(http.MethodPost, "/channels/test-ref", "write-secret", `{}`); rec.Code != http.StatusForbidden {
 				t.Fatalf("disabled secret test: %d %s", rec.Code, rec.Body.String())
@@ -171,7 +151,6 @@ func TestConsoleRoutesThroughServer(t *testing.T) {
 
 func TestAPIRejectsOversizedBodies(t *testing.T) {
 	d, sil, sink := testDeps("", "write-secret", nil)
-	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) {
 		t.Fatal("oversized request must not read a Secret")
 		return "", nil
@@ -195,7 +174,7 @@ func TestAPIRejectsOversizedBodies(t *testing.T) {
 			}
 		})
 	}
-	if sink.got != 0 || len(sil.List()) != 0 {
+	if sink.count() != 0 || len(sil.List()) != 0 {
 		t.Fatal("oversized request caused a mutation")
 	}
 }
@@ -306,6 +285,18 @@ func TestSilenceCreateRejectsPastExpiry(t *testing.T) {
 	}
 }
 
+func TestSilenceCreateRejectsInvalidPattern(t *testing.T) {
+	d, sil, _ := testDeps("", "wsecret", nil)
+	h := newSilencesHandler(d)
+	rec := do(h, http.MethodPost, "/api/v1/silences", "wsecret", `{"matchers":{"reason":"OOM("},"until":"`+futureRFC3339()+`"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reason pattern") {
+		t.Fatalf("invalid reason regex: got %d %s, want 400 naming the pattern", rec.Code, rec.Body.String())
+	}
+	if n := len(sil.Active(time.Now())); n != 0 {
+		t.Fatalf("rejected silence was stored: %d active", n)
+	}
+}
+
 // --- channels ---
 
 func TestChannelsListAndTestFire(t *testing.T) {
@@ -328,8 +319,8 @@ func TestChannelsListAndTestFire(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Fatalf("test-fire: %d %s", rec.Code, rec.Body.String())
 	}
-	if sink.got != 1 {
-		t.Fatalf("sink should have received 1 test send, got %d", sink.got)
+	if sink.count() != 1 {
+		t.Fatalf("sink should have received 1 test send, got %d", sink.count())
 	}
 
 	// Unknown sink -> 400.
@@ -384,16 +375,15 @@ func TestSilenceCreateRBACMissingToken(t *testing.T) {
 // --- Phase 2b: Secret-reference channel test ---
 
 func TestChannelTestRefDisabledByDefault(t *testing.T) {
-	d, _, _ := testDeps("rt", "wsecret", nil) // secretRead stays false
+	d, _, _ := testDeps("rt", "wsecret", nil) // secretReader stays nil
 	rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("test-ref with secretRead off: got %d, want 403", rec.Code)
+		t.Fatalf("test-ref with secretReader nil: got %d, want 403", rec.Code)
 	}
 }
 
 func TestChannelTestRefWriteGated(t *testing.T) {
 	d, _, _ := testDeps("rt", "", nil) // no write token -> writes disabled
-	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
 	rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "anything", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
 	if rec.Code != http.StatusForbidden {
@@ -403,7 +393,6 @@ func TestChannelTestRefWriteGated(t *testing.T) {
 
 func TestChannelTestRefSuccess(t *testing.T) {
 	d, _, sink := testDeps("rt", "wsecret", nil)
-	d.secretRead = true
 	var gotName, gotKey string
 	d.secretReader = func(_ context.Context, name, key string) (string, error) {
 		gotName, gotKey = name, key
@@ -416,8 +405,8 @@ func TestChannelTestRefSuccess(t *testing.T) {
 	if gotName != "slack-creds" || gotKey != "webhookUrl" {
 		t.Errorf("secretReader called with (%q,%q), want (slack-creds, webhookUrl)", gotName, gotKey)
 	}
-	if sink.got != 1 {
-		t.Errorf("sink should have received 1 send, got %d", sink.got)
+	if sink.count() != 1 {
+		t.Errorf("sink should have received 1 send, got %d", sink.count())
 	}
 	// The secret value must never appear in the response.
 	if strings.Contains(rec.Body.String(), "hooks.example.test") {
@@ -425,9 +414,46 @@ func TestChannelTestRefSuccess(t *testing.T) {
 	}
 }
 
+// The test-ref reply and log must never carry the injected Secret value: not
+// from a real sink's connect failure, and not from a sink that quotes its
+// credential in an error.
+func TestChannelTestRefRedactsSecretInFailure(t *testing.T) {
+	const hookURL = "http://127.0.0.1:1/services/T0/B1/SECRETTOKEN"
+	tests := []struct {
+		name  string
+		setup func(d *consoleDeps, sink *testSink)
+	}{
+		{"slack connect refused", func(d *consoleDeps, _ *testSink) {
+			d.reg = sinks.BuildDefault(sinks.SinkConfig{Cluster: "test"})
+		}},
+		{"sink quotes credential", func(_ *consoleDeps, sink *testSink) {
+			sink.err = errors.New("post " + hookURL + ": connection refused")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SLACK_BOT_TOKEN", "")
+			logs := captureKlog(t)
+			d, _, sink := testDeps("rt", "wsecret", nil)
+			d.secretReader = func(context.Context, string, string) (string, error) { return hookURL, nil }
+			tt.setup(&d, sink)
+			rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"url"}}`)
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":false`) {
+				t.Fatalf("test-ref: %d %s", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "SECRETTOKEN") {
+				t.Errorf("response leaked the secret value: %s", rec.Body.String())
+			}
+			klog.Flush()
+			if strings.Contains(logs.String(), "SECRETTOKEN") {
+				t.Errorf("log leaked the secret value: %s", logs.String())
+			}
+		})
+	}
+}
+
 func TestChannelTestRefUnsupportedType(t *testing.T) {
 	d, _, _ := testDeps("rt", "wsecret", nil)
-	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "x", nil }
 	// telegram is intentionally unsupported (needs a non-secret chat id).
 	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"telegram","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
@@ -437,9 +463,28 @@ func TestChannelTestRefUnsupportedType(t *testing.T) {
 
 func TestChannelTestRefEmptySecret(t *testing.T) {
 	d, _, _ := testDeps("rt", "wsecret", nil)
-	d.secretRead = true
 	d.secretReader = func(context.Context, string, string) (string, error) { return "", nil }
 	if rec := do(newChannelsHandler(d), http.MethodPost, "/api/v1/channels/test-ref", "wsecret", `{"type":"slack","secretRef":{"name":"s","key":"k"}}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty secret: got %d, want 400", rec.Code)
+	}
+}
+
+// ---- renderConfigBody ----
+
+func TestRenderConfigBody(t *testing.T) {
+	cfg := basePipelineConfig()
+	body, err := renderConfigBody(cfg)
+	if err != nil {
+		t.Fatalf("renderConfigBody: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if _, ok := m["config"]; !ok {
+		t.Error("missing config key")
+	}
+	if _, ok := m["yaml"]; !ok {
+		t.Error("missing yaml key")
 	}
 }

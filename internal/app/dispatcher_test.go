@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,30 +16,6 @@ import (
 	"github.com/aryasoni98/alertkube/internal/metrics"
 	"github.com/aryasoni98/alertkube/internal/sinks"
 )
-
-// dispatchStub is a controllable sink for dispatcher tests.
-type dispatchStub struct {
-	name  string
-	err   error
-	sends atomic.Int32
-}
-
-func (s *dispatchStub) Name() string                   { return s.name }
-func (s *dispatchStub) Supports(_ alert.Severity) bool { return true }
-func (s *dispatchStub) Send(_ context.Context, _ *alert.Alert) error {
-	s.sends.Add(1)
-	return s.err
-}
-
-func dispatcherWith(t *testing.T, s *dispatchStub, workers, queue int) (*dispatcher, *sinks.Registry) {
-	t.Helper()
-	reg := sinks.NewRegistry()
-	reg.Add(s)
-	reg.SetRate(s.name, rate.Limit(1000), 1000) // never wait on the limiter
-	d := newDispatcher(reg, workers, queue)
-	d.Start()
-	return d, reg
-}
 
 func waitFor(t *testing.T, want int32, get func() int32) {
 	t.Helper()
@@ -53,9 +30,9 @@ func waitFor(t *testing.T, want int32, get func() int32) {
 }
 
 func TestDispatcherDeliversAsync(t *testing.T) {
-	s := &dispatchStub{name: "a"}
-	d, _ := dispatcherWith(t, s, 4, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a"}
+	d := dispatcherWith(t, s, 4, 64)
+	defer d.Shutdown(context.Background())
 
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
 	d.enqueue(a, []string{"a"}, nil)
@@ -63,9 +40,9 @@ func TestDispatcherDeliversAsync(t *testing.T) {
 }
 
 func TestDispatcherOnFailRunsWhenDeliveryFails(t *testing.T) {
-	s := &dispatchStub{name: "a", err: errors.New("down")}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a", err: errors.New("down")}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	var failed atomic.Int32
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
@@ -74,9 +51,9 @@ func TestDispatcherOnFailRunsWhenDeliveryFails(t *testing.T) {
 }
 
 func TestDispatcherEmptyRouteIsNoop(t *testing.T) {
-	s := &dispatchStub{name: "a"}
-	d, _ := dispatcherWith(t, s, 2, 8)
-	defer d.Shutdown()
+	s := &testSink{name: "a"}
+	d := dispatcherWith(t, s, 2, 8)
+	defer d.Shutdown(context.Background())
 
 	var failed atomic.Int32
 	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo), nil, func() { failed.Add(1) })
@@ -92,24 +69,19 @@ func TestDispatcherShutdownDrainsQueue(t *testing.T) {
 	// alerts before returning.
 	var mu sync.Mutex
 	delivered := 0
-	reg := sinks.NewRegistry()
-	slow := &funcSink{name: "a", fn: func() error {
+	d := dispatcherWith(t, &testSink{name: "a", fn: func(*alert.Alert) error {
 		time.Sleep(2 * time.Millisecond)
 		mu.Lock()
 		delivered++
 		mu.Unlock()
 		return nil
-	}}
-	reg.Add(slow)
-	reg.SetRate("a", rate.Limit(100000), 100000)
-	d := newDispatcher(reg, 2, 256)
-	d.Start()
+	}}, 2, 256)
 
 	const n = 50
 	for range n {
 		d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
 	}
-	d.Shutdown() // must block until the backlog is delivered
+	d.Shutdown(context.Background()) // must block until the backlog is delivered
 
 	mu.Lock()
 	got := delivered
@@ -122,23 +94,16 @@ func TestDispatcherShutdownDrainsQueue(t *testing.T) {
 func TestDispatcherRetriesFailedResolve(t *testing.T) {
 	// A resolve that fails the first attempt must be re-queued (bounded) and
 	// delivered on a later attempt, so a stateful incident does not dangle.
-	old := resolveRetryDelay
-	resolveRetryDelay = 5 * time.Millisecond
-	t.Cleanup(func() { resolveRetryDelay = old })
+	withRetryDelay(t, 5*time.Millisecond)
 
 	var attempts atomic.Int32
-	reg := sinks.NewRegistry()
-	flaky := &funcSink{name: "a", fn: func() error {
+	d := dispatcherWith(t, &testSink{name: "a", fn: func(*alert.Alert) error {
 		if attempts.Add(1) == 1 {
 			return errors.New("transient")
 		}
 		return nil
-	}}
-	reg.Add(flaky)
-	reg.SetRate("a", rate.Limit(100000), 100000)
-	d := newDispatcher(reg, 2, 64)
-	d.Start()
-	defer d.Shutdown()
+	}}, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	resolved := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
 	resolved.Resolved = true
@@ -151,13 +116,11 @@ func TestDispatcherRetriesFailedResolve(t *testing.T) {
 func TestDispatcherDeadLettersExhaustedResolve(t *testing.T) {
 	// A resolve that keeps failing must, after its bounded retries, be
 	// dead-lettered (not silently dropped) so a dangling incident is visible.
-	old := resolveRetryDelay
-	resolveRetryDelay = time.Millisecond
-	t.Cleanup(func() { resolveRetryDelay = old })
+	withRetryDelay(t, time.Millisecond)
 
-	s := &dispatchStub{name: "a", err: errors.New("down")}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a", err: errors.New("down")}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	var dead atomic.Int32
 	d.SetDeadLetter(func(*alert.Alert) { dead.Add(1) })
@@ -172,9 +135,9 @@ func TestDispatcherDeadLettersExhaustedResolve(t *testing.T) {
 func TestDispatcherDeadLettersFailedFireOnce(t *testing.T) {
 	// A fire-once alert (onFail nil, not a resolve - e.g. an ephemeral event or
 	// group summary) that fails has no retry path, so it must be dead-lettered.
-	s := &dispatchStub{name: "a", err: errors.New("down")}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a", err: errors.New("down")}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	var dead atomic.Int32
 	d.SetDeadLetter(func(*alert.Alert) { dead.Add(1) })
@@ -201,25 +164,21 @@ func TestDispatcherPendingTrackedThenAcked(t *testing.T) {
 	// A delivery is tracked in the outbox while in flight and acked once
 	// delivered, so the persisted outbox reflects only undelivered work.
 	release := make(chan struct{})
-	reg := sinks.NewRegistry()
-	reg.Add(&funcSink{name: "a", fn: func() error { <-release; return nil }})
-	reg.SetRate("a", rate.Limit(100000), 100000)
-	d := newDispatcher(reg, 1, 8)
-	d.Start()
+	d := dispatcherWith(t, &testSink{name: "a", fn: func(*alert.Alert) error { <-release; return nil }}, 1, 8)
 
 	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
 	waitForPending(t, d, 1) // worker is blocked in Send; record is pending
 	close(release)          // let delivery complete
 	waitForPending(t, d, 0) // acked
-	d.Shutdown()
+	d.Shutdown(context.Background())
 }
 
 func TestDispatcherReplayResumesDelivery(t *testing.T) {
 	// Records restored from a snapshot must be re-delivered (at-least-once
 	// across restart).
-	s := &dispatchStub{name: "a"}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a"}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
 	n := d.ReplayPending([]alert.PendingDelivery{{ID: 7, Alert: a, Route: []string{"a"}}}, nil, nil)
@@ -261,9 +220,9 @@ func TestDeadLetterLogBounded(t *testing.T) {
 }
 
 func TestDispatcherEnqueueAfterShutdownDrops(t *testing.T) {
-	s := &dispatchStub{name: "a"}
-	d, _ := dispatcherWith(t, s, 2, 8)
-	d.Shutdown()
+	s := &testSink{name: "a"}
+	d := dispatcherWith(t, s, 2, 8)
+	d.Shutdown(context.Background())
 
 	// Enqueue after shutdown must not panic and must not deliver.
 	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
@@ -337,14 +296,11 @@ func TestReplayRestoresDeliveryOrder(t *testing.T) {
 
 func TestConcurrentShutdownWaitsForDrain(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
-	reg := sinks.NewRegistry()
-	reg.Add(&funcSink{name: "a", fn: func() error {
+	d := dispatcherWith(t, &testSink{name: "a", fn: func(*alert.Alert) error {
 		close(started)
 		<-release
 		return nil
-	}})
-	d := newDispatcher(reg, 1, 8)
-	d.Start()
+	}}, 1, 8)
 	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
 	select {
 	case <-started:
@@ -355,7 +311,7 @@ func TestConcurrentShutdownWaitsForDrain(t *testing.T) {
 	returned := make(chan struct{}, 4)
 	for range cap(returned) {
 		go func() {
-			d.Shutdown()
+			d.Shutdown(context.Background())
 			returned <- struct{}{}
 		}()
 	}
@@ -373,15 +329,135 @@ func TestConcurrentShutdownWaitsForDrain(t *testing.T) {
 			t.Fatal("Shutdown did not return after delivery finished")
 		}
 	}
-	d.Shutdown() // Repeated shutdown must also be safe after the drain completed.
+	d.Shutdown(context.Background()) // Repeated shutdown must also be safe after the drain completed.
 }
 
-// funcSink runs an arbitrary function per send.
-type funcSink struct {
-	name string
-	fn   func() error
+// Shutdown stops at the caller's deadline, not only at dispatchDrainTimeout:
+// the controller passes one shutdown deadline that keeps time back for the
+// final state save. The abandoned delivery stays in the outbox for that save.
+func TestDispatcherShutdownStopsAtDeadline(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	d := dispatcherWith(t, &testSink{name: "a", fn: func(*alert.Alert) error {
+		close(started)
+		<-release
+		return nil
+	}}, 1, 8)
+	d.enqueue(alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical), []string{"a"}, nil)
+	select {
+	case <-started:
+	case <-timeoutAfter():
+		t.Fatal("delivery did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	returned := make(chan struct{})
+	go func() {
+		d.Shutdown(ctx)
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-timeoutAfter():
+		t.Fatal("Shutdown ignored the caller's deadline and kept waiting on a stuck delivery")
+	}
+	if got := len(d.PendingSnapshot()); got != 1 {
+		t.Fatalf("the abandoned delivery must stay in the outbox, got %d records", got)
+	}
 }
 
-func (f *funcSink) Name() string                                 { return f.name }
-func (f *funcSink) Supports(_ alert.Severity) bool               { return true }
-func (f *funcSink) Send(_ context.Context, _ *alert.Alert) error { return f.fn() }
+// recordSink blocks its first send until release is closed and records the
+// name and resolve state of every alert it delivers.
+type recordSink struct {
+	started, release chan struct{}
+	once             sync.Once
+	mu               sync.Mutex
+	sent             []string
+}
+
+func (s *recordSink) Name() string                   { return "a" }
+func (s *recordSink) Supports(_ alert.Severity) bool { return true }
+func (s *recordSink) Send(_ context.Context, a *alert.Alert) error {
+	s.once.Do(func() {
+		close(s.started)
+		<-s.release
+	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sent = append(s.sent, sentKey(a))
+	return nil
+}
+
+func (s *recordSink) delivered() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.sent)
+}
+
+func sentKey(a *alert.Alert) string {
+	if a.Resolved {
+		return "RESOLVE " + a.Name
+	}
+	return "FIRE " + a.Name
+}
+
+// Once unblockProducers has made submit drop a job from a full queue, a later
+// job on that queue must not be delivered ahead of it. Otherwise a FIRE for x
+// is dropped into the outbox, the RESOLVE for x takes the slot a worker frees
+// and closes the incident, and the next boot replays the FIRE and opens an
+// incident nothing resolves.
+func TestDispatcherKeepsOutboxOrderAfterStopDrop(t *testing.T) {
+	s := &recordSink{started: make(chan struct{}), release: make(chan struct{})}
+	releaseOnce := sync.OnceFunc(func() { close(s.release) })
+	t.Cleanup(releaseOnce)
+	reg := sinks.NewRegistry()
+	reg.Add(s)
+	reg.SetRate("a", rate.Limit(100000), 100000)
+	d := newDispatcher(reg, 1, 1) // one worker, one queue slot
+	d.Start()
+
+	route := []string{"a"}
+	d.enqueue(alert.New(alert.KindPod, "ns", "in-flight", "X", alert.SeverityCritical), route, nil)
+	select {
+	case <-s.started:
+	case <-timeoutAfter():
+		t.Fatal("delivery did not start")
+	}
+	d.enqueue(alert.New(alert.KindPod, "ns", "queued", "X", alert.SeverityCritical), route, nil)
+	fire := alert.New(alert.KindPod, "ns", "x", "X", alert.SeverityCritical)
+	parked := make(chan struct{})
+	go func() {
+		defer close(parked)
+		d.enqueue(fire, route, nil)
+	}()
+	waitForPending(t, d, 3)
+
+	d.unblockProducers()
+	select {
+	case <-parked:
+	case <-timeoutAfter():
+		t.Fatal("unblockProducers did not release the parked producer")
+	}
+	// Let the worker drain the queue so the next submit finds a free slot.
+	releaseOnce()
+	waitForPending(t, d, 1)
+
+	resolve := fire.Clone()
+	resolve.Resolved = true
+	d.enqueue(resolve, route, nil)
+	d.Shutdown(context.Background())
+
+	for _, got := range s.delivered() {
+		if got == "RESOLVE x" {
+			t.Fatalf("RESOLVE x was delivered while FIRE x stayed in the outbox; delivered %v", s.delivered())
+		}
+	}
+	var pending []string
+	for _, rec := range d.PendingSnapshot() {
+		pending = append(pending, sentKey(rec.Alert))
+	}
+	if want := []string{"FIRE x", "RESOLVE x"}; !slices.Equal(pending, want) {
+		t.Fatalf("outbox = %v, want %v in ID order", pending, want)
+	}
+}

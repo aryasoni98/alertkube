@@ -56,10 +56,10 @@ func TestPVCEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewPVC(&config.Config{})
+			w := newPVC(config.Filters{}, 0)
 
 			var got []*alert.Alert
-			w.evaluate(tc.pvc, func(a *alert.Alert) { got = append(got, a) })
+			w.eval(tc.pvc, func(a *alert.Alert) { got = append(got, a) })
 
 			if tc.wantNone {
 				if len(got) != 0 {

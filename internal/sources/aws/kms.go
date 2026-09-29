@@ -13,6 +13,12 @@ import (
 
 const sourceKMS = "aws-kms"
 
+// kmsAPI is the subset of the KMS client the key-state source uses.
+type kmsAPI interface {
+	ListKeys(context.Context, *kms.ListKeysInput, ...func(*kms.Options)) (*kms.ListKeysOutput, error)
+	DescribeKey(context.Context, *kms.DescribeKeyInput, ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
+}
+
 type kmsRegion = regionClient[kmsAPI]
 
 // kmsSource alerts on customer-managed KMS keys in a risky state:
@@ -26,10 +32,11 @@ type kmsSource struct {
 func (s *kmsSource) Name() string { return sourceKMS }
 
 func (s *kmsSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceKMS, s.regions, emit, s.pollRegion)
 }
 
 func (s *kmsSource) pollRegion(ctx context.Context, rc kmsRegion, emit sources.Emit) {
+	lim := newDescribeLimiter()
 	forEachPage(ctx, sourceKMS, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.ListKeys(ctx, &kms.ListKeysInput{Marker: marker})
 		if err != nil {
@@ -39,6 +46,9 @@ func (s *kmsSource) pollRegion(ctx context.Context, rc kmsRegion, emit sources.E
 			id := awssdk.ToString(k.KeyId)
 			if id == "" {
 				continue
+			}
+			if err := waitDescribe(ctx, lim); err != nil {
+				return nil, err
 			}
 			desc, err := rc.client.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: k.KeyId})
 			if err != nil {

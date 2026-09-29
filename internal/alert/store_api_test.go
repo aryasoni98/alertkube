@@ -145,3 +145,65 @@ func TestForgetPersistsMuteOnlyDeletion(t *testing.T) {
 		t.Fatal("forgetting an absent record must be a no-op")
 	}
 }
+
+// Kind is part of the fingerprint preimage, so alerts of different kinds on
+// the same object never share a store entry and forgetting one leaves the
+// other. Receiver fingerprints are namespaced "am-" at ingress as well.
+func TestDistinctKindsDoNotShareStoreEntry(t *testing.T) {
+	s := NewStore(0, time.Hour, nil)
+	pod := New(KindPod, "ns", "p", "X", SeverityCritical)
+	ext := New(KindExternal, "ns", "p", "X", SeverityCritical)
+	if pod.Fingerprint == ext.Fingerprint {
+		t.Fatalf("kinds %s and %s share fingerprint %s", pod.Kind, ext.Kind, pod.Fingerprint)
+	}
+	if !s.ShouldSend(pod) || !s.ShouldSend(ext) {
+		t.Fatal("both alerts should send")
+	}
+	s.Forget(ext.Fingerprint)
+	if got := s.ActiveList(); len(got) != 1 || got[0].Kind != KindPod {
+		t.Fatalf("forgetting the external alert changed the pod alert: %+v", got)
+	}
+}
+
+func TestMuted(t *testing.T) {
+	tests := []struct {
+		name   string
+		window time.Duration
+		seed   bool
+		want   bool
+	}{
+		{"never sent", time.Minute, false, false},
+		{"sent inside the window", time.Minute, true, true},
+		{"window disabled", 0, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStore(tt.window, time.Minute, nil)
+			if tt.seed {
+				s.Seed("fp")
+			}
+			if got := s.Muted("fp"); got != tt.want {
+				t.Fatalf("Muted = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// Muted runs before ShouldSend on every firing, so it must share the read
+// lock with other readers instead of serializing against them.
+func TestMutedTakesReadLock(t *testing.T) {
+	s := NewStore(time.Minute, time.Minute, nil)
+	s.Seed("fp")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	done := make(chan bool, 1)
+	go func() { done <- s.Muted("fp") }()
+	select {
+	case muted := <-done:
+		if !muted {
+			t.Fatal("seeded fingerprint is not muted")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Muted blocked behind a reader: it must take the shared lock")
+	}
+}

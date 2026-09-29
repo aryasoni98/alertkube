@@ -8,10 +8,13 @@ package group
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	"github.com/aryasoni98/alertkube/internal/alert"
 )
@@ -106,19 +109,33 @@ func (g *Grouper) Offer(a *alert.Alert) bool {
 }
 
 // Run flushes expired windows until ctx is cancelled, then drains every
-// open bucket so absorbed alerts are not lost on shutdown.
+// open bucket so absorbed alerts are not lost on shutdown. A panic in one
+// tick is logged and recovered, so later ticks still flush. The drain is a
+// recovered defer: it always runs, and a panic in it cannot crash the process
+// before the dispatch drain and final state save.
 func (g *Grouper) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	defer recovered("final flush", g.FlushAll)
 	for {
 		select {
 		case <-ctx.Done():
-			g.FlushAll()
 			return
 		case <-ticker.C:
-			g.flushExpired(time.Now())
+			recovered("flush", func() { g.flushExpired(time.Now()) })
 		}
 	}
+}
+
+// recovered runs fn and logs a panic in it with its stack instead of letting
+// it end Run's goroutine.
+func recovered(where string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			klog.Errorf("grouper %s panic: %v\n%s", where, r, debug.Stack())
+		}
+	}()
+	fn()
 }
 
 func (g *Grouper) flushExpired(now time.Time) {
@@ -131,9 +148,7 @@ func (g *Grouper) flushExpired(now time.Time) {
 		}
 	}
 	g.mu.Unlock()
-	for _, b := range expired {
-		g.emitSummary(b)
-	}
+	g.emitSummaries("flush", expired)
 }
 
 // FlushAll closes every open window immediately.
@@ -149,8 +164,16 @@ func (g *Grouper) FlushAll() {
 		delete(g.buckets, key)
 	}
 	g.mu.Unlock()
-	for _, b := range all {
-		g.emitSummary(b)
+	g.emitSummaries("final flush", all)
+}
+
+// emitSummaries flushes each bucket under its own recover. The buckets are
+// already out of the map, so a panic in one summary must not skip the rest:
+// a skipped bucket is never flushed, and its chat-only members were muted
+// when absorbed, so they would reach no one.
+func (g *Grouper) emitSummaries(where string, buckets []*bucket) {
+	for _, b := range buckets {
+		recovered(where, func() { g.emitSummary(b) })
 	}
 }
 

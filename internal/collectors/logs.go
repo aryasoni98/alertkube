@@ -33,14 +33,11 @@ func PreviousContainerLogs(ctx context.Context, c kubernetes.Interface, pod *v1.
 	defer rc.Close()
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(rc); err != nil {
-		return "", err
+		return "", fmt.Errorf("read logs: %w", err)
 	}
 	return RedactSecrets(buf.String()), nil
 }
 
-// secretPatterns matches well-known credential shapes that should never
-// be forwarded to chat / paging integrations. Each match is replaced with
-// `[REDACTED]`. Additional patterns can be added without changing callers.
 // secretPattern pairs a regex with its replacement so callers can either
 // drop the whole match or preserve the key portion of a key=value pair.
 type secretPattern struct {
@@ -48,6 +45,9 @@ type secretPattern struct {
 	repl string
 }
 
+// secretPatterns matches well-known credential shapes that should never
+// be forwarded to chat / paging integrations. Each match is replaced with
+// `[REDACTED]`. Additional patterns can be added without changing callers.
 var secretPatterns = []secretPattern{
 	// JWTs: three dot-separated base64url segments starting with eyJ
 	// (base64 of `{"`). Session tokens, OIDC ID tokens, service-account

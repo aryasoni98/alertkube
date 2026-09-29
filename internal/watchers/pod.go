@@ -23,9 +23,9 @@ import (
 // of queueing.
 const enrichWorkers = 4
 
-// PodWatcher reacts to container restart, crashloop, OOM, image-pull, and
+// podWatcher reacts to container restart, crashloop, OOM, image-pull, and
 // unexpected-kill transitions.
-type PodWatcher struct {
+type podWatcher struct {
 	clientset     kubernetes.Interface
 	behavior      config.Behavior
 	ns            nsFilter
@@ -35,8 +35,8 @@ type PodWatcher struct {
 	enrichWG      sync.WaitGroup
 }
 
-func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
-	return &PodWatcher{
+func newPod(c kubernetes.Interface, cfg *config.Config) *podWatcher {
+	return &podWatcher{
 		clientset:     c,
 		behavior:      cfg.Behavior,
 		ns:            newNSFilter(cfg.Filters),
@@ -46,13 +46,13 @@ func NewPod(c kubernetes.Interface, cfg *config.Config) *PodWatcher {
 	}
 }
 
-func (p *PodWatcher) Name() string { return "pod" }
+func (p *podWatcher) Name() string { return "pod" }
 
 // Drain blocks until in-flight enrichment goroutines finish or ctx expires.
 // Enrichment (events/logs collection) runs off the informer handler in a
 // bounded pool; without draining, a shutdown abandons those goroutines
 // mid-flight and the alerts they were enriching are never emitted.
-func (p *PodWatcher) Drain(ctx context.Context) {
+func (p *podWatcher) Drain(ctx context.Context) {
 	done := make(chan struct{})
 	go func() {
 		p.enrichWG.Wait()
@@ -65,20 +65,20 @@ func (p *PodWatcher) Drain(ctx context.Context) {
 	}
 }
 
-func (p *PodWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
+func (p *podWatcher) Setup(ctx context.Context, f informers.SharedInformerFactory, emit Emit) {
 	// On Add (initial sync) oldPod is nil, so evaluate only emits on
 	// terminal/waiting conditions - no restart delta exists yet. On Delete
 	// the pod's crashloop/oom/imagepull alert resolves now instead of at
 	// resolveTTL; pod names are unique, so a rollout's replacement gets a
 	// fresh fingerprint and is unaffected.
-	register("pod", f.Core().V1().Pods().Informer(),
+	addHandler("pod", f.Core().V1().Pods().Informer(),
 		handleDiff("pod", alert.KindPod, emit, p.shouldHandle, true, func(old, cur *v1.Pod) {
 			p.evaluate(ctx, old, cur, emit)
 		}))
 }
 
 // shouldHandle returns true when a pod passes namespace + name include/exclude filters.
-func (p *PodWatcher) shouldHandle(pod *v1.Pod) bool {
+func (p *podWatcher) shouldHandle(pod *v1.Pod) bool {
 	if !p.ns.allows(pod.Namespace) {
 		return false
 	}
@@ -88,85 +88,140 @@ func (p *PodWatcher) shouldHandle(pod *v1.Pod) bool {
 	return true
 }
 
-func (p *PodWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit Emit) {
-	newCount := totalRestarts(newPod)
-	oldCount := totalRestarts(oldPod)
-
-	// Detect crashloop/oom/imagepull waiting reasons regardless of restart count.
+func (p *podWatcher) evaluate(ctx context.Context, oldPod, newPod *v1.Pod, emit Emit) {
+	// Walk every container and keep the highest-severity finding. Returning on
+	// the first match let a sidecar's stale record hide a live crashloop.
+	var best *v1.ContainerStatus
+	var bestTerm *v1.ContainerStateTerminated
+	var bestReason string
+	var bestSev alert.Severity
+	consider := func(st v1.ContainerStatus, term *v1.ContainerStateTerminated, reason string, sev alert.Severity) {
+		if best != nil && severityRank(sev) <= severityRank(bestSev) {
+			return
+		}
+		cp := st
+		best, bestTerm, bestReason, bestSev = &cp, term, reason, sev
+	}
 	for _, st := range newPod.Status.ContainerStatuses {
+		// A container that just died holds that exit in State.Terminated.
+		// Under restartPolicy Never it stays there until the pod is deleted,
+		// so its alert re-asserts on every resync. LastTerminationState
+		// survives the next successful run, so it counts only while the
+		// container is not running.
+		term := st.State.Terminated
+		if term == nil && st.State.Running == nil {
+			term = st.LastTerminationState.Terminated
+		}
 		if st.State.Waiting != nil {
-			reason := st.State.Waiting.Reason
-			switch reason {
+			switch st.State.Waiting.Reason {
 			case "CrashLoopBackOff":
-				p.emitContainerAlert(ctx, newPod, st, reason, alert.SeverityCritical, emit)
-				return
+				consider(st, term, "CrashLoopBackOff", alert.SeverityCritical)
 			case "ImagePullBackOff", "ErrImagePull":
-				p.emitContainerAlert(ctx, newPod, st, reason, alert.SeverityWarning, emit)
-				return
+				consider(st, term, st.State.Waiting.Reason, alert.SeverityWarning)
 			}
 		}
-		if term := st.LastTerminationState.Terminated; term != nil {
-			if term.Reason == "OOMKilled" {
-				p.emitContainerAlert(ctx, newPod, st, "OOMKilled", alert.SeverityCritical, emit)
-				return
-			}
-			// Non-OOM SIGKILL (exit 137 / signal 9) on a pod that is NOT being
-			// deleted: the container was force-killed while it was meant to be
-			// running - liveness-probe escalation, terminationGracePeriod
-			// exceeded mid-run, or a runtime kill. A SIGKILL during normal pod
-			// teardown (rollout, scale-down, eviction) sets DeletionTimestamp,
-			// so guarding on it keeps graceful shutdowns silent.
-			if (term.ExitCode == 137 || term.Signal == 9) && newPod.DeletionTimestamp == nil {
-				p.emitContainerAlert(ctx, newPod, st, "ContainerKilled", alert.SeverityWarning, emit)
-				return
-			}
+		reason, sev := killReason(newPod, term)
+		if reason == "ContainerKilled" && st.State.Terminated != nil && kubeletTeardown(newPod, term) {
+			reason = ""
+		}
+		if reason != "" {
+			consider(st, term, reason, sev)
 		}
 	}
 
-	// Per-restart alerts stop once a pod is chronically restarting
-	// (ignoreRestartCount); CrashLoopBackOff detection above still covers it.
-	if newCount > oldCount && newCount <= p.behavior.IgnoreRestartCount {
-		for _, st := range newPod.Status.ContainerStatuses {
-			if st.RestartCount == 0 {
-				continue
-			}
-			if p.behavior.IgnoreRestartsWithExitCodeZero &&
-				st.LastTerminationState.Terminated != nil &&
-				st.LastTerminationState.Terminated.ExitCode == 0 {
-				continue
-			}
-			p.emitContainerAlert(ctx, newPod, st, "ContainerRestart", alert.SeverityWarning, emit)
-			// V(2): one line per restart delta - useful when debugging a
-			// specific pod, but high-volume under a restart storm, so it
-			// stays off the default log level.
-			klog.V(2).Infof("pod %s/%s restartCount %d->%d", newPod.Namespace, newPod.Name, oldCount, newCount)
-			return
+	// An add has no previous pod. Historical restarts are not a delta.
+	if oldPod != nil {
+		oldRestarts := map[string]int32{}
+		for _, st := range oldPod.Status.ContainerStatuses {
+			oldRestarts[st.Name] = st.RestartCount
 		}
+		for _, st := range newPod.Status.ContainerStatuses {
+			prev := oldRestarts[st.Name]
+			if st.RestartCount <= prev {
+				continue
+			}
+			// The container is usually running again by the time the restart
+			// is observed, so the kill that caused it is in
+			// LastTerminationState. ignoreRestartCount and the exit-zero
+			// filter apply only to plain restarts.
+			last := st.LastTerminationState.Terminated
+			reason, sev := killReason(newPod, last)
+			if reason == "" {
+				if int(st.RestartCount) > p.behavior.IgnoreRestartCount ||
+					(p.behavior.IgnoreRestartsWithExitCodeZero && last != nil && last.ExitCode == 0) {
+					continue
+				}
+				reason, sev = "ContainerRestart", alert.SeverityWarning
+			}
+			consider(st, last, reason, sev)
+			klog.V(2).Infof("pod %s/%s container %s restartCount %d->%d", newPod.Namespace, newPod.Name, st.Name, prev, st.RestartCount)
+		}
+	}
+	if best != nil {
+		p.emitContainerAlert(ctx, newPod, *best, bestTerm, bestReason, bestSev, emit)
 	}
 }
 
-func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.ContainerStatus, reason string, sev alert.Severity, emit Emit) {
+// killReason classifies a termination as an OOM kill (critical) or an
+// unexpected SIGKILL (warning), and returns "" for any other exit. A SIGKILL
+// during API-initiated teardown (rollout, scale-down, drain eviction) sets
+// DeletionTimestamp, so graceful shutdowns stay silent; one without it means
+// a liveness-probe escalation, terminationGracePeriod exceeded mid-run, or a
+// runtime kill. Kubelet-initiated teardown does not set DeletionTimestamp;
+// kubeletTeardown covers it.
+func killReason(pod *v1.Pod, t *v1.ContainerStateTerminated) (string, alert.Severity) {
+	switch {
+	case t == nil:
+		return "", ""
+	case t.Reason == "OOMKilled":
+		return "OOMKilled", alert.SeverityCritical
+	case (t.ExitCode == 137 || t.Signal == 9) && pod.DeletionTimestamp == nil:
+		return "ContainerKilled", alert.SeverityWarning
+	}
+	return "", ""
+}
+
+// kubeletTeardown reports whether a current termination came from the kubelet
+// ending the pod rather than from a kill while it was meant to run. Node-
+// pressure eviction, graceful node shutdown and activeDeadlineSeconds set phase
+// Failed with a pod-level reason but no DeletionTimestamp, and the pod stays
+// until pod GC, so a SIGKILL there would re-fire on every resync.
+// ContainerStatusUnknown means the kubelet lost track of the container, not
+// that anything killed it.
+func kubeletTeardown(pod *v1.Pod, t *v1.ContainerStateTerminated) bool {
+	if t.Reason == "ContainerStatusUnknown" {
+		return true
+	}
+	return pod.Status.Phase == v1.PodFailed && pod.Status.Reason != ""
+}
+
+func severityRank(s alert.Severity) int {
+	switch s {
+	case alert.SeverityCritical:
+		return 3
+	case alert.SeverityWarning:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (p *podWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.ContainerStatus, term *v1.ContainerStateTerminated, reason string, sev alert.Severity, emit Emit) {
 	a := alert.New(alert.KindPod, pod.Namespace, pod.Name, reason, sev)
 	a.NodeName = pod.Spec.NodeName
 	a.Labels["container"] = st.Name
 	a.Summary = fmt.Sprintf("container %q in pod %s/%s entered %s", st.Name, pod.Namespace, pod.Name, reason)
-	if cause := terminationCause(st); cause != "" {
+	if cause := terminationCause(term); cause != "" {
 		a.Summary += " - last termination: " + cause
 	}
 	a.Annotations = mergeAnnotations(pod)
 
 	// Local enrichment (no API calls) stays on the handler path.
-	if podInfo, err := collectors.PrintPod(pod); err == nil {
-		a.Details["Pod Status"] = podInfo
-	}
-	if cstate, err := collectors.DescribeContainerState(st); err == nil {
-		a.Details["Container State"] = cstate
-	}
+	a.Details["Pod Status"] = collectors.PrintPod(pod)
+	a.Details["Container State"] = collectors.DescribeContainerState(st)
 	for _, c := range pod.Spec.Containers {
 		if c.Name == st.Name {
-			if r, err := collectors.GetContainerResource(c); err == nil {
-				a.Details["Resource Spec"] = r
-			}
+			a.Details["Resource Spec"] = collectors.GetContainerResource(c)
 		}
 	}
 
@@ -202,30 +257,45 @@ func (p *PodWatcher) emitContainerAlert(ctx context.Context, pod *v1.Pod, st v1.
 }
 
 // enrich fills the Details that require apiserver round-trips.
-func (p *PodWatcher) enrich(ctx context.Context, pod *v1.Pod, st v1.ContainerStatus, reason string, a *alert.Alert) {
-	if events, err := collectors.PodEvents(ctx, p.clientset, pod.Namespace, pod.Name); err == nil && events != "" {
+func (p *podWatcher) enrich(ctx context.Context, pod *v1.Pod, st v1.ContainerStatus, reason string, a *alert.Alert) {
+	// Collector failures (typically a missing events or pods/log grant) are
+	// logged, not fatal: the alert still ships without that section.
+	if events, err := collectors.PodEvents(ctx, p.clientset, pod.Namespace, pod.Name); err != nil {
+		klog.V(2).Infof("pod %s/%s: collect events: %v", pod.Namespace, pod.Name, err)
+	} else if events != "" {
 		a.Details["Pod Events"] = events
 	}
 	if !p.behavior.DisableLogCollection && reason != "ImagePullBackOff" && reason != "ErrImagePull" {
-		if logs, err := collectors.PreviousContainerLogs(ctx, p.clientset, pod, st.Name); err == nil && logs != "" {
+		if logs, err := collectors.PreviousContainerLogs(ctx, p.clientset, pod, st.Name); err != nil {
+			klog.V(2).Infof("pod %s/%s: collect previous logs of container %q: %v", pod.Namespace, pod.Name, st.Name, err)
+		} else if logs != "" {
 			a.Details["Pod Logs Before Restart"] = logs
 		}
 	}
 	if pod.Spec.NodeName != "" {
-		if nodeEvents, err := collectors.NodeEvents(ctx, p.clientset, pod.Spec.NodeName); err == nil && nodeEvents != "" {
+		if nodeEvents, err := collectors.NodeEvents(ctx, p.clientset, pod.Spec.NodeName); err != nil {
+			klog.V(2).Infof("node %s: collect events: %v", pod.Spec.NodeName, err)
+		} else if nodeEvents != "" {
 			a.Details["Node Events"] = nodeEvents
 		}
 	}
 }
 
-// terminationCause renders a container's last-termination signal/exit code
-// in human form ("SIGKILL (exit 137)", "SIGTERM (exit 143)", "exit 1") for
-// the alert summary, so operators see WHY a container died without opening
-// the Container State block. Returns "" when there is no terminated state.
-func terminationCause(st v1.ContainerStatus) string {
-	t := st.LastTerminationState.Terminated
+// terminationCause renders the termination an alert was classified from in
+// human form ("OOMKilled (exit 137)", "SIGKILL (exit 137)", "SIGTERM (exit
+// 143)", "exit 1") for the alert summary, so operators see WHY a container
+// died without opening the Container State block. Returns "" for nil.
+func terminationCause(t *v1.ContainerStateTerminated) string {
 	if t == nil {
 		return ""
+	}
+	// An informative reason beats the exit code: the OOM killer's SIGKILL
+	// arrives as exit 137 with signal 0 on containerd and would otherwise
+	// read as a plain SIGKILL.
+	switch t.Reason {
+	case "", "Error", "Completed":
+	default:
+		return fmt.Sprintf("%s (exit %d)", t.Reason, t.ExitCode)
 	}
 	if name := signalName(t.Signal); name != "" {
 		return fmt.Sprintf("%s (exit %d)", name, t.ExitCode)
@@ -260,17 +330,6 @@ func signalName(sig int32) string {
 	return ""
 }
 
-func totalRestarts(pod *v1.Pod) int {
-	if pod == nil {
-		return 0
-	}
-	r := 0
-	for _, s := range pod.Status.ContainerStatuses {
-		r += int(s.RestartCount)
-	}
-	return r
-}
-
 // controlAnnotationKeys are annotation keys that change alertkube behavior
 // (silencing, channel routing, rendered links). Labels must never populate
 // these: labels are typically writable by lower-privilege automation than
@@ -300,4 +359,4 @@ func mergeAnnotations(pod *v1.Pod) map[string]string {
 }
 
 // Registered here so adding a resource kind is one self-contained file.
-func init() { Register(func(o Opts) Watcher { return NewPod(o.Client, o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newPod(o.Client, o.Config) }) }
