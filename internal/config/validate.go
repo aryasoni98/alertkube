@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/filter"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/filter"
 )
 
 // Startup validation. Every rule here rejects a configuration that would

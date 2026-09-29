@@ -17,12 +17,12 @@ import (
 	ktesting "k8s.io/client-go/testing"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/authz"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/silence"
-	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/authz"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
 )
 
 func TestDeadLetterHandler(t *testing.T) {

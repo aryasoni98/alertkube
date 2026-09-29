@@ -1,7 +1,7 @@
 package sinks
 
 import (
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func init() { Register("teams", func(SinkConfig) Sink { return newTeams() }) }

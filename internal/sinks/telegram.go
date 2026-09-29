@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"html"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/httpx"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/httpx"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 // telegramAPIBase is a var so tests can point it at a local server.

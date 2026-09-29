@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
 )
 
 // The regression D10 exists for: a replayed FIRING alert used to carry no

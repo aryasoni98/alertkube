@@ -26,8 +26,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/api/v1alpha1"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/api/v1alpha1"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // SilenceStore holds the current set of Silence CRs as config.Silence values

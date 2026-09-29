@@ -11,8 +11,8 @@ import (
 	compute "google.golang.org/api/compute/v1"
 	sqladmin "google.golang.org/api/sqladmin/v1"
 
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // TestSourceNames pins the Name() of every GCP source to its literal value.

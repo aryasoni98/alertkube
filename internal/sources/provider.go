@@ -3,7 +3,7 @@ package sources
 import (
 	"context"
 
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // Bound is one provider resolved against a config. Build closes over that

@@ -6,8 +6,8 @@ import (
 
 	sqladmin "google.golang.org/api/sqladmin/v1"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceCloudSQL = "gcp-cloudsql"

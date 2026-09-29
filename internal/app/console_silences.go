@@ -7,10 +7,10 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/authz"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/authz"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
 // newSilencesHandler lists (GET, read token), creates (POST, write gate), and

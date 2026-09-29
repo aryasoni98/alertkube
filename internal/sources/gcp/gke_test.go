@@ -12,9 +12,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"google.golang.org/api/option"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 func collect() (sources.Emit, *[]*alert.Alert) {

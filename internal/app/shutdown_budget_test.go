@@ -14,10 +14,10 @@ import (
 	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v3"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/silence"
-	"github.com/aryasoni98/alertkube/internal/sinks"
-	"github.com/aryasoni98/alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/watchers"
 )
 
 // chartGracePeriod reads terminationGracePeriodSeconds from the chart's

@@ -6,7 +6,7 @@ import (
 
 	"cloud.google.com/go/container/apiv1/containerpb"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func nodePool(name string, status containerpb.NodePool_Status) *containerpb.NodePool {

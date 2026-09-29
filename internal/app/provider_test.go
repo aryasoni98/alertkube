@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 func TestCloudProvidersSelfRegister(t *testing.T) {

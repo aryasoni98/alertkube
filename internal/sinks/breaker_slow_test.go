@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/httpx"
+	"github.com/aryasoni98/alertkube/v2/internal/httpx"
 )
 
 // The slow check has to sit inside the delivery budget described at

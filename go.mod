@@ -1,4 +1,4 @@
-module github.com/aryasoni98/alertkube
+module github.com/aryasoni98/alertkube/v2
 
 go 1.27.0
 

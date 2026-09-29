@@ -5,7 +5,7 @@ import (
 	"html"
 	"strings"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // markdownEscaper backslash-escapes the markdown metacharacters that let

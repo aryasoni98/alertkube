@@ -3,7 +3,7 @@ package watchers
 import (
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // TestNSFilterAllows covers the namespace filter shared by every

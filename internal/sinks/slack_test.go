@@ -10,7 +10,7 @@ import (
 	"github.com/slack-go/slack"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func TestSlackSendPostsWebhook(t *testing.T) {

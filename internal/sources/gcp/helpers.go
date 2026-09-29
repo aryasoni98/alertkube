@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // perProject binds one shared lister to every configured project, producing the

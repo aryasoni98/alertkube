@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"html"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 func init() { Register("googlechat", func(SinkConfig) Sink { return newGoogleChat() }) }

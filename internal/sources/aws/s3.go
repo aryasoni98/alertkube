@@ -10,8 +10,8 @@ import (
 	"github.com/aws/smithy-go"
 	"golang.org/x/time/rate"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceS3 = "aws-s3"

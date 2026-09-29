@@ -20,7 +20,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/shard"
+	"github.com/aryasoni98/alertkube/v2/internal/shard"
 )
 
 // Unsharded, the single cluster-wide lease is the whole point of leader

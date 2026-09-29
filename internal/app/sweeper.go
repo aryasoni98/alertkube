@@ -6,11 +6,11 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/persist"
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/persist"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
 // sweepInterval is the period of the sweep loop: TTL resolves, history

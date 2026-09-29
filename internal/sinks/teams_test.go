@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func TestTeamsSendsAdaptiveCardEnvelope(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // fakeSource is a minimal Source used to assert what buildProject returned.

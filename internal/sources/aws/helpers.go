@@ -7,8 +7,8 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"golang.org/x/time/rate"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // describeRate and describeBurst pace the N+1 Describe/Get calls that follow

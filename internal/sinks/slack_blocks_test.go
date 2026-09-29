@@ -7,8 +7,8 @@ import (
 
 	"github.com/slack-go/slack"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 func TestSlackBlocksResolvedHeader(t *testing.T) {

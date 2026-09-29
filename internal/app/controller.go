@@ -12,25 +12,25 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/crd"
-	"github.com/aryasoni98/alertkube/internal/group"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/persist"
-	"github.com/aryasoni98/alertkube/internal/receiver"
-	"github.com/aryasoni98/alertkube/internal/router"
-	"github.com/aryasoni98/alertkube/internal/rules"
-	"github.com/aryasoni98/alertkube/internal/shard"
-	"github.com/aryasoni98/alertkube/internal/silence"
-	"github.com/aryasoni98/alertkube/internal/sources"
-	"github.com/aryasoni98/alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/crd"
+	"github.com/aryasoni98/alertkube/v2/internal/group"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/persist"
+	"github.com/aryasoni98/alertkube/v2/internal/receiver"
+	"github.com/aryasoni98/alertkube/v2/internal/router"
+	"github.com/aryasoni98/alertkube/v2/internal/rules"
+	"github.com/aryasoni98/alertkube/v2/internal/shard"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/watchers"
 
 	// Cloud providers self-register into the sources registry via init; the
 	// blank imports pull them in so startCloudSources can iterate the registry.
-	_ "github.com/aryasoni98/alertkube/internal/sources/aws"
-	_ "github.com/aryasoni98/alertkube/internal/sources/azure"
-	_ "github.com/aryasoni98/alertkube/internal/sources/gcp"
+	_ "github.com/aryasoni98/alertkube/v2/internal/sources/aws"
+	_ "github.com/aryasoni98/alertkube/v2/internal/sources/azure"
+	_ "github.com/aryasoni98/alertkube/v2/internal/sources/gcp"
 )
 
 // informerResyncPeriod is how often cached objects are re-delivered as

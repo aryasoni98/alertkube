@@ -9,8 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"golang.org/x/time/rate"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceRoute53 = "aws-route53"

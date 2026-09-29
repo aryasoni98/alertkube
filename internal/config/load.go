@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/aryasoni98/alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/v2/internal/env"
 )
 
 // Load reads YAML from path, then layers env-var fallbacks for legacy v1 keys.

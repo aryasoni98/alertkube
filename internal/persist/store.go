@@ -3,7 +3,7 @@ package persist
 import (
 	"context"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // Store is the contract a state backend must satisfy. The controller holds one

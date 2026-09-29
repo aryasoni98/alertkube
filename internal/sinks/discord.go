@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 func init() { Register("discord", func(SinkConfig) Sink { return newDiscord() }) }

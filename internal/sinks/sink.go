@@ -13,8 +13,8 @@ import (
 	"golang.org/x/time/rate"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
 
 // perSinkTimeout caps each individual sink send so a stalled endpoint

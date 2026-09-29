@@ -10,11 +10,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/persist"
-	"github.com/aryasoni98/alertkube/internal/shard"
-	aktest "github.com/aryasoni98/alertkube/internal/testutil"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/persist"
+	"github.com/aryasoni98/alertkube/v2/internal/shard"
+	aktest "github.com/aryasoni98/alertkube/v2/internal/testutil"
 )
 
 func TestRunControllerPersistsAlertAcrossShutdown(t *testing.T) {

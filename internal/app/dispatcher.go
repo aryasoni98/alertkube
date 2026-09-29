@@ -10,11 +10,11 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/env"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/sinks"
-	"github.com/aryasoni98/alertkube/internal/trace"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/env"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/trace"
 )
 
 // Dispatch worker-pool defaults. Delivery (the blocking HTTP fan-out to sinks)

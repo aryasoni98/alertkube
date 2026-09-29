@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/aryasoni98/alertkube/api/v1alpha1"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/api/v1alpha1"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // newScheme returns a runtime.Scheme that maps the Silence GVR to a list kind so

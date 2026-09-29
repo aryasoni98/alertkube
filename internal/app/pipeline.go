@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/group"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/sinks"
-	"github.com/aryasoni98/alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/group"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/watchers"
 )
 
 // statefulSinks open/close incidents keyed by alert fingerprint. They

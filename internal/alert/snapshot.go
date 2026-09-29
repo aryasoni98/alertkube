@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
 // SnapshotVersion identifies the Snapshot and Alert wire shape, not alert

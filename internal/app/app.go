@@ -21,11 +21,11 @@ import (
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/env"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/shard"
-	"github.com/aryasoni98/alertkube/internal/trace"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/env"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/shard"
+	"github.com/aryasoni98/alertkube/v2/internal/trace"
 )
 
 const (
@@ -39,7 +39,7 @@ const (
 )
 
 // version is overridden at build time via
-// -ldflags "-X github.com/aryasoni98/alertkube/internal/app.version=...".
+// -ldflags "-X github.com/aryasoni98/alertkube/v2/internal/app.version=...".
 // Logged at startup so the running image version is observable in pod logs
 // without exec-ing into the container.
 var version = "dev"

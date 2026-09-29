@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // readJSON builds a read-token-gated handler that encodes body()'s value as

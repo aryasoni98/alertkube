@@ -7,9 +7,9 @@ import (
 	neturl "net/url"
 	"os"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/httpx"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/httpx"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 // opsgenieSink creates and closes alerts via the Alert API v2. The alert

@@ -7,12 +7,12 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/group"
-	"github.com/aryasoni98/alertkube/internal/router"
-	"github.com/aryasoni98/alertkube/internal/rules"
-	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/group"
+	"github.com/aryasoni98/alertkube/v2/internal/router"
+	"github.com/aryasoni98/alertkube/v2/internal/rules"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
 )
 
 // pipelineHarness wires a store + router + registry + emitter + rules engine

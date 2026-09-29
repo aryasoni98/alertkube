@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // pagerdutyServer stands in for the Events API v2 and records every request

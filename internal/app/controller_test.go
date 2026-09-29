@@ -9,13 +9,13 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/persist"
-	"github.com/aryasoni98/alertkube/internal/shard"
-	"github.com/aryasoni98/alertkube/internal/silence"
-	"github.com/aryasoni98/alertkube/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/persist"
+	"github.com/aryasoni98/alertkube/v2/internal/shard"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
 )
 
 func TestInformerStartupCancellation(t *testing.T) {

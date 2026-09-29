@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // funcSource adapts a function into a Source for tests.
