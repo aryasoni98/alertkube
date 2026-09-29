@@ -6,17 +6,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
-
-type fakeRedisLister struct {
-	caches []*armredis.ResourceInfo
-	err    error
-}
-
-func (f *fakeRedisLister) List(context.Context) ([]*armredis.ResourceInfo, error) {
-	return f.caches, f.err
-}
 
 func redisCache(name, location string, state armredis.ProvisioningState) *armredis.ResourceInfo {
 	return &armredis.ResourceInfo{
@@ -69,11 +60,11 @@ func TestEvaluateRedisCache(t *testing.T) {
 }
 
 func TestAzureRedisSourcePoll(t *testing.T) {
-	fake := &fakeRedisLister{caches: []*armredis.ResourceInfo{
+	items := []*armredis.ResourceInfo{
 		redisCache("good", "eastus", armredis.ProvisioningStateSucceeded),
 		redisCache("bad", "westus", armredis.ProvisioningStateFailed),
-	}}
-	src := &azureRedisSource{subs: []azureRedisSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureRedisSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

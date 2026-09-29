@@ -3,21 +3,17 @@ package app
 import (
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/group"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/router"
-	"github.com/aryasoni98/alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/group"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/router"
+	"github.com/aryasoni98/alertkube/v2/internal/watchers"
 )
 
 func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg *config.Config, grouper *group.Grouper, observe func(*alert.Alert)) watchers.Emit {
-	// controllerStart is intentionally per-leadership-acquisition, not
-	// process start: each runController builds fresh informers whose initial
-	// sync re-fires every standing condition. The grace window must cover
-	// that fresh sync - seeding the re-fires into the mute window instead of
-	// paging them - every time this pod (re)acquires leadership, not only on
-	// the first acquisition. See controllerRuns for the re-entrancy contract.
+	// Start grace with the controller, after leadership is acquired, so it
+	// covers initial informer sync even after a long wait as a follower.
 	controllerStart := time.Now()
 	grace := time.Duration(cfg.Behavior.StartupGraceSeconds) * time.Second
 	return func(a *alert.Alert) {
@@ -38,7 +34,13 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 				break
 			}
 		}
-		metrics.AlertsTotal.WithLabelValues(string(a.Kind), string(a.Severity), a.Reason).Inc()
+		reason := a.Reason
+		if a.Kind == alert.KindExternal {
+			// alertname is caller-controlled. A free-form value here is an
+			// unbounded Prometheus label. ReceivedAlerts counts these instead.
+			reason = "external"
+		}
+		metrics.AlertsTotal.WithLabelValues(string(a.Kind), string(a.Severity), reason).Inc()
 		// Ephemeral event alerts (e.g. CloudTrail management events) are
 		// point-in-time facts, not standing conditions: dedupe by fingerprint
 		// and dispatch once, but never enter the active set, never get a TTL
@@ -49,18 +51,13 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 		// into a condition summary).
 		if a.Event {
 			if !store.ShouldSendEvent(a) {
-				metrics.AlertsSuppressed.WithLabelValues("muted").Inc()
+				metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressMuted).Inc()
 				return
 			}
 			if observe != nil {
 				observe(a)
 			}
-			route := dropStateful(r.Route(a))
-			if len(route) == 0 {
-				return
-			}
-			cp := *a
-			enqueue(&cp, route, nil)
+			enqueue(a, dropStateful(r.Route(a)), nil)
 			return
 		}
 		// Startup grace: conditions that pre-date this process (informer
@@ -68,11 +65,11 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 		// seeded into the mute window instead of re-paging.
 		if grace > 0 && time.Since(controllerStart) < grace {
 			store.Seed(a.Fingerprint)
-			metrics.AlertsSuppressed.WithLabelValues("startup").Inc()
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressStartup).Inc()
 			return
 		}
-		if !store.ShouldSend(a) {
-			metrics.AlertsSuppressed.WithLabelValues("muted").Inc()
+		if store.Muted(a.Fingerprint) {
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressMuted).Inc()
 			store.Touch(a.Fingerprint)
 			// A muted re-fire still proves the source condition persists:
 			// keep its inhibitions armed or they expire mid-outage and the
@@ -89,21 +86,50 @@ func makeEmitter(store *alert.Store, r *router.Router, enqueue enqueueFunc, cfg 
 		}
 		// Grouping runs after routing so silenced/inhibited alerts never
 		// open or join a window. The first alert of a group passes; the
-		// rest fold into the summary flushed at window close.
-		if grouper != nil && !grouper.Offer(a) {
-			metrics.AlertsSuppressed.WithLabelValues("grouped").Inc()
+		// rest fold into the summary flushed at window close. Absorbed
+		// members still open their own PagerDuty/Opsgenie incidents —
+		// those sinks key on fingerprint, and the matching resolve would
+		// otherwise close an incident that was never opened. Chat sinks
+		// wait for the summary.
+		route, absorbed := groupRoute(grouper, a, route)
+		if absorbed && len(route) == 0 {
+			// Mute it without making it active, as startup grace does.
+			// Otherwise every resync or poll re-offers it: it joins the
+			// summary again, and once the window closes it pages chat on
+			// its own. Not active, so no sink gets a resolve for it.
+			store.Seed(a.Fingerprint)
 			return
 		}
-		// Enqueue a copy: the original is retained in the store and its
-		// EndsAt is mutated by Touch while sink goroutines read the alert.
-		// Delivery runs on the dispatch worker pool, off this producer
-		// goroutine; onFail rolls back dedupe (on the worker) if every sink
-		// fails so the next firing retries.
-		cp := *a
+		if !store.ShouldSend(a) {
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressMuted).Inc()
+			store.Touch(a.Fingerprint)
+			r.ArmInhibitions(a)
+			return
+		}
+		// The dispatcher takes its own copy. onFail rolls back dedupe if
+		// every sink fails so the next firing retries.
 		fp := a.Fingerprint
-		enqueue(&cp, route, func() {
+		enqueue(a, route, func() {
 			metrics.AlertsDropped.Inc()
 			store.MarkFailed(fp)
 		})
+	}
+}
+
+// makeResolver builds the resolve path shared by the store's synthetic
+// resolves (TTL expiry, object delete) and resolves ingested by the webhook
+// receiver. Resolves skip dedupe and grace but go through routing and the
+// grouping gate like a firing alert, so an absorbed member's resolve reaches
+// exactly the stateful sinks its fire did.
+func makeResolver(r *router.Router, grouper *group.Grouper, enqueue enqueueFunc) func(*alert.Alert) {
+	return func(a *alert.Alert) {
+		route := r.Route(a)
+		if route == nil {
+			return
+		}
+		// Absorbed resolves still must close their incidents: stateful sinks
+		// key on the member fingerprint.
+		route, _ = groupRoute(grouper, a, route)
+		enqueue(a, route, nil)
 	}
 }

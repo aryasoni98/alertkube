@@ -8,17 +8,17 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
-// NewPVC fires on Pending (after behavior.pvcPendingSeconds) and Lost.
-func NewPVC(cfg *config.Config) *simple[*v1.PersistentVolumeClaim] {
-	threshold := time.Duration(cfg.Behavior.PVCPendingSeconds) * time.Second
+// newPVC fires on Lost, and on Pending once a claim is older than threshold
+// (behavior.pvcPendingSeconds); a non-positive threshold falls back to 5m.
+func newPVC(filters config.Filters, threshold time.Duration) *simple[*v1.PersistentVolumeClaim] {
 	if threshold <= 0 {
 		threshold = 5 * time.Minute
 	}
-	return newSimple("pvc", alert.KindPVC, cfg,
+	return newSimple("pvc", alert.KindPVC, filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Core().V1().PersistentVolumeClaims().Informer()
 		},
@@ -44,4 +44,8 @@ func evaluatePVC(pvc *v1.PersistentVolumeClaim, pendingThreshold time.Duration, 
 	}
 }
 
-func init() { Register(func(o Opts) Watcher { return NewPVC(o.Config) }) }
+func init() {
+	Register(func(o Opts) Watcher {
+		return newPVC(o.Config.Filters, time.Duration(o.Config.Behavior.PVCPendingSeconds)*time.Second)
+	})
+}

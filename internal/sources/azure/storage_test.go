@@ -6,17 +6,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
-
-type fakeStorageLister struct {
-	accounts []*armstorage.Account
-	err      error
-}
-
-func (f *fakeStorageLister) List(context.Context) ([]*armstorage.Account, error) {
-	return f.accounts, f.err
-}
 
 func storageAccount(name, location, status string) *armstorage.Account {
 	a := &armstorage.Account{Name: sp(name), Location: sp(location)}
@@ -67,11 +58,11 @@ func TestEvaluateStorageAccount(t *testing.T) {
 }
 
 func TestAzureStorageSourcePoll(t *testing.T) {
-	fake := &fakeStorageLister{accounts: []*armstorage.Account{
+	items := []*armstorage.Account{
 		storageAccount("good", "eastus", string(armstorage.AccountStatusAvailable)),
 		storageAccount("bad", "westus", string(armstorage.AccountStatusUnavailable)),
-	}}
-	src := &azureStorageSource{subs: []azureStorageSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureStorageSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

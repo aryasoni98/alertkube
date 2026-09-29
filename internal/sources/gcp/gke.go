@@ -1,22 +1,47 @@
 package gcp
 
 import (
+	"context"
+	"fmt"
+
+	container "cloud.google.com/go/container/apiv1"
 	"cloud.google.com/go/container/apiv1/containerpb"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceGKE = "gcp-gke"
 
-// gkeSource discovers GKE clusters per project (all locations) and alerts on
-// their health. ERROR/DEGRADED is critical; transient states (PROVISIONING/
-// RECONCILING/STOPPING) are warnings; RUNNING resolves. This is the brief's GKE
-// "cluster discovery + cluster health monitoring".
-type gkeSource = projectSource[*containerpb.Cluster, gkeLister]
+// apiGKELister lists clusters in one project across all locations through the
+// Cluster Manager API; tests provide a fake.
+type apiGKELister struct {
+	client *container.ClusterManagerClient
+}
 
-func newGKESource(projects []string, lister gkeLister) *gkeSource {
-	return newProjectSource(sourceGKE, projects, lister, evaluateGKE)
+// List returns every cluster the API reported. A response with missing zones
+// is recorded as a poll error but still returned: clusters in those zones are
+// absent either way, and failing the project would stop re-fires and resolves
+// for every cluster in the zones that did answer.
+func (l *apiGKELister) List(ctx context.Context, project string) ([]*containerpb.Cluster, error) {
+	resp, err := l.client.ListClusters(ctx, &containerpb.ListClustersRequest{
+		Parent: fmt.Sprintf("projects/%s/locations/-", project),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if zones := resp.GetMissingZones(); len(zones) > 0 {
+		pollErr(sourceGKE, project, fmt.Errorf("gke list incomplete, missing zones: %v", zones))
+	}
+	return resp.GetClusters(), nil
+}
+
+// newGKESource discovers GKE clusters per project (all locations) and alerts
+// on their health. ERROR/DEGRADED is critical; transient states (PROVISIONING/
+// RECONCILING/STOPPING) are warnings; RUNNING resolves. Each embedded node pool
+// is evaluated as its own alert.
+func newGKESource(projects []string, list func(ctx context.Context, project string) ([]*containerpb.Cluster, error)) sources.Source {
+	return sources.NewListSource(sourceGKE, perProject(projects, list), evaluateGKE)
 }
 
 // evaluateGKE runs both levels of GKE evaluation for one cluster. Node pools
@@ -51,8 +76,8 @@ func evaluateGKECluster(project string, c *containerpb.Cluster, emit sources.Emi
 
 // evaluateGKENodePools alerts on each node pool of a cluster. Node pools are
 // embedded in the Cluster object, so no extra API call is needed. ERROR/
-// DEGRADED/RUNNING_WITH_ERROR is critical; transient states are warnings;
-// RUNNING resolves. Identity is cluster/pool.
+// RUNNING_WITH_ERROR is critical; transient states are warnings; RUNNING
+// resolves. Identity is cluster/pool.
 func evaluateGKENodePools(project string, c *containerpb.Cluster, emit sources.Emit) {
 	if c == nil || c.GetName() == "" {
 		return

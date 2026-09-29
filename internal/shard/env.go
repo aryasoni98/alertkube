@@ -3,7 +3,7 @@ package shard
 import (
 	"fmt"
 
-	"github.com/aryasoni98/alertkube/internal/env"
+	"github.com/aryasoni98/alertkube/v2/internal/env"
 )
 
 // Env var names for the static shard assignment. They live beside the ownership

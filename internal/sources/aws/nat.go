@@ -7,11 +7,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceNAT = "aws-nat"
+
+// natAPI is the subset of the EC2 client the NAT gateway source uses.
+type natAPI interface {
+	DescribeNatGateways(context.Context, *ec2.DescribeNatGatewaysInput, ...func(*ec2.Options)) (*ec2.DescribeNatGatewaysOutput, error)
+}
 
 type natRegion = regionClient[natAPI]
 
@@ -26,7 +31,7 @@ type natSource struct {
 func (s *natSource) Name() string { return sourceNAT }
 
 func (s *natSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceNAT, s.regions, emit, s.pollRegion)
 }
 
 func (s *natSource) pollRegion(ctx context.Context, rc natRegion, emit sources.Emit) {

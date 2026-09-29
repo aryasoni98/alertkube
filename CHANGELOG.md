@@ -7,6 +7,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0](https://github.com/aryasoni98/alertkube/compare/v1.2.1...v2.0.0) (2026-09-29)
+
+### Upgrade
+
+Read [the v2 upgrade guide](docs/docs/how-to/upgrade-to-v2.md) before upgrading.
+This is a major release because validation, matcher/filter semantics, Silence
+CR scope, and alert fingerprints change. Existing snapshot version 1 remains
+readable; open incidents are not discarded.
+
+### Changed
+
+* **module:** adopt `github.com/aryasoni98/alertkube/v2` for Go installation and
+  public CRD type imports; the executable, image, and chart keep their names.
+* **docs:** RBAC, readiness, health, sink count, config sections, and the alerts JSON now match the code. `alertkube validate` is documented. ADR-0005 is indexed.
+* **config:** `correlation.enabled: true` fails validation until a correlation engine exists. An explicit `0` or `false` in YAML is kept; env fallbacks apply only when the key is omitted.
+* **sources:** each cloud provider binds only its own config section before building pollers.
+* **grouping:** an absorbed fire still opens its PagerDuty or Opsgenie incident. Chat sinks keep the summary. An absorbed alert that no sink receives is muted but never active, so it gets no resolve. The grouper and rule loops keep running after a panic in one tick.
+* **cloud:** AWS lists, Azure ARM pagers, and Cloud SQL listing stop at a 1000-page runaway guard or when the context is cancelled; AWS and Cloud SQL also stop on a page token that does not advance. CloudTrail lookups, capped at 20 pages before, use the same guard. CloudTrail polls its regions concurrently and paces every LookupEvents call, follow-up pages included, at 1.5 per second per region; a region that runs out of poll time records a poll error. A canceled poll is not an error. Each poll is cut off at twice its interval; startup logs a warning when twice `pollSeconds` is not below `behavior.resolveTTLSeconds`. Azure Monitor queries 30 days at 250 alerts per page and does not fire when essentials are missing. An AKS cluster with no provisioning state resolves. One failing SQL server no longer skips the rest of the subscription. A GKE list with missing zones records a poll error and still evaluates the clusters it returned. Describe calls after a list, including EKS node group describes, are rate-limited per source and region; a poll that cannot fit them before its deadline records a poll error. At 10 per second, one poll fits about `20 + 20 × pollSeconds` describes per source and region (about 610 S3 buckets at the default 60s); larger inventories need a longer `pollSeconds`. An AWS region the deadline leaves unpolled records a poll error. CloudTrail starts each lookup window where the previous one ended. An EKS cluster list that fails on a later page still evaluates the clusters already listed.
+* **filters:** anchor regex filters at the start, so they match by prefix like literal filters. `prod-.*` no longer matches `staging-prod-tools`, and `kube-system|default` no longer matches `my-default`. An invalid regex in a filter field fails config validation instead of becoming a silent prefix.
+* **matchers:** breaking: an empty matcher map fails config validation in routing, inhibitions, silences and escalations, because it matches every alert; `match: {}` stays allowed on the final route as its catch-all. An empty value on a label key, which matches every alert without that label, fails in the same places and in maintenance windows; the runtime silence API answers 400 and a Silence CR using one is ignored with a warning. An empty value on a field key such as `node: ""` is allowed.
+* **matchers:** breaking: an invalid `namespace` or `reason` regex fails config validation in routing, inhibitions, silences, escalations, maintenance windows and rules. The runtime silence API answers 400 and a Silence CR using one is ignored with a warning. Before, such a pattern matched only a value equal to its text, so the entry never applied.
+* **matchers:** breaking: a `namespace` or `reason` pattern that matches every alert, such as `.*`, `.+` or `\S*`, fails validation in the same places, with the same API and Silence CR handling. The check is a heuristic: it rejects a pattern that matches all of `x`, `kube-system`, `CrashLoopBackOff` and `Prod_1.a-z`. The final route is exempt: it may be a catch-all, written as `match: {}` or as a pattern, but its patterns must still compile.
+* **fingerprints:** length-prefix each identity field and widen the id to 16 hex characters. Persisted snapshots from older builds no longer match live alerts, so each standing condition re-pages once after upgrade.
+* **receiver:** an adopted Alertmanager fingerprint gets an `am-` prefix, so it cannot collide with a watched object's fingerprint. This changes the PagerDuty dedup key and Opsgenie alias of receiver alerts, so each firing receiver alert re-pages once after upgrade.
+* **crd:** a Silence CR stops applying 30 days after its creation, even if `spec.until` is later. To extend one, recreate it.
+* **crd:** breaking: a namespaced Silence CR only mutes alerts in its own namespace. An omitted `namespace` matcher is set to it; any other value, a pattern included, gets the CR ignored with a warning. Move such a CR into the namespace it should silence. An omitted matcher is set without a log line, so a CR that matched alerts outside its namespace just stops matching them. A namespaced CR cannot mute alerts that have no namespace or one that is not a Kubernetes namespace: Node alerts, cloud-source alerts (their namespace is the region or account scope), and receiver alerts without a `namespace` label. Silence those with a config-file or runtime-API silence, or with a cluster-scoped CRD (`crds.silences.clusterScoped=true`, which means recreating the CRD and every Silence).
+* **helm:** `crds.silences.clusterScoped` installs the Silence CRD cluster-scoped. It needs cluster RBAC: the chart refuses to render it with `rbac.scope=namespace`, `WATCH_NAMESPACE` or `--watch-namespace`. CRD scope is immutable, so switching it means deleting the CRD and every Silence.
+* **helm:** remove `slack.username`. No template ever read it; AlertKube always asks Slack for the display name `alertkube`.
+* **architecture:** separate configuration schema/defaults/cloud settings, API
+  handlers, HTTP server lifecycle, and durable outbox code within their existing
+  packages. Cloud providers and watcher filters receive only their settings.
+* **web:** use one catalog for all ten supported sinks, correct control API
+  descriptions, and validate structured release metadata during version checks.
+* **maintenance:** reuse shared namespace filtering, canonical Silence CRD
+  identifiers, UTF-8 truncation, and standard-library collection copying; remove
+  the unreferenced historical audit-commit script and unused helpers.
+* **deps:** drop `k8s.io/kubectl` and the 16 modules only it pulled in (kustomize, cli-runtime, cobra, ...). The stripped binary shrinks from 147.9 MB to 116.6 MB. Enrichment output is unchanged.
+
+### Fixed
+
+* **config:** preserve YAML aliases and merge-key values when applying environment
+  defaults; reject additional YAML documents instead of ignoring them.
+* **inhibition:** isolate state by rule and escape equal-field values so unrelated
+  rules or delimiter-containing values cannot suppress each other's alerts.
+* **state:** escalation marks advance the snapshot generation so they survive
+  restart even when no other store state changes.
+* **release:** validate before publishing, use the attached Linux x64 runner,
+  install Helm explicitly, and stamp local image builds with their release tag.
+* **api:** align channel operations and silence deletion with `/api/v1`, retain
+  legacy redirects, and reject oversized bodies before parsing or mutation.
+* **api:** a failed Secret-reference channel test masks the Secret value in
+  its reply and log.
+* **state:** isolate stored alerts, silences, and snapshots from callers; retain
+  the original incident start time on reminders; clear escalation state on total
+  delivery failure and persist mute-only deletions.
+* **state:** a snapshot written by a newer build is refused whole, so its
+  runtime silences and outbox are no longer restored without its alerts. The
+  snapshot version stays 1, so a rollback after the fingerprint change still
+  restores state and resolves open incidents. The restore log counts only
+  accepted alerts.
+* **state:** a restored alert with no end time resolves after the resolve TTL
+  instead of staying active, and its incident open, forever.
+* **state:** a save exported before the stored snapshot's save time is
+  refused, logged and retried on the next sweep. A stored save time more than
+  2 minutes in the future is overwritten. This is wall-clock ordering, not
+  leader fencing.
+* **grouping:** distinguish grouping fields and escaped values, and retain at
+  most 50 member names while preserving the full storm count and summary format.
+* **dispatch:** restore outbox delivery order by ID, preserve event/summary
+  failure handling on replay, and make concurrent shutdown calls safe.
+* **lifecycle:** wait for the elected controller to drain before process exit,
+  join informer callbacks before enrichment shutdown, and handle cancellation
+  during initial cache sync without a fatal exit.
+* **lifecycle:** shutdown fits the chart's 45s grace period and always reaches
+  the final state save. With persistence enabled, deliveries the drain could
+  not finish stay in the outbox and replay on the next start. A producer
+  blocked on a full dispatch queue no longer stalls shutdown.
+* **leader election:** the leader keeps its Lease until its controller has
+  drained and saved state, then releases it. A follower no longer starts a
+  second controller mid-drain or loads state from before the final save.
+* **leader election:** a follower that shuts down logs `follower stopping` at
+  Info instead of a `lost leadership` warning.
+* **watchers:** a pod OOM kill or SIGKILL is read from the container's current
+  termination, so `restartPolicy: Never` pods alert too, or from the restart it
+  caused. An old OOM kill on a running container no longer re-fires on every
+  resync. Pods the kubelet ended (eviction, node shutdown, deadline) and
+  `ContainerStatusUnknown` exits do not raise `ContainerKilled`. Summaries show
+  `OOMKilled (exit 137)` instead of `SIGKILL (exit 137)`.
+* **watchers:** a resync re-asserts `CronJobMissingSuccess` while the CronJob is
+  not suspended, has no active run, and has not succeeded since its latest
+  schedule, so a still-failing job no longer resolves after the resolve TTL. It
+  can now fire when that run ends, before the next tick.
+* **slack:** the header is cut to 150 characters and the summary is cut after
+  escaping to fit 3000, so a long reason or summary no longer gets the message
+  rejected.
+* **slack:** detail text is escaped (`&`, `<`, `>`) and cannot close its code
+  block, so pod logs and events cannot post a live mention or link. Details are
+  cut only between sections. A section that would take the body past 7500
+  bytes is skipped and a later one that fits still goes in; the body ends with
+  a count of the sections it left out.
+* **slack:** webhook posts use the shared webhook client, so send errors in
+  logs and channel-test replies no longer include the webhook URL. A
+  link-local webhook URL is refused.
+* **pagerduty:** events go through the shared webhook client. Each attempt
+  times out after 10s, so a stalled attempt no longer uses the whole 15s send
+  budget, and an invalid event (HTTP 400) is sent once instead of three times.
+  `ALERTKUBE_STRICT_WEBHOOK_EGRESS` applies to it. Strict egress also blocks a
+  loopback or private `HTTPS_PROXY`, so behind an in-cluster proxy it now
+  stops pages, as it already did for the other webhook sinks. The event body
+  is unchanged; send errors report the HTTP status but no longer PagerDuty's
+  error message.
+* **slack:** a resolved alert's attachment bar is green instead of the
+  severity color.
+* **slack:** startup no longer warns that Slack will no-op on installs without
+  Slack credentials. An alert routed to Slack without one is still logged and
+  counted.
+* **sinks:** Slack and Teams show `-` for an empty cluster, namespace, name or
+  reason, as the other chat sinks do, instead of an empty code span or a blank.
+* **helm:** render configured maintenance windows and honor an explicit
+  `automountServiceAccountToken: false`; add chart CI checks for both settings.
+
 ## [1.2.1](https://github.com/aryasoni98/alertkube/compare/v1.2.0...v1.2.1) (2026-08-08)
 
 Reliability, API versioning, and observability release. Fixes silent shard

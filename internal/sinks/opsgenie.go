@@ -7,9 +7,9 @@ import (
 	neturl "net/url"
 	"os"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/httpx"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/httpx"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 // opsgenieSink creates and closes alerts via the Alert API v2. The alert
@@ -19,9 +19,9 @@ import (
 // accounts.
 type opsgenieSink struct{}
 
-func init() { Register("opsgenie", func(SinkConfig) Sink { return NewOpsgenie() }) }
+func init() { Register("opsgenie", func(SinkConfig) Sink { return newOpsgenie() }) }
 
-func NewOpsgenie() Sink { return &opsgenieSink{} }
+func newOpsgenie() Sink { return &opsgenieSink{} }
 
 func (*opsgenieSink) Name() string { return "opsgenie" }
 
@@ -38,7 +38,7 @@ func ogPriority(s alert.Severity) string {
 }
 
 func (*opsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
-	apiKey, ok := requireCred(ctx, "opsgenie", "OPSGENIE_API_KEY")
+	apiKey, ok := requireCred(ctx, "opsgenie", envOpsgenieAPIKey)
 	if !ok {
 		return nil
 	}
@@ -53,7 +53,7 @@ func (*opsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 		// Close by alias; Opsgenie returns 202 for unknown aliases, so a
 		// close for an alert that never opened (severity gate, restart)
 		// is harmless. PathEscape the fingerprint: built-in fingerprints
-		// are 12 hex chars, but a receiver-ingested Alertmanager
+		// are 16 hex chars, but a receiver-ingested Alertmanager
 		// fingerprint is externally influenced and could otherwise inject
 		// `?`/`#`/`/` into the request path (CWE-88).
 		url = fmt.Sprintf("%s/v2/alerts/%s/close?identifierType=alias", base, neturl.PathEscape(a.Fingerprint))
@@ -68,7 +68,7 @@ func (*opsgenieSink) Send(ctx context.Context, a *alert.Alert) error {
 			"reason":    a.Reason,
 		}
 		payload = map[string]any{
-			"message":     textutil.Head(alertTitle(a), 130),
+			"message":     textutil.Head(alertTitlePlain(a), 130),
 			"alias":       a.Fingerprint,
 			"description": textutil.Head(a.Summary, 15000),
 			"priority":    ogPriority(a.Severity),

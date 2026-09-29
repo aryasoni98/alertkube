@@ -8,24 +8,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeEBS struct {
-	pages []*ec2.DescribeVolumeStatusOutput
-	idx   int
-	err   error
+	pager[ec2.DescribeVolumeStatusOutput]
 }
 
-func (f *fakeEBS) DescribeVolumeStatus(_ context.Context, _ *ec2.DescribeVolumeStatusInput, _ ...func(*ec2.Options)) (*ec2.DescribeVolumeStatusOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeEBS) DescribeVolumeStatus(_ context.Context, in *ec2.DescribeVolumeStatusInput, _ ...func(*ec2.Options)) (*ec2.DescribeVolumeStatusOutput, error) {
+	return f.next(in.NextToken)
 }
 
 func volStatus(id string, status ec2types.VolumeStatusInfoStatus) ec2types.VolumeStatusItem {
@@ -78,12 +69,12 @@ func TestEvaluateVolume(t *testing.T) {
 }
 
 func TestEBSSourcePoll(t *testing.T) {
-	fake := &fakeEBS{pages: []*ec2.DescribeVolumeStatusOutput{{
+	fake := &fakeEBS{pager: pagerOf(&ec2.DescribeVolumeStatusOutput{
 		VolumeStatuses: []ec2types.VolumeStatusItem{
 			volStatus("good", ec2types.VolumeStatusInfoStatusOk),
 			volStatus("bad", ec2types.VolumeStatusInfoStatusImpaired),
 		},
-	}}}
+	})}
 	src := &ebsSource{regions: []ebsRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

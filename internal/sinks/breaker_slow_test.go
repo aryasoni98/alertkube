@@ -3,16 +3,40 @@ package sinks
 import (
 	"testing"
 	"time"
+
+	"github.com/aryasoni98/alertkube/v2/internal/httpx"
 )
 
+// The slow check has to sit inside the delivery budget described at
+// dispatchTimeout (internal/app/pipeline.go). One HTTP attempt that reaches
+// httpx.DefaultTimeout is a failure, so a threshold at or above it would count
+// only retried successes as slow. internal/app pins the outer
+// perSinkTimeout < dispatchTimeout link.
+func TestBreakerSlowThresholdNestsInDeliveryBudget(t *testing.T) {
+	tests := []struct {
+		name         string
+		inner, outer time.Duration
+	}{
+		{"slow threshold < one HTTP attempt", breakerSlowThreshold, httpx.DefaultTimeout},
+		{"one HTTP attempt < one sink send", httpx.DefaultTimeout, perSinkTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.inner >= tt.outer {
+				t.Fatalf("%s >= %s", tt.inner, tt.outer)
+			}
+		})
+	}
+}
+
 // The blind spot this closes: a sink that answers 200 every time but takes
-// 20s never increments the failure counter, so a failure-only breaker leaves it
-// permanently occupying a dispatch worker.
+// seconds to do it never increments the failure counter, so a failure-only
+// breaker leaves it permanently occupying a dispatch worker.
 func TestBreakerTripsOnSustainedSlowSuccesses(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
 
-	for i := 0; i < breakerSlowRun; i++ {
+	for range breakerSlowRun {
 		b.Record(true) // every send succeeds
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
@@ -37,11 +61,11 @@ func TestBreakerToleratesIsolatedSlowSend(t *testing.T) {
 func TestBreakerFastSendClearsSlowRun(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
-	for i := 0; i < breakerSlowRun-1; i++ {
+	for range breakerSlowRun - 1 {
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
 	b.RecordLatency(time.Millisecond) // recovered
-	for i := 0; i < breakerSlowRun-1; i++ {
+	for range breakerSlowRun - 1 {
 		b.RecordLatency(breakerSlowThreshold + time.Second)
 	}
 	if b.Open() {
@@ -54,7 +78,7 @@ func TestBreakerFastSendClearsSlowRun(t *testing.T) {
 func TestBreakerLatencyDoesNotDisturbFailureCounting(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := &breaker{now: func() time.Time { return now }}
-	for i := 0; i < breakerThreshold-1; i++ {
+	for range breakerThreshold - 1 {
 		b.Record(false)
 		b.RecordLatency(time.Millisecond) // fast failures
 	}

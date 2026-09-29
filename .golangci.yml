@@ -1,6 +1,10 @@
 version: "2"
 run:
   tests: true
+  # Lint the envtest suite in test/integration too; without the tag its files
+  # are excluded from the build and never checked.
+  build-tags:
+    - integration
 linters:
   default: none
   enable:
@@ -13,8 +17,15 @@ linters:
     - unconvert
     - unused
     # Expanded set (1.5.1). High-signal linters for an HTTP-heavy,
-    # security-sensitive controller. Each one was verified to pass on the
-    # current tree before being added.
+    # security-sensitive controller. The pinned CI linter (lint.yml) enforces
+    # them; a deliberate exception carries `//nolint:<linter> // reason` at the
+    # line, or a narrow exclusion rule below.
+    #
+    # contextcheck and containedctx are deliberately NOT enabled. The dispatch,
+    # drain and final-save contexts are detached from the controller ctx on
+    # purpose (resolves must deliver during shutdown; see the timeout budget in
+    # app/pipeline.go), and dispatchJob.traceCtx is a struct-held span link.
+    # Both linters flag that design by construction.
     - bodyclose       # every HTTP response body is closed (sinks/receiver)
     - errorlint       # %w wrapping + errors.Is/As instead of == comparisons
     - noctx           # no HTTP requests without a context
@@ -23,6 +34,9 @@ linters:
     - wastedassign    # assignments whose value is never used
     - usestdlibvars   # use http.MethodGet etc. instead of string literals
     - predeclared     # don't shadow predeclared identifiers
+    - copyloopvar     # Go 1.22+ gives each iteration its own loop variables
+    - intrange        # use integer ranges where the loop bound is stable
+    - gosec           # security checks (SSRF, overflow, weak rand, secrets)
   settings:
     revive:
       rules:
@@ -59,6 +73,14 @@ linters:
           - errcheck
           - noctx       # httptest.NewRequest is the idiomatic test constructor
         path: _test\.go
+      # The sink credential constants in sinks/cred.go are the NAMES of the
+      # env vars credentials are read from (e.g. SLACK_BOT_TOKEN), not the
+      # credentials themselves.
+      - linters:
+          - gosec
+        path: internal/sinks/cred\.go
+        text: G101
+        source: '^\s*env[A-Za-z]+\s*= "[A-Z0-9_]+"$'
     paths:
       - vendor
       - third_party$

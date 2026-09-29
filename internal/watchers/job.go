@@ -8,13 +8,13 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
-// NewJob fires on Failed jobs (backoffLimit hit).
-func NewJob(cfg *config.Config) *simple[*batchv1.Job] {
-	return newSimple("job", alert.KindJob, cfg,
+// newJob fires on Failed jobs (backoffLimit hit).
+func newJob(cfg *config.Config) *simple[*batchv1.Job] {
+	return newSimple("job", alert.KindJob, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Batch().V1().Jobs().Informer()
 		},
@@ -33,4 +33,4 @@ func evaluateJob(job *batchv1.Job, emit Emit) {
 	}
 }
 
-func init() { Register(func(o Opts) Watcher { return NewJob(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newJob(o.Config) }) }

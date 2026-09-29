@@ -1,15 +1,17 @@
 package watchers
 
 import (
+	"context"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 func makeDeployment(status appsv1.DeploymentStatus) *appsv1.Deployment {
@@ -18,6 +20,17 @@ func makeDeployment(status appsv1.DeploymentStatus) *appsv1.Deployment {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "web"},
 		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
 		Status:     status,
+	}
+}
+
+func TestDeploymentSkipsStatusBeforeObservedGeneration(t *testing.T) {
+	dep := makeDeployment(appsv1.DeploymentStatus{UnavailableReplicas: 2, ObservedGeneration: 1})
+	dep.Generation = 2
+	w := newDeployment(&config.Config{})
+	var got []*alert.Alert
+	w.eval(dep, func(a *alert.Alert) { got = append(got, a) })
+	if len(got) != 0 {
+		t.Fatalf("status predating the observed generation fired: %v", got)
 	}
 }
 
@@ -71,10 +84,10 @@ func TestDeploymentEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewDeployment(&config.Config{})
+			w := newDeployment(&config.Config{})
 
 			var got []*alert.Alert
-			w.evaluate(tc.dep, func(a *alert.Alert) { got = append(got, a) })
+			w.eval(tc.dep, func(a *alert.Alert) { got = append(got, a) })
 
 			if tc.wantNone {
 				if len(got) != 0 {
@@ -98,17 +111,34 @@ func TestDeploymentEvaluate(t *testing.T) {
 	}
 }
 
+// capturingInformer records the handler Setup attaches so a test can drive
+// the installed DeleteFunc without starting an informer.
+type capturingInformer struct {
+	cache.SharedIndexInformer
+	h cache.ResourceEventHandler
+}
+
+func (c *capturingInformer) AddEventHandler(h cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error) {
+	c.h = h
+	return nil, nil
+}
+
 func TestSimpleResolveOnDelete(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Filters.IgnoredNamespaces = "kube-system"
-	w := NewDeployment(cfg)
+	w := newDeployment(cfg)
+	inf := &capturingInformer{}
+	w.informer = func(informers.SharedInformerFactory) cache.SharedIndexInformer { return inf }
+	emit, got := collect()
+	w.Setup(context.Background(), nil, emit)
+	if inf.h == nil {
+		t.Fatal("Setup attached no event handler")
+	}
 
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "web"}}
 
 	// Direct object → resolve marker for the right identity.
-	got := &[]*alert.Alert{}
-	emit := func(a *alert.Alert) { *got = append(*got, a) }
-	w.resolveOnDelete(dep, emit)
+	inf.h.OnDelete(dep)
 	if len(*got) != 1 {
 		t.Fatalf("expected 1 resolve marker, got %d", len(*got))
 	}
@@ -118,50 +148,23 @@ func TestSimpleResolveOnDelete(t *testing.T) {
 	}
 
 	// Tombstone (DeletedFinalStateUnknown) is unwrapped.
-	got = &[]*alert.Alert{}
-	emit = func(a *alert.Alert) { *got = append(*got, a) }
-	w.resolveOnDelete(cache.DeletedFinalStateUnknown{Key: "ns/web", Obj: dep}, emit)
+	*got = nil
+	inf.h.OnDelete(cache.DeletedFinalStateUnknown{Key: "ns/web", Obj: dep})
 	if len(*got) != 1 {
 		t.Fatalf("tombstone should still resolve, got %d markers", len(*got))
 	}
 
 	// Ignored namespace → no marker.
-	got = &[]*alert.Alert{}
-	emit = func(a *alert.Alert) { *got = append(*got, a) }
-	w.resolveOnDelete(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "x"}}, emit)
+	*got = nil
+	inf.h.OnDelete(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "x"}})
 	if len(*got) != 0 {
 		t.Fatalf("ignored namespace must not emit a resolve, got %d", len(*got))
 	}
 
 	// Unknown type → no marker, no panic.
-	got = &[]*alert.Alert{}
-	emit = func(a *alert.Alert) { *got = append(*got, a) }
-	w.resolveOnDelete("not-an-object", emit)
+	*got = nil
+	inf.h.OnDelete("not-an-object")
 	if len(*got) != 0 {
 		t.Fatalf("non-object delete must be ignored, got %d", len(*got))
-	}
-}
-
-func TestDeploymentNSFilter(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Filters.IgnoredNamespaces = "kube-system"
-	w := NewDeployment(cfg)
-
-	if w.ns.allows("kube-system") {
-		t.Errorf("ignored namespace kube-system should be blocked")
-	}
-	if !w.ns.allows("default") {
-		t.Errorf("namespace default should be allowed")
-	}
-
-	cfg2 := &config.Config{}
-	cfg2.Filters.WatchedNamespaces = "prod"
-	w2 := NewDeployment(cfg2)
-
-	if !w2.ns.allows("prod") {
-		t.Errorf("watched namespace prod should be allowed")
-	}
-	if w2.ns.allows("dev") {
-		t.Errorf("namespace dev outside watched set should be blocked")
 	}
 }

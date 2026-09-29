@@ -9,11 +9,19 @@ import (
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceELBV2 = "aws-elbv2"
+
+// elbv2API is the subset of the ELBv2 client the load-balancer / target-group
+// health source uses.
+type elbv2API interface {
+	DescribeLoadBalancers(context.Context, *elbv2.DescribeLoadBalancersInput, ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error)
+	DescribeTargetGroups(context.Context, *elbv2.DescribeTargetGroupsInput, ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error)
+	DescribeTargetHealth(context.Context, *elbv2.DescribeTargetHealthInput, ...func(*elbv2.Options)) (*elbv2.DescribeTargetHealthOutput, error)
+}
 
 type elbv2Region = regionClient[elbv2API]
 
@@ -31,7 +39,7 @@ type elbv2Source struct {
 func (s *elbv2Source) Name() string { return sourceELBV2 }
 
 func (s *elbv2Source) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, func(ctx context.Context, rc elbv2Region, emit sources.Emit) {
+	pollByRegion(ctx, sourceELBV2, s.regions, emit, func(ctx context.Context, rc elbv2Region, emit sources.Emit) {
 		s.pollLoadBalancers(ctx, rc, emit)
 		s.pollTargetGroups(ctx, rc, emit)
 	})
@@ -81,6 +89,7 @@ func evaluateLoadBalancer(region string, lb elbv2types.LoadBalancer, emit source
 }
 
 func (s *elbv2Source) pollTargetGroups(ctx context.Context, rc elbv2Region, emit sources.Emit) {
+	lim := newDescribeLimiter()
 	forEachPage(ctx, sourceELBV2, rc.region, func(ctx context.Context, marker *string) (*string, error) {
 		out, err := rc.client.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{Marker: marker})
 		if err != nil {
@@ -91,6 +100,9 @@ func (s *elbv2Source) pollTargetGroups(ctx context.Context, rc elbv2Region, emit
 			name := awssdk.ToString(tg.TargetGroupName)
 			if name == "" {
 				continue
+			}
+			if err := waitDescribe(ctx, lim); err != nil {
+				return nil, err
 			}
 			h, err := rc.client.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{TargetGroupArn: tg.TargetGroupArn})
 			if err != nil {

@@ -5,42 +5,30 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceAzureRedis = "azure-redis"
 
-// redisLister lists Redis caches in one subscription. The real adapter drains
-// the SDK pager; tests provide a fake returning a canned slice.
-type redisLister interface {
-	List(ctx context.Context) ([]*armredis.ResourceInfo, error)
-}
-
+// armRedisLister lists Redis caches in one subscription by draining the SDK
+// pager; tests provide a fake returning a canned slice.
 type armRedisLister struct {
 	client *armredis.Client
 }
 
 func (l *armRedisLister) List(ctx context.Context) ([]*armredis.ResourceInfo, error) {
-	return drainPager(ctx, l.client.NewListBySubscriptionPager(nil),
+	return drainPager(ctx, sourceAzureRedis, l.client.NewListBySubscriptionPager(nil),
 		func(r armredis.ClientListBySubscriptionResponse) []*armredis.ResourceInfo { return r.Value })
 }
 
-type azureRedisSubscription = subLister[redisLister]
-
-// azureRedisSource alerts on Azure Cache for Redis instances in a bad
-// provisioning state - the Azure analog of the AWS ElastiCache source. Failed is
-// critical; RecoveringScaleFailure is a warning (a scale op failed but is self-
-// healing); Succeeded plus transient states (Creating, Updating, Scaling,
+// newAzureRedisSource alerts on Azure Cache for Redis instances in a bad
+// provisioning state - the Azure analog of the AWS ElastiCache source. Failed
+// is critical; RecoveringScaleFailure is a warning (a scale op failed but is
+// self-healing); Succeeded plus transient states (Creating, Updating, Scaling,
 // Deleting, ...) resolve.
-type azureRedisSource struct {
-	subs []azureRedisSubscription
-}
-
-func (s *azureRedisSource) Name() string { return sourceAzureRedis }
-
-func (s *azureRedisSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollBySubscription(ctx, sourceAzureRedis, s.subs, emit, evaluateRedisCache)
+func newAzureRedisSource(subs []sources.Scoped[*armredis.ResourceInfo]) sources.Source {
+	return sources.NewListSource(sourceAzureRedis, subs, evaluateRedisCache)
 }
 
 func evaluateRedisCache(subscription string, c *armredis.ResourceInfo, emit sources.Emit) {

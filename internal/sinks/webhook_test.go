@@ -11,16 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
-
-func TestWebhookEmptyURLNoop(t *testing.T) {
-	t.Setenv("GENERIC_WEBHOOK_URL", "")
-	w := NewWebhook()
-	if err := w.Send(context.Background(), alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)); err != nil {
-		t.Fatalf("empty URL must be no-op, got %v", err)
-	}
-}
 
 func TestWebhookPostsJSONWithoutSignatureWhenSecretMissing(t *testing.T) {
 	var gotSig, gotTs, gotBody string
@@ -35,7 +27,7 @@ func TestWebhookPostsJSONWithoutSignatureWhenSecretMissing(t *testing.T) {
 
 	t.Setenv("GENERIC_WEBHOOK_URL", srv.URL)
 	t.Setenv("GENERIC_WEBHOOK_SECRET", "")
-	w := NewWebhook()
+	w := newWebhook()
 	a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)
 	a.Summary = "test"
 	if err := w.Send(context.Background(), a); err != nil {
@@ -75,7 +67,7 @@ func TestWebhookHMACSignatureVerifies(t *testing.T) {
 
 	t.Setenv("GENERIC_WEBHOOK_URL", srv.URL)
 	t.Setenv("GENERIC_WEBHOOK_SECRET", secret)
-	w := NewWebhook()
+	w := newWebhook()
 	if err := w.Send(context.Background(), alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -93,7 +85,7 @@ func TestWebhookRotationPickedUpPerSend(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("GENERIC_WEBHOOK_URL", "")
-	w := NewWebhook()
+	w := newWebhook()
 	if err := w.Send(context.Background(), alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityInfo)); err != nil {
 		t.Fatalf("first send (empty URL): %v", err)
 	}

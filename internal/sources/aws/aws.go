@@ -51,9 +51,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // provider labels every AWS alert so routing/severityOverrides can target the
@@ -64,124 +64,30 @@ const provider = "aws"
 // registry rather than hardcoding it (mirrors sink self-registration).
 func init() {
 	sources.RegisterProvider(sources.Provider{
-		Name:        provider,
-		Enabled:     func(c *config.Config) bool { return c.AWS.Enabled },
-		PollSeconds: func(c *config.Config) int { return c.AWS.PollSeconds },
-		Build:       NewProvider,
+		Name: provider,
+		Bind: func(c *config.Config) sources.Bound {
+			section := c.AWS
+			return sources.Bound{
+				Enabled:     section.Enabled,
+				PollSeconds: section.PollSeconds,
+				Build: func(ctx context.Context) ([]sources.Source, error) {
+					return buildSources(ctx, section)
+				},
+			}
+		},
 	})
 }
 
-// eksAPI is the subset of the EKS client the EKS source uses.
-type eksAPI interface {
-	ListClusters(context.Context, *eks.ListClustersInput, ...func(*eks.Options)) (*eks.ListClustersOutput, error)
-	DescribeCluster(context.Context, *eks.DescribeClusterInput, ...func(*eks.Options)) (*eks.DescribeClusterOutput, error)
-	ListNodegroups(context.Context, *eks.ListNodegroupsInput, ...func(*eks.Options)) (*eks.ListNodegroupsOutput, error)
-	DescribeNodegroup(context.Context, *eks.DescribeNodegroupInput, ...func(*eks.Options)) (*eks.DescribeNodegroupOutput, error)
-}
-
-// cloudwatchAPI is the subset of the CloudWatch client the alarms source uses.
-type cloudwatchAPI interface {
-	DescribeAlarms(context.Context, *cloudwatch.DescribeAlarmsInput, ...func(*cloudwatch.Options)) (*cloudwatch.DescribeAlarmsOutput, error)
-}
-
-// ec2API is the subset of the EC2 client the status-check source uses.
-type ec2API interface {
-	DescribeInstanceStatus(context.Context, *ec2.DescribeInstanceStatusInput, ...func(*ec2.Options)) (*ec2.DescribeInstanceStatusOutput, error)
-}
-
-// elbv2API is the subset of the ELBv2 client the load-balancer / target-group
-// health source uses.
-type elbv2API interface {
-	DescribeLoadBalancers(context.Context, *elbv2.DescribeLoadBalancersInput, ...func(*elbv2.Options)) (*elbv2.DescribeLoadBalancersOutput, error)
-	DescribeTargetGroups(context.Context, *elbv2.DescribeTargetGroupsInput, ...func(*elbv2.Options)) (*elbv2.DescribeTargetGroupsOutput, error)
-	DescribeTargetHealth(context.Context, *elbv2.DescribeTargetHealthInput, ...func(*elbv2.Options)) (*elbv2.DescribeTargetHealthOutput, error)
-}
-
-// rdsAPI is the subset of the RDS client the DB-instance health source uses.
-type rdsAPI interface {
-	DescribeDBInstances(context.Context, *rds.DescribeDBInstancesInput, ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
-}
-
-// dynamoDBAPI is the subset of the DynamoDB client the table-status source uses.
-type dynamoDBAPI interface {
-	ListTables(context.Context, *dynamodb.ListTablesInput, ...func(*dynamodb.Options)) (*dynamodb.ListTablesOutput, error)
-	DescribeTable(context.Context, *dynamodb.DescribeTableInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
-}
-
-// elastiCacheAPI is the subset of the ElastiCache client the cluster-status source uses.
-type elastiCacheAPI interface {
-	DescribeCacheClusters(context.Context, *elasticache.DescribeCacheClustersInput, ...func(*elasticache.Options)) (*elasticache.DescribeCacheClustersOutput, error)
-}
-
-// s3API is the subset of the S3 client the public-access source uses. S3 is a
-// global service: ListBuckets returns the whole account regardless of the
-// client's region.
-type s3API interface {
-	ListBuckets(context.Context, *s3.ListBucketsInput, ...func(*s3.Options)) (*s3.ListBucketsOutput, error)
-	GetBucketPolicyStatus(context.Context, *s3.GetBucketPolicyStatusInput, ...func(*s3.Options)) (*s3.GetBucketPolicyStatusOutput, error)
-	GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error)
-}
-
-// cloudTrailAPI is the subset of the CloudTrail client the change-event source
-// uses.
-type cloudTrailAPI interface {
-	LookupEvents(context.Context, *cloudtrail.LookupEventsInput, ...func(*cloudtrail.Options)) (*cloudtrail.LookupEventsOutput, error)
-}
-
-// autoscalingAPI is the subset of the Auto Scaling client the ASG source uses.
-type autoscalingAPI interface {
-	DescribeAutoScalingGroups(context.Context, *autoscaling.DescribeAutoScalingGroupsInput, ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
-}
-
-// kmsAPI is the subset of the KMS client the key-state source uses.
-type kmsAPI interface {
-	ListKeys(context.Context, *kms.ListKeysInput, ...func(*kms.Options)) (*kms.ListKeysOutput, error)
-	DescribeKey(context.Context, *kms.DescribeKeyInput, ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
-}
-
-// ebsAPI is the subset of the EC2 client the EBS volume-status source uses.
-type ebsAPI interface {
-	DescribeVolumeStatus(context.Context, *ec2.DescribeVolumeStatusInput, ...func(*ec2.Options)) (*ec2.DescribeVolumeStatusOutput, error)
-}
-
-// auroraAPI is the subset of the RDS client the Aurora cluster source uses.
-type auroraAPI interface {
-	DescribeDBClusters(context.Context, *rds.DescribeDBClustersInput, ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error)
-}
-
-// natAPI is the subset of the EC2 client the NAT gateway source uses.
-type natAPI interface {
-	DescribeNatGateways(context.Context, *ec2.DescribeNatGatewaysInput, ...func(*ec2.Options)) (*ec2.DescribeNatGatewaysOutput, error)
-}
-
-// efsAPI is the subset of the EFS client the file-system source uses.
-type efsAPI interface {
-	DescribeFileSystems(context.Context, *efs.DescribeFileSystemsInput, ...func(*efs.Options)) (*efs.DescribeFileSystemsOutput, error)
-}
-
-// route53API is the subset of the Route53 client the health-check source uses.
-type route53API interface {
-	ListHealthChecks(context.Context, *route53.ListHealthChecksInput, ...func(*route53.Options)) (*route53.ListHealthChecksOutput, error)
-	GetHealthCheckStatus(context.Context, *route53.GetHealthCheckStatusInput, ...func(*route53.Options)) (*route53.GetHealthCheckStatusOutput, error)
-}
-
-// acmAPI is the subset of the ACM client the certificate source uses.
-type acmAPI interface {
-	ListCertificates(context.Context, *acm.ListCertificatesInput, ...func(*acm.Options)) (*acm.ListCertificatesOutput, error)
-}
-
-// vpnAPI is the subset of the EC2 client the VPN connection source uses.
-type vpnAPI interface {
-	DescribeVpnConnections(context.Context, *ec2.DescribeVpnConnectionsInput, ...func(*ec2.Options)) (*ec2.DescribeVpnConnectionsOutput, error)
-}
-
-// NewProvider builds the enabled AWS sources, one client set per configured
-// region. It returns an error if AWS config/credentials cannot be resolved for
-// a region; the caller logs it and continues without AWS so a cloud-auth
-// problem never takes down the Kubernetes watchers.
-func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, error) {
-	regions := make([]regionConfig, 0, len(cfg.AWS.Regions))
-	for _, region := range cfg.AWS.Regions {
+// buildSources builds the enabled AWS sources, one client set per configured
+// region. It returns an error only if the AWS config cannot be loaded for a
+// region (e.g. malformed shared config); the caller logs it and continues
+// without AWS so a cloud-auth problem never takes down the Kubernetes
+// watchers. Credentials are fetched lazily on the first API call, so missing
+// or invalid credentials surface as alertkube_cloud_poll_errors_total on every
+// poll rather than as an error here.
+func buildSources(ctx context.Context, cfg config.AWS) ([]sources.Source, error) {
+	regions := make([]regionConfig, 0, len(cfg.Regions))
+	for _, region := range cfg.Regions {
 		awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 		if err != nil {
 			return nil, fmt.Errorf("aws: load config for region %s: %w", region, err)
@@ -190,61 +96,63 @@ func NewProvider(ctx context.Context, cfg *config.Config) ([]sources.Source, err
 	}
 	// One line per service: its config toggle, the client constructor, and the
 	// Source that owns the resulting per-region clients. A disabled service
-	// yields nil and Compact drops it, so adding a service means adding one
-	// entry here and nothing else.
-	a := cfg.AWS
+	// yields nil and Compact drops it. Adding a service means its own file
+	// (client interface, Source and evaluator) plus: an entry here, a toggle on
+	// config.AWS (config/cloud.go), a matching entry in validateAWS's toggle
+	// list (config/validate.go), the key in helm/values.yaml, and the toggle
+	// row in docs/docs/reference/config-schema.md.
 	return sources.Compact([]sources.Source{
-		regionalSource(a.EKS, regions,
+		regionalSource(cfg.EKS, regions,
 			func(c awssdk.Config) eksAPI { return eks.NewFromConfig(c) },
 			func(rs []eksRegion) sources.Source { return &eksSource{regions: rs} }),
-		regionalSource(a.CloudWatch, regions,
+		regionalSource(cfg.CloudWatch, regions,
 			func(c awssdk.Config) cloudwatchAPI { return cloudwatch.NewFromConfig(c) },
 			func(rs []cwRegion) sources.Source { return &cloudWatchSource{regions: rs} }),
-		regionalSource(a.EC2, regions,
+		regionalSource(cfg.EC2, regions,
 			func(c awssdk.Config) ec2API { return ec2.NewFromConfig(c) },
 			func(rs []ec2Region) sources.Source { return &ec2Source{regions: rs} }),
-		regionalSource(a.ELBV2, regions,
+		regionalSource(cfg.ELBV2, regions,
 			func(c awssdk.Config) elbv2API { return elbv2.NewFromConfig(c) },
 			func(rs []elbv2Region) sources.Source { return &elbv2Source{regions: rs} }),
-		regionalSource(a.RDS, regions,
+		regionalSource(cfg.RDS, regions,
 			func(c awssdk.Config) rdsAPI { return rds.NewFromConfig(c) },
 			func(rs []rdsRegion) sources.Source { return &rdsSource{regions: rs} }),
-		regionalSource(a.DynamoDB, regions,
+		regionalSource(cfg.DynamoDB, regions,
 			func(c awssdk.Config) dynamoDBAPI { return dynamodb.NewFromConfig(c) },
 			func(rs []dynRegion) sources.Source { return &dynamoDBSource{regions: rs} }),
-		regionalSource(a.ElastiCache, regions,
+		regionalSource(cfg.ElastiCache, regions,
 			func(c awssdk.Config) elastiCacheAPI { return elasticache.NewFromConfig(c) },
 			func(rs []ecRegion) sources.Source { return &elastiCacheSource{regions: rs} }),
-		globalSource(a.S3, regions,
+		globalSource(cfg.S3, regions,
 			func(c awssdk.Config) sources.Source { return &s3Source{client: s3.NewFromConfig(c)} }),
-		regionalSource(a.CloudTrail, regions,
+		regionalSource(cfg.CloudTrail, regions,
 			func(c awssdk.Config) cloudTrailAPI { return cloudtrail.NewFromConfig(c) },
 			func(rs []cloudTrailRegion) sources.Source { return newCloudTrailSource(rs, cfg) }),
-		regionalSource(a.ASG, regions,
+		regionalSource(cfg.ASG, regions,
 			func(c awssdk.Config) autoscalingAPI { return autoscaling.NewFromConfig(c) },
 			func(rs []asgRegion) sources.Source { return &asgSource{regions: rs} }),
-		regionalSource(a.KMS, regions,
+		regionalSource(cfg.KMS, regions,
 			func(c awssdk.Config) kmsAPI { return kms.NewFromConfig(c) },
 			func(rs []kmsRegion) sources.Source { return &kmsSource{regions: rs} }),
-		regionalSource(a.EBS, regions,
+		regionalSource(cfg.EBS, regions,
 			func(c awssdk.Config) ebsAPI { return ec2.NewFromConfig(c) },
 			func(rs []ebsRegion) sources.Source { return &ebsSource{regions: rs} }),
-		regionalSource(a.Aurora, regions,
+		regionalSource(cfg.Aurora, regions,
 			func(c awssdk.Config) auroraAPI { return rds.NewFromConfig(c) },
 			func(rs []auroraRegion) sources.Source { return &auroraSource{regions: rs} }),
-		regionalSource(a.NAT, regions,
+		regionalSource(cfg.NAT, regions,
 			func(c awssdk.Config) natAPI { return ec2.NewFromConfig(c) },
 			func(rs []natRegion) sources.Source { return &natSource{regions: rs} }),
-		regionalSource(a.EFS, regions,
+		regionalSource(cfg.EFS, regions,
 			func(c awssdk.Config) efsAPI { return efs.NewFromConfig(c) },
 			func(rs []efsRegion) sources.Source { return &efsSource{regions: rs} }),
-		regionalSource(a.ACM, regions,
+		regionalSource(cfg.ACM, regions,
 			func(c awssdk.Config) acmAPI { return acm.NewFromConfig(c) },
 			func(rs []acmRegion) sources.Source { return &acmSource{regions: rs} }),
-		regionalSource(a.VPN, regions,
+		regionalSource(cfg.VPN, regions,
 			func(c awssdk.Config) vpnAPI { return ec2.NewFromConfig(c) },
 			func(rs []vpnRegion) sources.Source { return &vpnSource{regions: rs} }),
-		globalSource(a.Route53, regions,
+		globalSource(cfg.Route53, regions,
 			func(c awssdk.Config) sources.Source { return &route53Source{client: route53.NewFromConfig(c)} }),
 	}), nil
 }

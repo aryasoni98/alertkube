@@ -2,11 +2,12 @@ package watchers
 
 import (
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func makeNode(unschedulable bool, conditions ...v1.NodeCondition) *v1.Node {
@@ -41,6 +42,13 @@ func TestNodeEvaluate(t *testing.T) {
 			name:         "not ready on add (old nil) fires critical",
 			oldNode:      nil,
 			newNode:      makeNode(false, v1.NodeCondition{Type: v1.NodeReady, Status: v1.ConditionFalse}),
+			wantReason:   "NodeNotReady",
+			wantSeverity: alert.SeverityCritical,
+		},
+		{
+			name:         "ready unknown on add is not a prior unknown",
+			oldNode:      nil,
+			newNode:      makeNode(false, v1.NodeCondition{Type: v1.NodeReady, Status: v1.ConditionUnknown}),
 			wantReason:   "NodeNotReady",
 			wantSeverity: alert.SeverityCritical,
 		},
@@ -98,7 +106,7 @@ func TestNodeEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewNode()
+			w := newNode()
 
 			var got []*alert.Alert
 			w.evaluate(tc.oldNode, tc.newNode, func(a *alert.Alert) { got = append(got, a) })
@@ -126,5 +134,33 @@ func TestNodeEvaluate(t *testing.T) {
 				t.Errorf("node name: got %q, want node-1", a.NodeName)
 			}
 		})
+	}
+}
+
+func TestNodeResyncRefiresAndTouchesEndsAt(t *testing.T) {
+	node := makeNode(false, v1.NodeCondition{Type: v1.NodeReady, Status: v1.ConditionFalse})
+	w := newNode()
+	var first *alert.Alert
+	w.evaluate(node, node, func(a *alert.Alert) {
+		if a.Reason == "NodeNotReady" {
+			first = a
+		}
+	})
+	if first == nil {
+		t.Fatal("resync did not re-assert NodeNotReady")
+	}
+	s := alert.NewStore(time.Hour, time.Hour, nil)
+	if !s.ShouldSend(first) {
+		t.Fatal("first firing should send")
+	}
+	ends := s.ActiveList()[0].EndsAt
+	time.Sleep(2 * time.Millisecond)
+	w.evaluate(node, node, func(a *alert.Alert) {
+		if !s.ShouldSend(a) {
+			s.Touch(a.Fingerprint)
+		}
+	})
+	if !s.ActiveList()[0].EndsAt.After(ends) {
+		t.Fatal("resync re-fire did not advance EndsAt")
 	}
 }

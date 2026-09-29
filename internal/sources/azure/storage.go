@@ -5,40 +5,28 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceAzureStorage = "azure-storage"
 
-// storageLister lists storage accounts in one subscription. The real adapter
-// drains the List pager; tests provide a fake.
-type storageLister interface {
-	List(ctx context.Context) ([]*armstorage.Account, error)
-}
-
+// armStorageLister lists storage accounts in one subscription by draining the
+// List pager; tests provide a fake.
 type armStorageLister struct {
 	client *armstorage.AccountsClient
 }
 
 func (l *armStorageLister) List(ctx context.Context) ([]*armstorage.Account, error) {
-	return drainPager(ctx, l.client.NewListPager(nil),
+	return drainPager(ctx, sourceAzureStorage, l.client.NewListPager(nil),
 		func(r armstorage.AccountsClientListResponse) []*armstorage.Account { return r.Value })
 }
 
-type azureStorageSubscription = subLister[storageLister]
-
-// azureStorageSource alerts on Storage accounts whose primary endpoint is
+// newAzureStorageSource alerts on Storage accounts whose primary endpoint is
 // unavailable (critical); available resolves. This is Azure's analog of the
 // AWS S3 source.
-type azureStorageSource struct {
-	subs []azureStorageSubscription
-}
-
-func (s *azureStorageSource) Name() string { return sourceAzureStorage }
-
-func (s *azureStorageSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollBySubscription(ctx, sourceAzureStorage, s.subs, emit, evaluateStorageAccount)
+func newAzureStorageSource(subs []sources.Scoped[*armstorage.Account]) sources.Source {
+	return sources.NewListSource(sourceAzureStorage, subs, evaluateStorageAccount)
 }
 
 func evaluateStorageAccount(subscription string, acct *armstorage.Account, emit sources.Emit) {

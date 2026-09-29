@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// Circuit-breaker defaults. A sink that fails consecutiveFailures times in a row
+// Circuit-breaker defaults. A sink that fails breakerThreshold times in a row
 // is considered down; the breaker opens and short-circuits its sends for
-// openCooldown so a persistently-broken endpoint stops burning the per-sink
+// breakerCooldown so a persistently-broken endpoint stops burning the per-sink
 // timeout budget (and log noise) on every alert. After the cooldown one trial
 // send is allowed (half-open); success closes the breaker, another failure
 // re-opens it. These are conservative defaults sized to recover quickly while
@@ -17,10 +17,16 @@ var (
 	breakerCooldown  = 30 * time.Second
 	// breakerSlowThreshold is the latency above which a *successful* send still
 	// counts against the sink. A failure-only breaker has a blind spot: an
-	// endpoint that accepts every request but takes 20s to answer never trips,
-	// yet it occupies a dispatch worker for the whole time and pushes
+	// endpoint that accepts every request but takes seconds to answer never
+	// trips, yet it occupies a dispatch worker for the whole time and pushes
 	// backpressure onto the informer handlers. Slow is a different failure from
 	// broken, and it needs the same short-circuit.
+	// It must stay below httpx.DefaultTimeout (10s): an attempt that reaches
+	// that ceiling is a failure, so a threshold at or above it would count
+	// only retried successes as slow. The full ordering is
+	// breakerSlowThreshold < httpx.DefaultTimeout < perSinkTimeout (15s) <
+	// dispatchTimeout (20s), pinned by TestBreakerSlowThresholdNestsInDeliveryBudget
+	// and internal/app's TestDeliveryBudgetNests.
 	breakerSlowThreshold = 5 * time.Second
 	// breakerSlowRun is how many consecutive slow-but-successful sends trip the
 	// breaker. Kept equal to breakerThreshold so slow and broken are treated
@@ -52,26 +58,27 @@ type breaker struct {
 
 func newBreaker() *breaker { return &breaker{now: time.Now} }
 
-// Allow reports whether a send may proceed. When the breaker is open it stays
-// closed-to-traffic until the cooldown elapses, then admits exactly one trial
-// (half-open) so a recovered endpoint can re-close the breaker without releasing
-// a storm at it.
-func (b *breaker) Allow() bool {
+// Allow reports whether a send may proceed and whether this call consumed the
+// half-open probe. When the breaker is open it stays closed-to-traffic until
+// the cooldown elapses, then admits exactly one trial (half-open) so a
+// recovered endpoint can re-close the breaker without releasing a storm at it.
+// A caller that then bails without sending (rate-limit wait cancelled) must
+// Record a failure only when probe is true, or the breaker stays half-open
+// and blocks every later send.
+func (b *breaker) Allow() (ok, probe bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	switch b.state {
 	case breakerOpen:
 		if b.now().Before(b.openUntil) {
-			return false
+			return false, false
 		}
-		// Cooldown elapsed: allow a single probe.
 		b.state = breakerHalfOpen
-		return true
+		return true, true
 	case breakerHalfOpen:
-		// A probe is already in flight; hold other sends back until it resolves.
-		return false
+		return false, false
 	default:
-		return true
+		return true, false
 	}
 }
 
@@ -97,8 +104,8 @@ func (b *breaker) Record(success bool) {
 // Call it alongside Record, for successes as well as failures.
 //
 // It is separate from Record because slow and broken are independent signals
-// and Record's failure semantics (praised, well-tested, and load-bearing for
-// resolve retries) should not change to accommodate this. A fast send clears
+// and Record's failure semantics (well-tested and load-bearing for resolve
+// retries) should not change to accommodate this. A fast send clears
 // the slow run; breakerSlowRun consecutive slow ones open the breaker exactly
 // as a failure run would, so a sink that is merely unusably slow stops
 // occupying dispatch workers.
@@ -124,5 +131,12 @@ func (b *breaker) RecordLatency(took time.Duration) {
 func (b *breaker) Open() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.state == breakerOpen && b.now().Before(b.openUntil)
+	switch b.state {
+	case breakerHalfOpen:
+		return true
+	case breakerOpen:
+		return b.now().Before(b.openUntil)
+	default:
+		return false
+	}
 }

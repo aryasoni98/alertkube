@@ -4,18 +4,24 @@ Deploys [alertkube](https://github.com/aryasoni98/alertkube) - a Kubernetes
 multi-resource alerting controller - with RBAC, metrics, optional HA, and
 optional Prometheus Operator integration.
 
-![Version: 1.2.1](https://img.shields.io/badge/Version-1.2.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.2.1](https://img.shields.io/badge/AppVersion-1.2.1-informational?style=flat-square)
+![Version: 2.0.0](https://img.shields.io/badge/Version-2.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.0.0](https://img.shields.io/badge/AppVersion-2.0.0-informational?style=flat-square)
 
 ## Install
 
+Create `alertkube-api` with key `token` and `alertkube-slack` with key
+`webhookUrl` in the release namespace, then reference those Secrets:
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
-  --version 1.2.1 \
+  --version 2.0.0 \
   --set cluster=my-cluster \
-  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
+  --set slack.webhookUrlSecretKeyRef.name=alertkube-slack \
+  --set slack.webhookUrlSecretKeyRef.key=webhookUrl
 ```
 
-Or from a git checkout: `helm upgrade --install alertkube ./helm --set cluster=...`.
+From a git checkout, use `./helm` as the chart path and omit `--version`.
 
 ### Sinks
 
@@ -29,7 +35,10 @@ Set the credential for each sink you use (inline or via `*SecretKeyRef`):
 | Opsgenie | `opsgenie.apiKey` (+ `opsgenie.apiUrl` for EU) |
 | Discord | `discord.webhookUrl` |
 | Telegram | `telegram.botToken` + `telegram.chatId` |
+| Google Chat | `googlechat.webhookUrl` |
+| Mattermost | `mattermost.webhookUrl` |
 | Generic webhook | `genericWebhook.url` (+ `genericWebhook.signingSecret` for HMAC) |
+| stdout | No credential; route to the `stdout` sink for local testing |
 
 Routing, inhibitions, silences, severity overrides, and escalations are set under
 `routing:`, `inhibitions:`, `silences:`, `severityOverrides:`, `escalations:` and
@@ -47,12 +56,12 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for scheduling. |
-| api.allowSecretRead | bool | `false` | Opt-in (Phase 2b): allow the console to TEST a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need in-UI channel credential validation. |
-| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (/api/v1/alerts + console data) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
+| api.allowSecretRead | bool | `false` | Allow the API to test a channel whose credential lives in a Kubernetes Secret. Enabling this grants the controller `secrets: get` in its OWN namespace (a Role, not cluster-wide) and is the one place the zero-secrets-read posture bends. Off by default; the secret value is read at send-time only and never returned to the client. Leave false unless you need channel credential validation through the API. |
+| api.allowUnauthenticatedRead | bool | `false` | Accept an UNAUTHENTICATED read API (alerts, config, silences) when no api.token and no networkPolicy are set. The chart fails closed by default: an install with neither a token nor a NetworkPolicy is rejected unless this is explicitly true, so an open introspection surface is always a deliberate choice. Mirrors the receiver's allowAnonymous model. |
 | api.authMode | string | `"token"` | Write-path auth mode: `token` (shared writeToken, default) or `rbac` (each write authenticated via Kubernetes TokenReview + SubjectAccessReview, so audit records a real username and access is managed with RBAC). `rbac` binds the controller SA to system:auth-delegator; grant END USERS access with a Role on apiGroups:["alertkube.io"] resources:["silences","channels"]. |
-| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET, console data) (inline; prefer the Secret ref). |
+| api.token | string | `""` | Optional bearer token guarding read endpoints (`/api/v1/alerts`, `/api/v1/config`, `/api/v1/silences` GET) (inline; prefer the Secret ref). |
 | api.tokenSecretKeyRef | object | `{}` | Secret reference for the API (read) token (`{key, name}`). |
-| api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences from the console). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
+| api.writeToken | string | `""` | Optional SEPARATE bearer token enabling runtime WRITES (create/delete silences through the API). Leave empty to keep the controller read-only: write endpoints fail closed (403) until this is set. Inline; prefer the ref. |
 | api.writeTokenSecretKeyRef | object | `{}` | Secret reference for the API write token (`{key, name}`). |
 | automountServiceAccountToken | bool | `true` | Mount the ServiceAccount API token into the pod. |
 | aws.acm | bool | `false` | Alert on ACM certificates that are unusable or expiring within 30 days. |
@@ -71,18 +80,18 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | aws.enabled | bool | `false` | Enable polling AWS APIs for cloud alerts (per-service toggles below:    EKS, CloudWatch, EC2, ELBv2, RDS, DynamoDB, ElastiCache, S3, CloudTrail,    ASG, KMS, EBS, Aurora, NAT, EFS, Route53, ACM, VPN). |
 | aws.kms | bool | `false` | Alert on customer-managed KMS keys in a risky state (pending-deletion/disabled). |
 | aws.nat | bool | `false` | Alert on NAT gateways in the failed state. |
-| aws.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
+| aws.pollSeconds | int | `60` | Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too. |
 | aws.rds | bool | `false` | Alert on RDS DB instance status (failed/storage-full/stopped/...). |
 | aws.regions | list | `[]` | AWS regions to poll. Required when aws.enabled is true. |
 | aws.route53 | bool | `false` | Alert on Route53 health checks failing from a majority of checkers. |
 | aws.s3 | bool | `false` | Alert on S3 buckets that are publicly accessible or not fully blocked. |
 | aws.vpn | bool | `false` | Alert on Site-to-Site VPN connections with tunnels down. |
-| azure.aks | bool | `false` | Alert on AKS cluster discovery + control-plane health. |
+| azure.aks | bool | `false` | Alert on AKS cluster discovery + control-plane and node-pool health. |
 | azure.enabled | bool | `false` | Enable polling Azure APIs for cloud alerts (per-service toggles below:    AKS, Monitor, VMs, Storage, SQL, Redis). |
 | azure.monitor | bool | `false` | Ingest fired Azure Monitor alerts (Alerts Management): Fired pages, Resolved resolves. |
-| azure.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
-| azure.redis | bool | `false` | Alert on Azure Cache for Redis in a failed provisioning state. |
-| azure.sql | bool | `false` | Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible). |
+| azure.pollSeconds | int | `60` | Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too. |
+| azure.redis | bool | `false` | Alert on Azure Cache for Redis in a failed provisioning state (critical) or recovering from a scale failure (warning). |
+| azure.sql | bool | `false` | Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible/EmergencyMode/Shutdown). |
 | azure.storage | bool | `false` | Alert on Azure Storage account primary-endpoint unavailability. |
 | azure.subscriptions | list | `[]` | Azure subscription IDs to poll. Required when azure.enabled is true. |
 | azure.vms | bool | `false` | Alert on Azure VM provisioning failures. |
@@ -98,6 +107,7 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | client.qps | int | `50` | Client-side QPS to the API server (0 = controller default of 50). |
 | cluster | string | `"Change-Me"` | Cluster name shown in every alert. |
 | crds.keep | bool | `true` | Keep CRDs on `helm uninstall` (helm.sh/resource-policy: keep) so active Silence objects survive a reinstall. Set false to let Helm delete them. |
+| crds.silences.clusterScoped | bool | `false` | Install the Silence CRD cluster-scoped. Namespaced (the default) pins each Silence to its own namespace so it cannot mute other namespaces. Requires rbac.scope=cluster and no WATCH_NAMESPACE or --watch-namespace; the chart refuses to render otherwise. CRD scope is immutable: changing this on an existing install means deleting the CRD, and with it every Silence object, before upgrading. |
 | crds.silences.enabled | bool | `false` | Install the Silence CRD + RBAC and watch silences.alertkube.io. |
 | discord.webhookUrl | string | `""` | Discord channel webhook URL (inline; prefer the Secret ref). |
 | discord.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the Discord webhook URL (`{key, name}`). |
@@ -114,9 +124,9 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | gcp.cloudsql | bool | `false` | Alert on Cloud SQL instance state (failed/suspended/maintenance). |
 | gcp.compute | bool | `false` | Alert on Compute Engine instances in REPAIRING state. |
 | gcp.enabled | bool | `false` | Enable polling Google Cloud APIs for cloud alerts (per-service toggles    below: GKE, Monitoring, Compute, CloudSQL). |
-| gcp.gke | bool | `false` | Alert on GKE cluster discovery + health. |
+| gcp.gke | bool | `false` | Alert on GKE cluster discovery + cluster and node-pool health. |
 | gcp.monitoring | bool | `false` | Cloud Monitoring posture: alert when an alert policy is disabled (not a fired-incident feed). |
-| gcp.pollSeconds | int | `60` | Seconds between polls (must be below behavior.resolveTTLSeconds). |
+| gcp.pollSeconds | int | `60` | Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too. |
 | gcp.projects | list | `[]` | GCP project IDs to poll. Required when gcp.enabled is true. |
 | genericWebhook.signingSecret | string | `""` | Optional HMAC-SHA256 signing key for request signatures. |
 | genericWebhook.url | string | `""` | Endpoint that receives the raw Alert JSON via POST. |
@@ -188,7 +198,6 @@ dropped, `RuntimeDefault` seccomp. Credentials are sourced via Secrets
 | slack.channels.critical | string | `"alerts-critical"` | Channel for critical alerts (bot-token mode only). |
 | slack.channels.info | string | `"alerts-info"` | Channel for info alerts (bot-token mode only). |
 | slack.channels.warning | string | `"alerts-warning"` | Channel for warning alerts (bot-token mode only). |
-| slack.username | string | `"alertkube"` | Username shown on Slack webhook messages. |
 | slack.webhookUrl | string | `""` | Slack incoming webhook URL (inline; prefer `webhookUrlSecretKeyRef`). |
 | slack.webhookUrlSecretKeyRef | object | `{}` | Secret reference for the webhook URL (`{key, name}`). |
 | teams.webhookUrl | string | `""` | Microsoft Teams incoming webhook URL (inline; prefer the Secret ref). |

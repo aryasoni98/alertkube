@@ -5,17 +5,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/templates"
-	"github.com/aryasoni98/alertkube/internal/textutil"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
-// NewDiscord posts embeds to a Discord channel webhook.
-// Webhook URL is read on each Send so Secret rotation is honored.
-func init() { Register("discord", func(SinkConfig) Sink { return NewDiscord() }) }
+func init() { Register("discord", func(SinkConfig) Sink { return newDiscord() }) }
 
-func NewDiscord() Sink {
-	return &webhookSink{name: "discord", credEnv: "DISCORD_WEBHOOK_URL", payload: discordPayload}
+// newDiscord posts embeds to a Discord channel webhook.
+// Webhook URL is read on each Send so Secret rotation is honored.
+func newDiscord() Sink {
+	return &chatWebhookSink{name: "discord", credEnv: envDiscordWebhookURL, payload: discordPayload}
 }
 
 // discordColor converts the severity hex color (#RRGGBB) to the decimal
@@ -44,19 +43,19 @@ func discordPayload(a *alert.Alert) any {
 		{"name": "Reason", "value": escapeMarkdown(orDash(a.Reason)), "inline": true},
 	}
 	embed := map[string]any{
-		"title":       textutil.Head(alertTitle(a), 256),
+		"title":       textutil.Head(alertTitlePlain(a), 256),
 		"description": textutil.Head(escapeMarkdown(a.Summary), 4096),
 		"color":       discordColor(a),
 		"fields":      fields,
 		"footer":      map[string]any{"text": fmt.Sprintf("%s | fp=%s", a.Kind, a.Fingerprint)},
 		"timestamp":   a.StartsAt.UTC().Format(time.RFC3339),
 	}
-	if runbook, ok := templates.Runbook(a); ok {
-		embed["url"] = runbook
+	if runbookURL, ok := runbook(a); ok {
+		embed["url"] = runbookURL
 	}
 
 	return map[string]any{
-		"username": "alertkube",
+		"username": slackUsername,
 		"embeds":   []map[string]any{embed},
 	}
 }

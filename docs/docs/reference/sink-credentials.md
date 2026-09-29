@@ -5,7 +5,8 @@ environment variable(s) read by the controller, the corresponding Helm value
 path and default Secret key, and notes on mode-specific behavior.
 
 Routing rules may only reference a known sink name: `slack`, `pagerduty`,
-`teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`. An unknown
+`teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`, `googlechat`,
+`mattermost`. An unknown
 name in `routing`, `escalations`, or `sinkRates` fails config validation at
 load.
 
@@ -20,18 +21,21 @@ Two modes. Bot-token mode takes precedence when `SLACK_BOT_TOKEN` is set.
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` / `slack.webhookUrlSecretKeyRef` | `slackWebhookUrl` | Incoming-webhook mode. Sets the `channel` field, honored only by **legacy** incoming webhooks; modern-app webhooks ignore it and post to the install-time channel. |
+| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` / `slack.webhookUrlSecretKeyRef` | `slackWebhookUrl` | Incoming-webhook mode. Posts to the channel the webhook was created for; the per-severity channels are not sent. The `channel` field is sent only when a workload sets a valid `alert-slack-channel` annotation; **legacy** incoming webhooks honor it, while a modern-app webhook is bound to its install-time channel. |
 | `SLACK_BOT_TOKEN` | `slack.botToken` / `slack.botTokenSecretKeyRef` | `slackBotToken` | Bot-token mode (`chat.postMessage`). Takes precedence over the webhook URL. The only mode where per-severity channel routing works with a modern Slack app. Needs scope `chat:write` and the bot invited to each channel. |
 
 The sink reads only `SLACK_WEBHOOK_URL` and `SLACK_BOT_TOKEN` directly from
 the environment. At least one of the two must be set or the sink is inactive.
 
-Channel and username are supplied from config (rendered from Helm values),
-not read from the environment by the sink:
+The per-severity channels are supplied from config (rendered from Helm
+values), not read from the environment by the sink. AlertKube asks Slack to
+show the display name `alertkube`, which is not configurable. Legacy incoming
+webhooks, and bot tokens with the `chat:write.customize` scope, honor it;
+modern-app webhooks and bot tokens with only `chat:write` post under the Slack
+app's name.
 
 | Setting | Helm value | Config key | Env fallback (config layer) | Notes |
 | --- | --- | --- | --- | --- |
-| Username | `slack.username` | - | - | Display username (default `alertkube`). |
 | Critical channel | `slack.channels.critical` | `channels.critical` | `SLACK_CHANNEL_CRITICAL` | Default `alerts-critical`. |
 | Warning channel | `slack.channels.warning` | `channels.warning` | `SLACK_CHANNEL_WARNING`, then `SLACK_CHANNEL` | Default `alerts-warning`; `SLACK_CHANNEL` is the legacy single-channel fallback. |
 | Info channel | `slack.channels.info` | `channels.info` | `SLACK_CHANNEL_INFO` | Default `alerts-info`. |

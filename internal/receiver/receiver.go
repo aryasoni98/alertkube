@@ -8,13 +8,19 @@ package receiver
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"mime"
 	"net/http"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
+	"unicode"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/authz"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/authz"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 // fingerprintOK constrains the upstream-supplied fingerprint to a safe
@@ -33,6 +39,23 @@ const maxBodyBytes = 4 << 20
 // alerts would enqueue tens of thousands of synchronous emit calls inside
 // the server read timeout.
 const maxAlertsPerPayload = 2000
+
+const (
+	maxLabelKeys   = 32
+	maxValueLen    = 1024
+	maxFieldLen    = 256
+	startsAtPast   = 365 * 24 * time.Hour
+	startsAtFuture = 5 * time.Minute
+)
+
+// identityLabels are the label keys toAlert derives identity, severity and
+// node from, and summaryAnnotations the annotation keys it takes the summary
+// from, in priority order. boundMap always keeps them, so the bounded maps
+// still carry the values the alert was built from.
+var (
+	identityLabels     = []string{"alertname", "namespace", "severity", "pod", "instance", "job", "node"}
+	summaryAnnotations = []string{"summary", "description", "message"}
+)
 
 // Payload is the Alertmanager webhook_config message shape (version "4").
 type Payload struct {
@@ -82,10 +105,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || media != "application/json" {
+		http.Error(w, "bad payload", http.StatusBadRequest)
+		return
+	}
 	var p Payload
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-	if err := dec.Decode(&p); err != nil {
-		http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
+	if err := dec.Decode(&p); err != nil || dec.More() {
+		http.Error(w, "bad payload", http.StatusBadRequest)
 		return
 	}
 	if len(p.Alerts) > maxAlertsPerPayload {
@@ -108,8 +136,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // toAlert maps Alertmanager label conventions onto the internal model.
 func toAlert(am AMAlert) *alert.Alert {
-	name := firstOf(am.Labels, "pod", "instance", "job", "alertname")
-	a := alert.New(alert.KindExternal, am.Labels["namespace"], name, am.Labels["alertname"], severity(am.Labels))
+	// Identity comes from the raw maps: boundMap may drop keys, and which
+	// keys it keeps must never change an alert's identity or severity.
+	ns := logField(am.Labels["namespace"])
+	name := logField(firstOf(am.Labels, "pod", "instance", "job", "alertname"))
+	reason := logField(am.Labels["alertname"])
+	a := alert.New(alert.KindExternal, ns, name, reason, severity(am.Labels))
 	// Alertmanager's fingerprint is the upstream dedupe identity; using
 	// it keeps our mute window aligned with upstream group keys. Only
 	// adopt it when it is a safe identifier (see fingerprintOK); an
@@ -117,33 +149,79 @@ func toAlert(am AMAlert) *alert.Alert {
 	// the Opsgenie alias path. Invalid values keep the locally computed
 	// fingerprint that alert.New already set.
 	if fingerprintOK.MatchString(am.Fingerprint) {
-		a.Fingerprint = am.Fingerprint
+		// Namespace the upstream id so it cannot occupy a fingerprint
+		// this process computed for a watched object.
+		a.Fingerprint = "am-" + am.Fingerprint
 	}
-	if s := firstOf(am.Annotations, "summary", "description", "message"); s != "" {
+	if s := firstOf(am.Annotations, summaryAnnotations...); s != "" {
 		a.Summary = s
 	} else {
 		a.Summary = am.Labels["alertname"]
 	}
-	a.NodeName = am.Labels["node"]
-	for k, v := range am.Labels {
-		a.Labels[k] = v
-	}
-	for k, v := range am.Annotations {
-		a.Annotations[k] = v
-	}
+	a.Summary = textutil.Head(a.Summary, maxValueLen)
+	a.NodeName = logField(am.Labels["node"])
+	maps.Copy(a.Labels, boundMap(am.Labels, identityLabels))
+	maps.Copy(a.Annotations, boundMap(am.Annotations, summaryAnnotations))
 	// Strip annotations that control alertkube's own behavior. A received
 	// alert is forwarded by an upstream Alertmanager that may aggregate many
 	// senders; letting a forwarded alert self-silence or redirect Slack
 	// channels would let one sender suppress or reroute alerts for everyone.
 	// External alerts flow through alertkube's own routing/silencing config
-	// instead. runbook-url is kept: it is per-alert enrichment and
-	// templates.SafeRunbookURL validates it before any sink renders it.
+	// instead. runbook-url is kept: it is per-alert enrichment, and every
+	// sink that renders it as a link validates it with sinks.safeRunbookURL
+	// first. The generic webhook forwards annotations as-is.
 	delete(a.Annotations, alert.AnnotationSilenceUntil)
 	delete(a.Annotations, alert.AnnotationSlackChannel)
 	if !am.StartsAt.IsZero() {
-		a.StartsAt = am.StartsAt
+		a.StartsAt = clampStartsAt(am.StartsAt, time.Now())
 	}
 	return a
+}
+
+// boundMap truncates keys and values and keeps at most maxLabelKeys keys:
+// the reserved keys first, then the rest in sorted order, so the same input
+// always keeps the same keys. When keys collide after truncation, the first
+// in that order wins.
+func boundMap(in map[string]string, reserved []string) map[string]string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make(map[string]string, min(len(in), maxLabelKeys))
+	add := func(k string) {
+		bk := textutil.Head(k, maxFieldLen)
+		if _, dup := out[bk]; !dup && len(out) < maxLabelKeys {
+			out[bk] = textutil.Head(in[k], maxValueLen)
+		}
+	}
+	for _, k := range reserved {
+		if _, ok := in[k]; ok {
+			add(k)
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(in)) {
+		if len(out) >= maxLabelKeys {
+			break
+		}
+		add(k)
+	}
+	return out
+}
+
+func clampStartsAt(t, now time.Time) time.Time {
+	if t.Before(now.Add(-startsAtPast)) || t.After(now.Add(startsAtFuture)) {
+		return now
+	}
+	return t
+}
+
+func logField(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return textutil.Head(s, maxFieldLen)
 }
 
 func severity(labels map[string]string) alert.Severity {

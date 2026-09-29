@@ -6,7 +6,7 @@ real operational surface.
 | Topology | Replicas | Buys you | Costs you |
 | --- | --- | --- | --- |
 | **Single** | 1 | Simplest possible | Alerting stops while the pod restarts |
-| **HA** (recommended) | 2+ | Failover in ≤30s | A Lease, and persistence becomes mandatory |
+| **HA** (recommended) | 2+ | Failover in seconds on a rollout, ~30s after a crash | A Lease, and persistence becomes mandatory |
 | **Sharded** | N | Throughput | Stable per-replica identity; correlation rules under-count |
 
 **Sharding is not an upgrade of HA — it is orthogonal.** HA gives failover;
@@ -39,9 +39,12 @@ helm upgrade --install alertkube ./helm \
 
 See [`examples/ha-leader-election.yaml`](https://github.com/aryasoni98/alertkube/blob/master/examples/ha-leader-election.yaml).
 
-Active/passive: only the leader evaluates. Followers hold a synced informer
-cache and are one Lease transition from leading. Worst-case leaderless window
-is ~30s (the Lease duration).
+Active/passive: only the leader evaluates. Followers run no informers and are
+one Lease transition from leading; a new leader returns 503 on `/readyz` while
+its caches sync. On a rollout the outgoing leader releases the Lease once it has
+drained, so a follower takes over within one 5s retry (jittered). After a crash
+the Lease must expire first: the worst-case leaderless window is ~30s (the Lease
+duration).
 
 !!! warning "Followers report Ready by design"
     A follower that reported NotReady would deadlock a `RollingUpdate` with
@@ -55,8 +58,8 @@ and replays the outbox from it.
 
 ```bash
 # One Deployment per shard, or a StatefulSet mapping the ordinal to the index.
---set env.ALERTKUBE_SHARD_TOTAL=3
---set env.ALERTKUBE_SHARD_INDEX=0    # unique and stable per replica
+# There is no .Values.env. Shard identity is extraEnv.
+--set-json 'extraEnv=[{"name":"ALERTKUBE_SHARD_TOTAL","value":"3"},{"name":"ALERTKUBE_SHARD_INDEX","value":"0"}]'
 ```
 
 See [`examples/sharded.yaml`](https://github.com/aryasoni98/alertkube/blob/master/examples/sharded.yaml)

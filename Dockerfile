@@ -2,7 +2,7 @@
 # cross-compiles to the requested target, so multi-arch `docker buildx`
 # builds do not pay for QEMU emulation. TARGETOS/TARGETARCH are injected by
 # buildx; they default to the build host when building with plain `docker`.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 # Cache the module download across builds so a go.sum change does not refetch
@@ -18,7 +18,7 @@ ARG VERSION=dev
 # binary for the `alertkube` startup log line and build provenance.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w -X github.com/aryasoni98/alertkube/internal/app.version=${VERSION}" \
+    go build -trimpath -ldflags="-s -w -X github.com/aryasoni98/alertkube/v2/internal/app.version=${VERSION}" \
     -o /out/alertkube ./cmd/alertkube
 
 # distroless/static ships CA certs, tzdata, and the 65532 nonroot user with

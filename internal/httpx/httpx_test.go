@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -56,7 +57,7 @@ func TestPostJSONRetriesOn5xxThenSucceeds(t *testing.T) {
 	defer srv.Close()
 
 	policy := RetryPolicy{MaxAttempts: 4, BaseDelay: 5 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
-	if err := PostJSONWithRetry(context.Background(), srv.URL, map[string]string{"x": "y"}, policy); err != nil {
+	if err := PostJSONWithHeaders(context.Background(), srv.URL, map[string]string{"x": "y"}, policy, nil); err != nil {
 		t.Fatalf("expected success after retries, got %v", err)
 	}
 	if got := attempts.Load(); got != 3 {
@@ -73,7 +74,7 @@ func TestPostJSONStopsOn4xx(t *testing.T) {
 	defer srv.Close()
 
 	policy := RetryPolicy{MaxAttempts: 3, BaseDelay: 5 * time.Millisecond}
-	if err := PostJSONWithRetry(context.Background(), srv.URL, nil, policy); err == nil {
+	if err := PostJSONWithHeaders(context.Background(), srv.URL, nil, policy, nil); err == nil {
 		t.Fatalf("expected error on 400")
 	}
 	if got := attempts.Load(); got != 1 {
@@ -95,7 +96,7 @@ func TestPostJSONHonorsRetryAfter(t *testing.T) {
 	defer srv.Close()
 
 	policy := RetryPolicy{MaxAttempts: 3, BaseDelay: 5 * time.Millisecond}
-	if err := PostJSONWithRetry(context.Background(), srv.URL, nil, policy); err != nil {
+	if err := PostJSONWithHeaders(context.Background(), srv.URL, nil, policy, nil); err != nil {
 		t.Fatalf("expected success after 429 + Retry-After, got %v", err)
 	}
 }
@@ -113,12 +114,29 @@ func TestPostJSONReturnsSanitizedURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := PostJSONWithRetry(context.Background(), srv.URL+"/x/y?token=secretXYZ", nil, RetryPolicy{MaxAttempts: 1})
+	err := PostJSONWithHeaders(context.Background(), srv.URL+"/x/y?token=secretXYZ", nil, RetryPolicy{MaxAttempts: 1}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if strings.Contains(err.Error(), "secretXYZ") {
 		t.Fatalf("error leaks secret: %v", err)
+	}
+}
+
+func TestPostJSONConnectFailureHidesSecret(t *testing.T) {
+	dest := "http://127.0.0.1:1/services/SECRETTOKEN"
+	err := PostJSONWithHeaders(context.Background(), dest, nil, RetryPolicy{MaxAttempts: 1}, nil)
+	if err == nil {
+		t.Fatal("expected a connect error")
+	}
+	if strings.Contains(err.Error(), "SECRETTOKEN") {
+		t.Fatalf("connect error leaks secret: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = PostJSONWithHeaders(ctx, dest, nil, RetryPolicy{MaxAttempts: 1}, nil)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled connect must stay errors.Is(context.Canceled), got %v", err)
 	}
 }
 

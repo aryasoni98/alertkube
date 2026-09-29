@@ -3,8 +3,9 @@ package sinks
 import (
 	"context"
 	"fmt"
+	"maps"
 	"runtime/debug"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,16 +13,20 @@ import (
 	"golang.org/x/time/rate"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
 
 // perSinkTimeout caps each individual sink send so a stalled endpoint
 // cannot delay other sinks on the same route. Histogram observations
 // reflect this ceiling. It is the hard ceiling on all retries for one sink;
-// see the delivery-path timeout budget at dispatchTimeout (controller.go)
-// for how it nests inside dispatchTimeout and around DefaultRetry.
+// see the delivery-path timeout budget in internal/app/pipeline.go for how
+// it nests inside dispatchTimeout and around DefaultRetry.
 const perSinkTimeout = 15 * time.Second
+
+// PerSinkTimeout exports perSinkTimeout so internal/app can pin
+// dispatchTimeout above it.
+const PerSinkTimeout = perSinkTimeout
 
 // defaultSinkRate is the per-sink rate limit applied when no explicit
 // rate is configured. Slack's published limit is ~1 msg/sec/channel and
@@ -77,11 +82,11 @@ func (r *Registry) Has(name string) bool {
 func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]string, 0, len(r.sinks))
-	for n := range r.sinks {
-		out = append(out, n)
+	out := slices.Sorted(maps.Keys(r.sinks))
+	if out == nil {
+		// Non-nil so an empty registry encodes as [] rather than null.
+		out = []string{}
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -168,16 +173,21 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 		// stops burning the per-sink timeout on every alert. Resolves bypass the
 		// breaker: a resolve must always be attempted so a recovering incident
 		// sink can close its incident even while the breaker is open.
-		if brk != nil && !a.Resolved && !brk.Allow() {
-			breakerSkipped++
-			metrics.AlertsSuppressed.WithLabelValues("circuit_open").Inc()
-			metrics.SinkBreakerOpen.WithLabelValues(name).Set(1)
-			klog.Warningf("sink %q circuit open: skipping %s (endpoint failing)", name, a)
-			continue
+		probe := false
+		if brk != nil && !a.Resolved {
+			ok, tookProbe := brk.Allow()
+			if !ok {
+				breakerSkipped++
+				metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressCircuitOpen).Inc()
+				metrics.SinkBreakerOpen.WithLabelValues(name).Set(1)
+				klog.Warningf("sink %q circuit open: skipping %s (endpoint failing)", name, a)
+				continue
+			}
+			probe = tookProbe
 		}
 		attempted++
 		wg.Add(1)
-		go func(name string, s Sink, limiter *rate.Limiter, brk *breaker) {
+		go func(name string, s Sink, limiter *rate.Limiter, brk *breaker, probe bool) {
 			defer wg.Done()
 			metrics.DispatchInflight.WithLabelValues(name).Inc()
 			defer metrics.DispatchInflight.WithLabelValues(name).Dec()
@@ -198,11 +208,11 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 				if err := limiter.Wait(sendCtx); err != nil {
 					// A drop here means the alert never reaches this sink -
 					// surface which one, loudly, instead of a V(2) whisper.
-					metrics.AlertsSuppressed.WithLabelValues("ratelimited").Inc()
+					metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressRateLimited).Inc()
 					// Allow() may have consumed a half-open probe; record a
 					// failure so the breaker is never stranded half-open (which
 					// would block every later send) when we bail before sending.
-					if brk != nil {
+					if brk != nil && probe {
 						brk.Record(false)
 						setBreakerGauge(name, brk)
 					}
@@ -233,7 +243,7 @@ func (r *Registry) Dispatch(ctx context.Context, a *alert.Alert, names []string)
 				setBreakerGauge(name, brk)
 			}
 			metrics.SinkSendDuration.WithLabelValues(name, result).Observe(took.Seconds())
-		}(name, s, limiter, brk)
+		}(name, s, limiter, brk, probe)
 	}
 	wg.Wait()
 	if attempted > 0 {

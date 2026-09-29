@@ -1,14 +1,13 @@
 package router
 
 import (
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
 // Router decides which sinks an alert goes to, applies inhibitions and silences.
@@ -44,7 +43,13 @@ type Router struct {
 	// takes the exclusive lock and also prunes expired keys, so pruning stays
 	// off the hot read path.
 	mu             sync.RWMutex
-	activeInhibits map[string]time.Time // equal-key -> expiry
+	activeInhibits map[inhibitionKey]time.Time
+}
+
+// An inhibition belongs to one rule and one tuple of equal-field values.
+type inhibitionKey struct {
+	rule  int
+	equal string
 }
 
 func New(routes []config.Route, inhibitions []config.Inhibition, silences []config.Silence, defaultSinks []string) *Router {
@@ -53,7 +58,7 @@ func New(routes []config.Route, inhibitions []config.Inhibition, silences []conf
 		inhibitions:    inhibitions,
 		silences:       silences,
 		defaultSinks:   defaultSinks,
-		activeInhibits: map[string]time.Time{},
+		activeInhibits: map[inhibitionKey]time.Time{},
 	}
 }
 
@@ -64,15 +69,15 @@ func New(routes []config.Route, inhibitions []config.Inhibition, silences []conf
 func (r *Router) Route(a *alert.Alert) []string {
 	if !a.Resolved {
 		if r.silenced(a) {
-			metrics.AlertsSuppressed.WithLabelValues("silenced").Inc()
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressSilenced).Inc()
 			return nil
 		}
 		if r.inMaintenance(a, time.Now()) {
-			metrics.AlertsSuppressed.WithLabelValues("maintenance").Inc()
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressMaintenance).Inc()
 			return nil
 		}
 		if r.inhibited(a) {
-			metrics.AlertsSuppressed.WithLabelValues("inhibited").Inc()
+			metrics.AlertsSuppressed.WithLabelValues(metrics.SuppressInhibited).Inc()
 			return nil
 		}
 		r.maybeArmInhibition(a)
@@ -182,11 +187,11 @@ func (r *Router) inhibited(a *alert.Alert) bool {
 	// Read-only: expired keys are ignored by the now.Before(exp) check and
 	// reclaimed later by maybeArmInhibition, so no pruning (a write) happens
 	// on this hot path.
-	for _, inh := range r.inhibitions {
+	for i, inh := range r.inhibitions {
 		if !a.MatchLabels(inh.Target) {
 			continue
 		}
-		key := inhibitKey(inh, a)
+		key := inhibitionKey{rule: i, equal: a.GroupKey(inh.Equal)}
 		if exp, ok := r.activeInhibits[key]; ok && now.Before(exp) {
 			return true
 		}
@@ -210,21 +215,10 @@ func (r *Router) maybeArmInhibition(a *alert.Alert) {
 	// Arm is the write path and the only place the map grows, so reclaim
 	// expired keys here rather than on the hot inhibited() read path.
 	r.pruneExpiredLocked(now)
-	for _, inh := range r.inhibitions {
+	for i, inh := range r.inhibitions {
 		if !a.MatchLabels(inh.Source) {
 			continue
 		}
-		r.activeInhibits[inhibitKey(inh, a)] = now.Add(inh.DurationParsed())
+		r.activeInhibits[inhibitionKey{rule: i, equal: a.GroupKey(inh.Equal)}] = now.Add(inh.DurationParsed())
 	}
-}
-
-func inhibitKey(inh config.Inhibition, a *alert.Alert) string {
-	var b strings.Builder
-	for _, k := range inh.Equal {
-		b.WriteString(k)
-		b.WriteByte(':')
-		b.WriteString(a.FieldValue(k))
-		b.WriteByte('|')
-	}
-	return b.String()
 }

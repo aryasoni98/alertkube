@@ -2,11 +2,12 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // funcSource adapts a function into a Source for tests.
@@ -81,5 +82,84 @@ func TestRunStopsAllSourcesOnCancel(t *testing.T) {
 	}
 	if a.Load() == 0 || b.Load() == 0 {
 		t.Fatalf("both sources should have polled: a=%d b=%d", a.Load(), b.Load())
+	}
+}
+
+func TestRunCancelsSlowPollAtTwiceInterval(t *testing.T) {
+	const interval = 100 * time.Millisecond
+	type result struct {
+		budget  time.Duration // time left on the poll deadline when Poll started
+		elapsed time.Duration // how long Poll ran before its ctx was done
+		err     error
+	}
+	got := make(chan result, 1)
+	slow := funcSource{name: "slow", poll: func(ctx context.Context, _ Emit) {
+		start := time.Now()
+		dl, ok := ctx.Deadline()
+		if !ok {
+			select {
+			case got <- result{err: errors.New("poll ctx has no deadline")}:
+			default:
+			}
+			return
+		}
+		<-ctx.Done() // a hung provider call
+		select {
+		case got <- result{budget: dl.Sub(start), elapsed: time.Since(start), err: ctx.Err()}:
+		default:
+		}
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, interval, discard, slow); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	select {
+	case r := <-got:
+		if !errors.Is(r.err, context.DeadlineExceeded) {
+			t.Fatalf("slow poll ctx err = %v, want context.DeadlineExceeded", r.err)
+		}
+		if r.budget <= interval || r.budget > 2*interval {
+			t.Fatalf("poll deadline budget = %v, want in (%v, %v]", r.budget, interval, 2*interval)
+		}
+		if r.elapsed <= interval {
+			t.Fatalf("slow poll was cancelled after %v, want longer than one interval (%v)", r.elapsed, interval)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow poll was never cancelled")
+	}
+}
+
+func TestRunPanickingPollReleasesContext(t *testing.T) {
+	// A poll ctx that is released only by its deadline reports
+	// DeadlineExceeded; one released by the deferred cancel as the panic
+	// unwinds reports Canceled.
+	const interval = 200 * time.Millisecond
+	released := make(chan error, 1)
+	boom := funcSource{name: "boom", poll: func(ctx context.Context, _ Emit) {
+		context.AfterFunc(ctx, func() {
+			select {
+			case released <- ctx.Err():
+			default:
+			}
+		})
+		panic("provider blew up")
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, interval, discard, boom); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	select {
+	case err := <-released:
+		// Canceled (not DeadlineExceeded) proves the poll's own cancel ran
+		// when the panic unwound; the parent ctx is still live here.
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("panicking poll ctx err = %v, want context.Canceled from the deferred cancel", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("panicking poll's context was never released")
 	}
 }

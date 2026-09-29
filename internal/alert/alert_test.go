@@ -2,28 +2,53 @@ package alert
 
 import "testing"
 
+func TestKindRegistryMatchesDeclarations(t *testing.T) {
+	if Kind("NotAKind").valid() {
+		t.Fatal("unknown kind was accepted")
+	}
+	for _, k := range []Kind{KindPod, KindNode, KindExternal, KindDerived, KindACMCertificate} {
+		if !k.valid() || string(k) == "" {
+			t.Fatalf("declared kind %q is not registered", k)
+		}
+	}
+	if len(knownKinds) < 40 {
+		t.Fatalf("kind registry has %d entries, want the full set", len(knownKinds))
+	}
+}
+
 func TestComputeFingerprintStable(t *testing.T) {
 	a := ComputeFingerprint(KindPod, "prod", "api-78", "CrashLoopBackOff")
 	b := ComputeFingerprint(KindPod, "prod", "api-78", "CrashLoopBackOff")
 	if a != b {
 		t.Fatalf("fingerprint not stable: %s != %s", a, b)
 	}
-	if len(a) != 12 {
-		t.Fatalf("fingerprint length: want 12, got %d", len(a))
+	if len(a) != fingerprintLen {
+		t.Fatalf("fingerprint length: want %d, got %d", fingerprintLen, len(a))
+	}
+}
+
+func TestFingerprintFieldBoundaries(t *testing.T) {
+	a := ComputeFingerprint(KindPod, "a|b", "c", "reason")
+	b := ComputeFingerprint(KindPod, "a", "b|c", "reason")
+	if a == b {
+		t.Fatal("a pipe inside a field collided with the next field")
 	}
 }
 
 func TestComputeFingerprintDistinct(t *testing.T) {
-	cases := [][2]string{
-		{"prod|api|CrashLoop", "prod|api|OOMKilled"},
-		{"prod|api|CrashLoop", "prod|worker|CrashLoop"},
-		{"prod|api|CrashLoop", "staging|api|CrashLoop"},
+	// Each row varies exactly one identity field against the base, so a
+	// fingerprint that ignored namespace, name or reason would collide.
+	base := ComputeFingerprint(KindPod, "prod", "api", "CrashLoop")
+	cases := []struct {
+		field, ns, name, reason string
+	}{
+		{"reason", "prod", "api", "OOMKilled"},
+		{"name", "prod", "worker", "CrashLoop"},
+		{"namespace", "staging", "api", "CrashLoop"},
 	}
 	for _, c := range cases {
-		a := ComputeFingerprint(KindPod, "prod", "api", c[0])
-		b := ComputeFingerprint(KindPod, "prod", "api", c[1])
-		if a == b {
-			t.Fatalf("collisions: %s -> %s", c[0]+" vs "+c[1], a)
+		if got := ComputeFingerprint(KindPod, c.ns, c.name, c.reason); got == base {
+			t.Fatalf("changing %s did not change the fingerprint: %s/%s/%s -> %s", c.field, c.ns, c.name, c.reason, got)
 		}
 	}
 }
@@ -46,6 +71,34 @@ func TestFieldValue(t *testing.T) {
 	for k, want := range cases {
 		if got := a.FieldValue(k); got != want {
 			t.Errorf("FieldValue(%q): want %q, got %q", k, want, got)
+		}
+	}
+}
+
+// TestFieldKeysResolveToFields pins IsFieldKey to FieldValue's switch. A key
+// still listed after FieldValue stopped resolving it would let config accept
+// `key: ""`, a matcher that matches every alert missing that label.
+func TestFieldKeysResolveToFields(t *testing.T) {
+	for k := range fieldKeys {
+		a := &Alert{Labels: map[string]string{k: "L"}}
+		if a.FieldValue(k) == "L" {
+			t.Errorf("IsFieldKey(%q) is true but FieldValue reads it from Labels", k)
+		}
+	}
+	for _, k := range []string{"team", "app", ""} {
+		if IsFieldKey(k) {
+			t.Errorf("IsFieldKey(%q) = true, want false for a label key", k)
+		}
+	}
+}
+
+func TestIsPatternKey(t *testing.T) {
+	for k, want := range map[string]bool{
+		"namespace": true, "reason": true,
+		"severity": false, "kind": false, "node": false, "name": false, "team": false,
+	} {
+		if got := IsPatternKey(k); got != want {
+			t.Errorf("IsPatternKey(%q) = %v, want %v", k, got, want)
 		}
 	}
 }
@@ -97,5 +150,20 @@ func TestGroupKeyStable(t *testing.T) {
 	k2 := a.GroupKey([]string{"node", "namespace"})
 	if k1 != k2 {
 		t.Fatalf("GroupKey is order-dependent: %q vs %q", k1, k2)
+	}
+}
+
+func TestGroupKeyKeepsFieldsAndValuesDistinct(t *testing.T) {
+	for _, tc := range []struct {
+		left, right map[string]string
+	}{
+		{map[string]string{"a": "x", "b": "y"}, map[string]string{"a": "y", "b": "x"}},
+		{map[string]string{"a": "x|y", "b": "z"}, map[string]string{"a": "x", "b": "y|z"}},
+		{map[string]string{"a": "x&b=y", "b": "z"}, map[string]string{"a": "x", "b": "y&b=z"}},
+	} {
+		a, b := &Alert{Labels: tc.left}, &Alert{Labels: tc.right}
+		if a.GroupKey([]string{"a", "b"}) == b.GroupKey([]string{"a", "b"}) {
+			t.Errorf("distinct alerts share a group key: %v and %v", tc.left, tc.right)
+		}
 	}
 }

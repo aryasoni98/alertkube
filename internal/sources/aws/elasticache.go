@@ -6,11 +6,16 @@ import (
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceElastiCache = "aws-elasticache"
+
+// elastiCacheAPI is the subset of the ElastiCache client the cluster-status source uses.
+type elastiCacheAPI interface {
+	DescribeCacheClusters(context.Context, *elasticache.DescribeCacheClustersInput, ...func(*elasticache.Options)) (*elasticache.DescribeCacheClustersOutput, error)
+}
 
 type ecRegion = regionClient[elastiCacheAPI]
 
@@ -26,7 +31,7 @@ type elastiCacheSource struct {
 func (s *elastiCacheSource) Name() string { return sourceElastiCache }
 
 func (s *elastiCacheSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceElastiCache, s.regions, emit, s.pollRegion)
 }
 
 func (s *elastiCacheSource) pollRegion(ctx context.Context, rc ecRegion, emit sources.Emit) {

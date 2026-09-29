@@ -8,8 +8,51 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
+
+// Credential environment variables, one per secret a sink reads, so this
+// block is the single place a credential env name is spelled. Most sinks
+// resolve theirs with requireCred (or chatWebhookSink.credEnv), which honors a
+// console override. SLACK_BOT_TOKEN and GENERIC_WEBHOOK_SECRET are read with
+// os.Getenv, so an override of either is ignored.
+const (
+	envSlackWebhookURL      = "SLACK_WEBHOOK_URL"
+	envSlackBotToken        = "SLACK_BOT_TOKEN"
+	envDiscordWebhookURL    = "DISCORD_WEBHOOK_URL"
+	envTeamsWebhookURL      = "TEAMS_WEBHOOK_URL"
+	envGoogleChatWebhookURL = "GOOGLECHAT_WEBHOOK_URL"
+	envMattermostWebhookURL = "MATTERMOST_WEBHOOK_URL"
+	envGenericWebhookURL    = "GENERIC_WEBHOOK_URL"
+	envGenericWebhookSecret = "GENERIC_WEBHOOK_SECRET"
+	envPagerDutyRoutingKey  = "PAGERDUTY_ROUTING_KEY"
+	envOpsgenieAPIKey       = "OPSGENIE_API_KEY"
+	envTelegramBotToken     = "TELEGRAM_BOT_TOKEN"
+	envTelegramChatID       = "TELEGRAM_CHAT_ID"
+)
+
+// singleCredEnv maps a sink name to the one credential env var that fully
+// drives a send, which is what a Secret-reference test-fire can inject.
+// telegram is omitted because it also needs TELEGRAM_CHAT_ID. A new sink with
+// a single credential belongs here.
+var singleCredEnv = map[string]string{
+	"slack":      envSlackWebhookURL,
+	"discord":    envDiscordWebhookURL,
+	"teams":      envTeamsWebhookURL,
+	"webhook":    envGenericWebhookURL,
+	"pagerduty":  envPagerDutyRoutingKey,
+	"opsgenie":   envOpsgenieAPIKey,
+	"googlechat": envGoogleChatWebhookURL,
+	"mattermost": envMattermostWebhookURL,
+}
+
+// CredentialEnv returns the credential env var of a single-credential sink,
+// for injecting a Secret value through WithCreds. ok is false for a sink that
+// needs more than one credential, or none.
+func CredentialEnv(name string) (env string, ok bool) {
+	env, ok = singleCredEnv[name]
+	return env, ok
+}
 
 type credOverrideKey struct{}
 
@@ -37,7 +80,7 @@ func cred(ctx context.Context, env string) string {
 	return os.Getenv(env)
 }
 
-// noopThrottle bounds how often a missing-credential no-op is logged per sink.
+// noopLogInterval bounds how often a missing-credential no-op is logged per sink.
 // The SinkNoop metric increments on every no-op; the log line is rate-limited
 // so a storm routed at an unconfigured sink cannot flood the log.
 const noopLogInterval = time.Minute

@@ -9,24 +9,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/acm"
 	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeACM struct {
-	pages []*acm.ListCertificatesOutput
-	idx   int
-	err   error
+	pager[acm.ListCertificatesOutput]
 }
 
-func (f *fakeACM) ListCertificates(_ context.Context, _ *acm.ListCertificatesInput, _ ...func(*acm.Options)) (*acm.ListCertificatesOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeACM) ListCertificates(_ context.Context, in *acm.ListCertificatesInput, _ ...func(*acm.Options)) (*acm.ListCertificatesOutput, error) {
+	return f.next(in.NextToken)
 }
 
 func cert(arn string, status acmtypes.CertificateStatus, notAfter *time.Time) acmtypes.CertificateSummary {
@@ -88,12 +79,12 @@ func TestEvaluateCertificate(t *testing.T) {
 
 func TestACMSourcePoll(t *testing.T) {
 	now := time.Now()
-	fake := &fakeACM{pages: []*acm.ListCertificatesOutput{{
+	fake := &fakeACM{pager: pagerOf(&acm.ListCertificatesOutput{
 		CertificateSummaryList: []acmtypes.CertificateSummary{
 			cert("good", acmtypes.CertificateStatusIssued, awssdk.Time(now.Add(90*24*time.Hour))),
 			cert("bad", acmtypes.CertificateStatusExpired, awssdk.Time(now.Add(-24*time.Hour))),
 		},
-	}}}
+	})}
 	src := &acmSource{regions: []acmRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

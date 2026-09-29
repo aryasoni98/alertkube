@@ -8,15 +8,19 @@ package group
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"k8s.io/klog/v2"
+
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
-// DefaultBy is the group identity when config does not override it.
-var DefaultBy = []string{"kind", "namespace", "reason", "severity"}
+// defaultBy is the group identity when config does not override it.
+var defaultBy = []string{"kind", "namespace", "reason", "severity"}
 
 // memberListCap bounds how many member names a summary's text lists.
 const memberListCap = 10
@@ -38,8 +42,9 @@ type Grouper struct {
 }
 
 type bucket struct {
-	first    *alert.Alert
+	first    alert.Alert
 	members  []string
+	count    int
 	deadline time.Time
 }
 
@@ -47,11 +52,11 @@ type bucket struct {
 // without the Grouper lock held.
 func New(window time.Duration, by []string, flush func(*alert.Alert)) *Grouper {
 	if len(by) == 0 {
-		by = DefaultBy
+		by = defaultBy
 	}
 	return &Grouper{
 		window:  window,
-		by:      by,
+		by:      slices.Clone(by),
 		flush:   flush,
 		buckets: map[string]*bucket{},
 	}
@@ -78,39 +83,59 @@ func (g *Grouper) Offer(a *alert.Alert) bool {
 		return true
 	}
 	b, ok := g.buckets[key]
-	if ok && now.After(b.deadline) {
-		// Window closed but the flusher has not run yet: flush the old
-		// bucket inline and let this alert open (and lead) a new window.
-		delete(g.buckets, key)
-		g.buckets[key] = &bucket{first: a, deadline: now.Add(g.window)}
+	if !ok || now.After(b.deadline) {
+		// Retain only the summary's identity; no caller-owned maps or logs.
+		g.buckets[key] = &bucket{
+			first: alert.Alert{
+				Kind: a.Kind, Namespace: a.Namespace, Name: a.Name,
+				Reason: a.Reason, Severity: a.Severity, Cluster: a.Cluster,
+				Resolved: a.Resolved,
+			},
+			deadline: now.Add(g.window),
+		}
 		g.mu.Unlock()
-		g.emitSummary(b)
+		if ok {
+			// The old window expired before the flusher ran.
+			g.emitSummary(b)
+		}
 		return true
 	}
-	if !ok {
-		g.buckets[key] = &bucket{first: a, deadline: now.Add(g.window)}
-		g.mu.Unlock()
-		return true
+	b.count++
+	if len(b.members) < memberDetailCap {
+		b.members = append(b.members, a.Namespace+"/"+a.Name)
 	}
-	b.members = append(b.members, a.Namespace+"/"+a.Name)
 	g.mu.Unlock()
 	return false
 }
 
 // Run flushes expired windows until ctx is cancelled, then drains every
-// open bucket so absorbed alerts are not lost on shutdown.
+// open bucket so absorbed alerts are not lost on shutdown. A panic in one
+// tick is logged and recovered, so later ticks still flush. The drain is a
+// recovered defer: it always runs, and a panic in it cannot crash the process
+// before the dispatch drain and final state save.
 func (g *Grouper) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	defer recovered("final flush", g.FlushAll)
 	for {
 		select {
 		case <-ctx.Done():
-			g.FlushAll()
 			return
 		case <-ticker.C:
-			g.flushExpired(time.Now())
+			recovered("flush", func() { g.flushExpired(time.Now()) })
 		}
 	}
+}
+
+// recovered runs fn and logs a panic in it with its stack instead of letting
+// it end Run's goroutine.
+func recovered(where string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			klog.Errorf("grouper %s panic: %v\n%s", where, r, debug.Stack())
+		}
+	}()
+	fn()
 }
 
 func (g *Grouper) flushExpired(now time.Time) {
@@ -123,9 +148,7 @@ func (g *Grouper) flushExpired(now time.Time) {
 		}
 	}
 	g.mu.Unlock()
-	for _, b := range expired {
-		g.emitSummary(b)
-	}
+	g.emitSummaries("flush", expired)
 }
 
 // FlushAll closes every open window immediately.
@@ -141,8 +164,16 @@ func (g *Grouper) FlushAll() {
 		delete(g.buckets, key)
 	}
 	g.mu.Unlock()
-	for _, b := range all {
-		g.emitSummary(b)
+	g.emitSummaries("final flush", all)
+}
+
+// emitSummaries flushes each bucket under its own recover. The buckets are
+// already out of the map, so a panic in one summary must not skip the rest:
+// a skipped bucket is never flushed, and its chat-only members were muted
+// when absorbed, so they would reach no one.
+func (g *Grouper) emitSummaries(where string, buckets []*bucket) {
+	for _, b := range buckets {
+		recovered(where, func() { g.emitSummary(b) })
 	}
 }
 
@@ -151,7 +182,7 @@ func (g *Grouper) FlushAll() {
 // absorptions produces nothing - the pass-through alert already told the
 // whole story.
 func (g *Grouper) emitSummary(b *bucket) {
-	n := len(b.members)
+	n := b.count
 	if n == 0 {
 		return
 	}
@@ -168,17 +199,13 @@ func (g *Grouper) emitSummary(b *bucket) {
 	listed := b.members
 	suffix := ""
 	if len(listed) > memberListCap {
-		suffix = fmt.Sprintf(" (+%d more)", len(listed)-memberListCap)
+		suffix = fmt.Sprintf(" (+%d more)", n-memberListCap)
 		listed = listed[:memberListCap]
 	}
 	s.Summary = fmt.Sprintf("%d more %s %s alert(s) %s within %s of %s/%s: %s%s",
 		n, f.Kind, f.Reason, verb, g.window, f.Namespace, f.Name, strings.Join(listed, ", "), suffix)
 
-	detail := b.members
-	if len(detail) > memberDetailCap {
-		detail = detail[:memberDetailCap]
-	}
-	s.Details["Grouped Resources"] = strings.Join(detail, "\n")
+	s.Details["Grouped Resources"] = strings.Join(b.members, "\n")
 
 	g.flush(s)
 }

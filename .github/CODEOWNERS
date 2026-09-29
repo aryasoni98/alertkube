@@ -1,5 +1,5 @@
 # Code owners for alertkube.
-# Kept in sync with MAINTAINERS.md (the single source of truth).
+# Area review assignments are recorded below.
 # Order matters: the last matching pattern wins.
 # See GOVERNANCE.md for the contribution ladder (contributor -> reviewer -> maintainer).
 
@@ -26,4 +26,3 @@
 /web/                @aryasoni98
 /docs/           @aryasoni98
 /GOVERNANCE.md        @aryasoni98
-/MAINTAINERS.md       @aryasoni98

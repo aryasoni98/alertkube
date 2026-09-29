@@ -28,7 +28,15 @@ func TestDisabledByDefault(t *testing.T) {
 // its trace linkage after the handler's context is cancelled, or every delivery
 // span would be orphaned (or the send cancelled outright).
 func TestDetachKeepsSpanLinkageAndDropsCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Seed a valid span context: the global provider is a no-op in tests, so a
+	// span started from Tracer() alone would carry a zero TraceID and the
+	// linkage check below could never fail.
+	want := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID:    oteltrace.TraceID{1},
+		SpanID:     oteltrace.SpanID{1},
+		TraceFlags: oteltrace.FlagsSampled,
+	})
+	ctx, cancel := context.WithCancel(oteltrace.ContextWithSpanContext(context.Background(), want))
 	ctx, span := Tracer().Start(ctx, "producer")
 	defer span.End()
 
@@ -38,8 +46,7 @@ func TestDetachKeepsSpanLinkageAndDropsCancellation(t *testing.T) {
 	if err := detached.Err(); err != nil {
 		t.Fatalf("detached context inherited cancellation: %v; queued deliveries would be cancelled before they are sent", err)
 	}
-	want := oteltrace.SpanContextFromContext(ctx)
-	if got := oteltrace.SpanContextFromContext(detached); got.TraceID() != want.TraceID() {
+	if got := oteltrace.SpanContextFromContext(detached); !got.IsValid() || got.TraceID() != want.TraceID() {
 		t.Fatal("detached context lost its trace linkage; delivery spans would not join the producing trace")
 	}
 }

@@ -40,11 +40,11 @@ Main wiring: `main()` -> `runController()` -> `buildWatchers()` / `buildSinks()`
 Every downstream stage depends on the alert fingerprint:
 
 ```go
-// sha256(kind|ns|name|reason), truncated to 12 hex chars
+// sha256 over length-prefixed kind, ns, name, reason; first 16 hex chars
 func ComputeFingerprint(kind Kind, ns, name, reason string) string
 ```
 
-It keys dedupe, grouping, persistence, and PagerDuty/Opsgenie incident correlation. Changing it invalidates persisted state.
+It keys dedupe, grouping, persistence, and PagerDuty/Opsgenie incident correlation. Changing it invalidates persisted state: each standing condition re-pages once after the upgrade. See [fingerprint and dedup](explanation/fingerprint-and-dedup.md).
 
 ## The suppression triple
 
@@ -74,7 +74,7 @@ Stateful sinks must receive every resolve and must never receive grouped summari
 
 ## High availability
 
-With `leaderElection.enabled=true`, a `coordination.k8s.io` Lease ensures only the leader dispatches. Followers serve metrics and health while `/readyz` stays 503 until they acquire leadership. See [run alertkube in HA](how-to/ha-leader-election.md).
+With `leaderElection.enabled=true`, a `coordination.k8s.io` Lease ensures only the leader dispatches. Followers serve metrics and health and report Ready by design; a new leader returns 503 on `/readyz` while its caches sync. Identify the leader by the Lease `holderIdentity`. A leader that shuts down releases the Lease only after it has drained and saved state, and a follower takes over on its next retry. After a crash the Lease must expire first (about 30s). See [run alertkube in HA](how-to/ha-leader-election.md).
 
 ## Diagrams
 
@@ -151,7 +151,7 @@ sequenceDiagram
     WA->>SG: emit(alert)
     SG->>SG: owns(kind/ns/name)?
     Note over SG: foreign → AlertsSuppressed{foreign_shard}, drop
-    SG->>ST: ShouldSend(fp = sha256(kind|ns|name|reason))
+    SG->>ST: ShouldSend(fp = ComputeFingerprint(kind, ns, name, reason))
     Note over ST: muted → AlertsSuppressed{muted}, drop
     ST->>RT: Route(alert)
     RT->>RT: silences → inhibitions → first-match route

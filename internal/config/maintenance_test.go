@@ -93,6 +93,28 @@ func TestMaintenanceTimezone(t *testing.T) {
 	}
 }
 
+func TestLoadZoneMemoizes(t *testing.T) {
+	first, err := loadZone("America/New_York")
+	if err != nil {
+		t.Fatalf("loadZone: %v", err)
+	}
+	second, err := loadZone("America/New_York")
+	if err != nil {
+		t.Fatalf("loadZone: %v", err)
+	}
+	// time.LoadLocation returns a fresh *Location per call, so pointer identity
+	// proves the second call was served from the cache rather than zoneinfo.
+	if first != second {
+		t.Fatal("second loadZone call reloaded zoneinfo instead of using the cache")
+	}
+	if _, err := loadZone("Mars/Phobos"); err == nil {
+		t.Fatal("an unknown zone must still return an error")
+	}
+	if _, ok := zoneCache.Load("Mars/Phobos"); ok {
+		t.Fatal("a failed lookup must not be cached")
+	}
+}
+
 func TestMaintenanceEmptyWindowSuppressesNothing(t *testing.T) {
 	w := MaintenanceWindow{Matchers: map[string]string{"x": "y"}, Start: "03:00", End: "03:00"}
 	if w.Active(mustTime(t, "2026-01-02T03:00:00Z")) {
@@ -153,5 +175,19 @@ maintenance:
 `)
 	if err := ParseAndValidate(bad); err == nil {
 		t.Fatal("invalid maintenance window must be rejected at load")
+	}
+}
+
+// benchActive keeps the benchmarked call from being optimized away.
+var benchActive bool
+
+// BenchmarkMaintenanceActive_NamedZone measures the per-alert cost the router
+// pays for a matching maintenance window in a named IANA zone.
+func BenchmarkMaintenanceActive_NamedZone(b *testing.B) {
+	w := MaintenanceWindow{Matchers: map[string]string{"namespace": "prod"}, Start: "22:00", End: "23:00", Timezone: "America/New_York"}
+	now := time.Date(2026, 1, 3, 3, 30, 0, 0, time.UTC)
+	b.ReportAllocs()
+	for range b.N {
+		benchActive = w.Active(now)
 	}
 }

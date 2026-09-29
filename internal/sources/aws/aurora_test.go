@@ -8,24 +8,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeAurora struct {
-	pages []*rds.DescribeDBClustersOutput
-	idx   int
-	err   error
+	pager[rds.DescribeDBClustersOutput]
 }
 
-func (f *fakeAurora) DescribeDBClusters(_ context.Context, _ *rds.DescribeDBClustersInput, _ ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeAurora) DescribeDBClusters(_ context.Context, in *rds.DescribeDBClustersInput, _ ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error) {
+	return f.next(in.Marker)
 }
 
 func dbCluster(id, status string) rdstypes.DBCluster {
@@ -80,12 +71,12 @@ func TestEvaluateDBClusterEmptyIDSkipped(t *testing.T) {
 }
 
 func TestAuroraSourcePoll(t *testing.T) {
-	fake := &fakeAurora{pages: []*rds.DescribeDBClustersOutput{{
+	fake := &fakeAurora{pager: pagerOf(&rds.DescribeDBClustersOutput{
 		DBClusters: []rdstypes.DBCluster{
 			dbCluster("good", "available"),
 			dbCluster("bad", "failed"),
 		},
-	}}}
+	})}
 	src := &auroraSource{regions: []auroraRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

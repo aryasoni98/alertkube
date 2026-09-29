@@ -2,12 +2,13 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
 
 func TestEmitFiring(t *testing.T) {
@@ -65,13 +66,27 @@ type errTest struct{}
 
 func (errTest) Error() string { return "boom" }
 
-func TestStrVal(t *testing.T) {
-	if StrVal(nil) != "" {
-		t.Error("nil should be empty string")
+func TestPollTruncated(t *testing.T) {
+	const src = "sources-test-truncated"
+	before := testutil.ToFloat64(metrics.CloudPollTruncated.WithLabelValues(src))
+	PollTruncated(src, "scope-1", "page token did not advance")
+	PollTruncated(src, "", "hit the page guard")
+	if after := testutil.ToFloat64(metrics.CloudPollTruncated.WithLabelValues(src)); after != before+2 {
+		t.Fatalf("CloudPollTruncated delta = %v, want 2", after-before)
 	}
-	s := "x"
-	if StrVal(&s) != "x" {
-		t.Error("deref wrong")
+}
+
+func TestPollErrIgnoresCancel(t *testing.T) {
+	before := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues("test-source"))
+	PollErr("test-source", "scope", context.Canceled)
+	PollErr("test-source", "scope", nil)
+	after := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues("test-source"))
+	if after != before {
+		t.Fatalf("canceled poll counted as an error: before=%v after=%v", before, after)
+	}
+	PollErr("test-source", "scope", errors.New("throttled"))
+	if got := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues("test-source")); got != before+1 {
+		t.Fatalf("real poll error = %v, want %v", got, before+1)
 	}
 }
 
@@ -84,5 +99,20 @@ func TestCompactDropsNilSources(t *testing.T) {
 	}
 	if len(Compact(nil)) != 0 {
 		t.Fatal("Compact(nil) must be empty, not nil-panicking")
+	}
+}
+
+func TestScope(t *testing.T) {
+	cases := []struct {
+		parent, location, want string
+	}{
+		{"sub-1", "eastus", "sub-1/eastus"},
+		{"proj-1", "us-central1-a", "proj-1/us-central1-a"},
+		{"proj-1", "", "proj-1"}, // unknown location: no trailing separator
+	}
+	for _, tc := range cases {
+		if got := Scope(tc.parent, tc.location); got != tc.want {
+			t.Errorf("Scope(%q, %q) = %q, want %q", tc.parent, tc.location, got, tc.want)
+		}
 	}
 }

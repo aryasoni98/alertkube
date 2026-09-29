@@ -10,17 +10,17 @@ import (
 const minHistoryRetention = 10 * time.Minute
 
 // recentCap bounds the in-memory ring of recently fired/resolved alerts
-// served by /api/alerts.
+// served by /api/v1/alerts.
 const recentCap = 200
 
 // Store tracks active alerts so we can detect dedupes
 // and emit synthetic resolved events when a fingerprint stops firing.
 type Store struct {
 	// mu is an RWMutex so read-only endpoints (ActiveList/Recent for
-	// /api/alerts, Export for the persistence sweep, Generation) take a shared
-	// read lock and run concurrently with each other instead of serializing
-	// against the write-heavy emit path. Mutating methods still take the
-	// exclusive write lock.
+	// /api/v1/alerts, Export for the persistence sweep, Generation) take a
+	// shared read lock and run concurrently with each other instead of
+	// serializing against the write-heavy emit path. Mutating methods still
+	// take the exclusive write lock.
 	mu         sync.RWMutex
 	active     map[string]*Alert
 	lastSent   map[string]time.Time
@@ -32,7 +32,7 @@ type Store struct {
 	// saves when nothing changed. See Generation / Export / Restore.
 	gen uint64
 	// recent is a bounded ring of fired/resolved alert copies (Details
-	// stripped) for the /api/alerts endpoint.
+	// stripped) for the /api/v1/alerts endpoint.
 	recent []*Alert
 	// escalated tracks which rule keys have already escalated each
 	// fingerprint, keyed fingerprint -> set(ruleKey). The nested map lets a
@@ -61,18 +61,23 @@ func (s *Store) SetOnChange(fn func(active int)) {
 }
 
 // ShouldSend reports whether the alert is fresh enough to forward (mute window).
+// It updates the delivery's lifetime and stores an owned copy so Touch cannot
+// race with a sink reading the caller's alert.
 func (s *Store) ShouldSend(a *Alert) bool {
 	s.mu.Lock()
-	if last, ok := s.lastSent[a.Fingerprint]; ok {
-		if time.Since(last) < s.muteWindow {
-			s.mu.Unlock()
-			return false
-		}
+	if s.mutedLocked(a.Fingerprint) {
+		s.mu.Unlock()
+		return false
 	}
 	now := time.Now()
 	s.lastSent[a.Fingerprint] = now
+	if active := s.active[a.Fingerprint]; active != nil {
+		// A reminder belongs to the same incident; resetting its age here
+		// would keep a continuously firing condition from ever escalating.
+		a.StartsAt = active.StartsAt
+	}
 	a.EndsAt = now.Add(s.resolveTTL)
-	s.active[a.Fingerprint] = a
+	s.active[a.Fingerprint] = a.Clone()
 	s.recordRecentLocked(a)
 	s.gen++
 	size, fn := len(s.active), s.onChange
@@ -89,12 +94,12 @@ func (s *Store) ShouldSend(a *Alert) bool {
 // point-in-time event (e.g. a CloudTrail management event, fingerprinted by its
 // unique EventId) has nothing to resolve, so it must not linger in the active
 // set or emit a synthetic resolve when a TTL elapses. The send is recorded in
-// the recent ring (for /api/alerts) and the lastSent map, which CleanOldHistory
-// evicts after 2*muteWindow like any other dedupe record.
+// the recent ring (for /api/v1/alerts) and the lastSent map, which
+// CleanOldHistory evicts after 2*muteWindow like any other dedupe record.
 func (s *Store) ShouldSendEvent(a *Alert) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if last, ok := s.lastSent[a.Fingerprint]; ok && time.Since(last) < s.muteWindow {
+	if s.mutedLocked(a.Fingerprint) {
 		return false
 	}
 	s.lastSent[a.Fingerprint] = time.Now()
@@ -106,17 +111,7 @@ func (s *Store) ShouldSendEvent(a *Alert) bool {
 // MarkFailed forgets dedupe state for a fingerprint after a total delivery
 // failure so the next firing retries instead of being muted for the whole
 // mute window.
-func (s *Store) MarkFailed(fp string) {
-	s.mu.Lock()
-	delete(s.lastSent, fp)
-	delete(s.active, fp)
-	s.gen++
-	size, fn := len(s.active), s.onChange
-	s.mu.Unlock()
-	if fn != nil {
-		fn(size)
-	}
-}
+func (s *Store) MarkFailed(fp string) { s.Forget(fp) }
 
 // Seed records a send timestamp without marking the alert active. Used by
 // the startup grace window: re-fires of pre-existing conditions are muted
@@ -127,6 +122,24 @@ func (s *Store) Seed(fp string) {
 	s.lastSent[fp] = time.Now()
 	s.gen++
 	s.mu.Unlock()
+}
+
+// Muted reports whether fp was sent inside the mute window. It does not
+// record a send. The emitter checks it before grouping so an absorbed alert
+// is muted without being made active before the caller knows whether a
+// stateful sink will receive it. An absorbed member with no stateful sink is
+// then Seeded (lastSent only), so it stays muted and never gets a resolve.
+func (s *Store) Muted(fp string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mutedLocked(fp)
+}
+
+// mutedLocked reports whether fp was sent inside the mute window. Caller
+// holds s.mu (read or write).
+func (s *Store) mutedLocked(fp string) bool {
+	last, ok := s.lastSent[fp]
+	return ok && time.Since(last) < s.muteWindow
 }
 
 // Touch records that a fingerprint is still firing (resets resolve TTL).
@@ -143,21 +156,14 @@ func (s *Store) Touch(fp string) {
 func (s *Store) SweepResolved() {
 	s.mu.Lock()
 	now := time.Now()
-	expired := []*Alert{}
+	var expired []*Alert
 	for fp, a := range s.active {
 		if !a.EndsAt.IsZero() && now.After(a.EndsAt) {
-			// Hand a copy to onResolved: the stored pointer may still be
-			// referenced by in-flight sink goroutines, and mutating it here
-			// would race with their reads. Clone (not *a) so the copy's maps
-			// are independent of the live alert's too.
+			// Give the callback its own copy, independent of store history.
 			cp := a.Clone()
 			cp.Resolved = true
 			expired = append(expired, cp)
-			delete(s.active, fp)
-			delete(s.lastSent, fp)
-			s.dropEscalationsLocked(fp)
-			s.recordRecentLocked(cp)
-			s.gen++
+			s.resolveLocked(fp, cp)
 		}
 	}
 	size, fn := len(s.active), s.onChange
@@ -187,18 +193,12 @@ func (s *Store) ResolveObject(kind Kind, ns, name string) {
 		if a.Kind != kind || a.Namespace != ns || a.Name != name {
 			continue
 		}
-		// Copy before mutating: the stored pointer may still be read by
-		// in-flight sink goroutines (mirrors SweepResolved). Clone so the
-		// copy's maps are independent of the live alert's.
+		// Give the callback its own copy, independent of store history.
 		cp := a.Clone()
 		cp.Resolved = true
 		cp.EndsAt = now
 		resolved = append(resolved, cp)
-		delete(s.active, fp)
-		delete(s.lastSent, fp)
-		s.dropEscalationsLocked(fp)
-		s.recordRecentLocked(cp)
-		s.gen++
+		s.resolveLocked(fp, cp)
 	}
 	size, fn := len(s.active), s.onChange
 	s.mu.Unlock()
@@ -210,6 +210,24 @@ func (s *Store) ResolveObject(kind Kind, ns, name string) {
 			s.onResolved(a)
 		}
 	}
+}
+
+// resolveLocked drops fp's state and records its resolved copy cp in the
+// recent ring. The caller clones and marks cp (Resolved, and EndsAt where it
+// applies) first. Caller holds s.mu.
+func (s *Store) resolveLocked(fp string, cp *Alert) {
+	s.dropLocked(fp)
+	s.recordRecentLocked(cp)
+	s.gen++
+}
+
+// dropLocked deletes every per-fingerprint record (active, mute history and
+// escalation marks), so a new per-fingerprint map needs cleanup in one place.
+// Caller holds s.mu.
+func (s *Store) dropLocked(fp string) {
+	delete(s.active, fp)
+	delete(s.lastSent, fp)
+	delete(s.escalated, fp)
 }
 
 // CleanOldHistory drops mute records older than 2 * muteWindow (or the
@@ -239,12 +257,10 @@ func (s *Store) ActiveCount() int {
 
 // recordRecentLocked appends a Details-stripped copy to the recent ring.
 // Caller holds s.mu. Clone (not *a) so the ring entry's Labels/Annotations
-// maps are independent of the live alert's - the /api/alerts reader walks
+// maps are independent of the live alert's - the /api/v1/alerts reader walks
 // these without the store lock.
 func (s *Store) recordRecentLocked(a *Alert) {
-	cp := a.Clone()
-	cp.Details = nil
-	s.recent = append(s.recent, cp)
+	s.recent = append(s.recent, a.CloneWithoutDetails())
 	if len(s.recent) > recentCap {
 		s.recent = s.recent[len(s.recent)-recentCap:]
 	}
@@ -270,7 +286,7 @@ func (s *Store) ApplyCorrelation(corr map[string]*Correlation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for fp, a := range s.active {
-		a.Correlation = corr[fp] // nil (absent key) clears
+		a.Correlation = corr[fp].clone() // nil (absent key) clears
 	}
 }
 
@@ -292,10 +308,9 @@ func (s *Store) Recent() []*Alert {
 func (s *Store) Forget(fp string) {
 	s.mu.Lock()
 	_, wasActive := s.active[fp]
-	delete(s.lastSent, fp)
-	delete(s.active, fp)
-	s.dropEscalationsLocked(fp)
-	if wasActive {
+	_, wasMuted := s.lastSent[fp]
+	s.dropLocked(fp)
+	if wasActive || wasMuted {
 		s.gen++
 	}
 	size, fn := len(s.active), s.onChange
@@ -330,13 +345,8 @@ func (s *Store) Overdue(after time.Duration, ruleKey string, match map[string]st
 			s.escalated[fp] = marks
 		}
 		marks[ruleKey] = true
+		s.gen++
 		out = append(out, a.Clone())
 	}
 	return out
-}
-
-// dropEscalationsLocked clears escalation marks for a fingerprint.
-// Caller holds s.mu.
-func (s *Store) dropEscalationsLocked(fp string) {
-	delete(s.escalated, fp)
 }

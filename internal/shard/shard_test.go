@@ -42,7 +42,7 @@ func TestOwnershipPartitionsAndCovers(t *testing.T) {
 	const total = 4
 	// Build all shards.
 	shards := make([]*Sharder, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		s, ok := New(i, total)
 		if !ok {
 			t.Fatalf("New(%d,%d) not ok", i, total)
@@ -51,10 +51,10 @@ func TestOwnershipPartitionsAndCovers(t *testing.T) {
 	}
 	// Every key is owned by exactly one shard (partition + full coverage).
 	counts := make([]int, total)
-	for n := 0; n < 5000; n++ {
+	for n := range 5000 {
 		key := fmt.Sprintf("Pod/ns/pod-%d", n)
 		owners := 0
-		for i := 0; i < total; i++ {
+		for i := range total {
 			if shards[i].Owns(key) {
 				owners++
 				counts[i]++
@@ -76,7 +76,7 @@ func TestOwnershipStable(t *testing.T) {
 	s, _ := New(1, 3)
 	key := "Deployment/prod/web"
 	first := s.Owns(key)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if s.Owns(key) != first {
 			t.Fatal("ownership must be deterministic for a given key")
 		}

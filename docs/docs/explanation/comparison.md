@@ -23,8 +23,8 @@ node pressure, unavailable workloads, missed CronJobs, maxed-out HPAs, and so on
 and turns each into a severity-tiered alert. Those alerts pass through
 [fingerprint-based dedupe](fingerprint-and-dedup.md), the
 [silence/inhibition/mute suppression triple](silence-vs-inhibition-vs-mute.md),
-optional storm-folding, and fan out to one of eight sinks (Slack, PagerDuty,
-Teams, Opsgenie, Discord, Telegram, generic webhook, stdout).
+optional storm-folding, and fan out to one of ten sinks (Slack, PagerDuty,
+Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, generic webhook, stdout).
 
 Its distinguishing properties are: it reads *object state* rather than metrics, it
 covers many resource kinds out of the box, its suppression is
@@ -38,7 +38,7 @@ binary with optional HA via leader election.
 | **Primary signal** | K8s object state across 9 resource kinds | Pod/container crash events | K8s events + resource changes, command interface | K8s events + Prometheus alerts, with playbooks | Time-series alerts from Prometheus rules |
 | **Scope** | Multi-resource watcher + router | Lightweight crash watcher | ChatOps + monitoring assistant | Observability/automation platform | Alert dedupe, grouping, routing, silencing |
 | **Suppression** | Deterministic mute + silence + inhibition | Minimal | Filters | Rule/playbook-based | Mature: inhibition, grouping, silences, routing tree |
-| **Sinks** | 8 (Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, webhook, stdout) | Several chat sinks | Many (chat-first) | Many (sinks + actions) | Many receivers via integrations |
+| **Sinks** | 10 (Slack, PagerDuty, Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost, webhook, stdout) | Several chat sinks | Many (chat-first) | Many (sinks + actions) | Many receivers via integrations |
 | **Two-way ChatOps** | No (one-way alerts) | No | Yes (run commands from chat) | Partial (interactive actions) | No |
 | **Automated remediation** | No | No | Limited | Yes (playbooks/actions) | No |
 | **Metrics-based alerting** | No (ingests Alertmanager webhooks instead) | No | Via integrations | Yes (consumes Prometheus) | Yes (its core job) |
@@ -109,7 +109,7 @@ The reason this matters: Alertmanager is excellent at *metrics-based* alerting b
 knows nothing about Kubernetes object state, while alertkube watches object state
 but evaluates no metrics. Run both, send Alertmanager's metric-derived alerts
 *into* alertkube, and you get a single, consistent delivery and suppression layer -
-the same fingerprint dedupe, the same silence/inhibition rules, the same eight
+the same fingerprint dedupe, the same silence/inhibition rules, the same ten
 sinks - covering *both* your metric alerts and your Kubernetes object-state alerts.
 That is the intended deployment for teams who already run Prometheus: keep
 Alertmanager for what it's best at, and let alertkube unify object-state alerting

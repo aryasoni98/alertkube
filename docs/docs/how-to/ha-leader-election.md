@@ -31,18 +31,18 @@ Leadership uses a `coordination.k8s.io/v1` Lease with a 30s lease / 20s renew / 
 
 - **Only the leader dispatches.** Followers run the process but do not watch-and-dispatch; they wait to acquire the lease.
 - **Followers stay healthy.** A follower serves `/metrics` and `/healthz` normally - standby is a healthy state, not a failure.
-- **`/readyz` returns 503 on followers** until the replica acquires the lease. This is intentional: readiness reflects "am I the active controller," so dashboards and probes can tell leader from standby.
+- **Followers report Ready.** `/readyz` returns 200 on a follower so a `maxUnavailable: 0` rollout can proceed. Identify the leader from the Lease `holderIdentity`, not from readiness.
 
 ## Deployment Strategy
 
-- **Leader election ON → `RollingUpdate`** with `maxSurge: 1`, `maxUnavailable: 0`. Leadership transfers to a healthy replica during the rollout, so there is no alerting gap.
+- **Leader election ON → `RollingUpdate`** with `maxSurge: 1`, `maxUnavailable: 0`. The outgoing leader holds the Lease while it drains and saves state, then releases it. A follower takes over on its next retry (5s, up to ~11s with jitter) and loads that state, so evaluation pauses only for the drain and the new leader's cache sync.
 - **Leader election OFF (`replicaCount: 1`) → `Recreate`.** The old pod is torn down before the new one starts, so two instances never overlap and re-fire each other's alerts.
 
 ## Lease RBAC
 
 The chart adds Lease RBAC in `leaderElection.namespace`:
 
-- `coordination.k8s.io/leases`: `get, list, watch, create, update, patch, delete`
+- `coordination.k8s.io/leases`: `get, create, update, patch` (no list, watch, or delete)
 - `events`: `create, patch`
 
 ```bash
@@ -60,15 +60,13 @@ If the chart does not manage that namespace, ensure the ServiceAccount has Lease
     kubectl get lease -n kube-system | grep alertkube
     ```
 
-2. Confirm exactly one pod is the leader via its readiness:
+2. Identify the leader from the Lease `holderIdentity`, not from readiness. Every pod returns 200 on `/readyz`, because a follower is Ready by design:
 
     ```bash
-    # leader -> 200, follower -> 503
-    kubectl exec <leader-pod>   -- wget -qS -O- http://localhost:9090/readyz
-    kubectl exec <follower-pod> -- wget -qS -O- http://localhost:9090/readyz
+    kubectl get lease -n kube-system alertkube -o jsonpath='{.spec.holderIdentity}{"\n"}'
     ```
 
-3. Delete the leader pod and confirm the follower acquires the lease within ~15 s, its `/readyz` flips to 200, and alert dispatch continues without duplicates.
+3. Delete the leader pod. It drains, saves state, and then releases the Lease. Confirm that `holderIdentity` moves to the follower within one retry (5-11s) of the release, that the new leader's `/readyz` is 503 only while its caches sync, and that alert dispatch continues without duplicates. A leader that dies without draining (node loss, SIGKILL) does not release the Lease, so the follower takes over only once it expires, about 30s later.
 
 Keep `persistence.enabled: true` in HA so handovers preserve pending resolves and mute history.
 

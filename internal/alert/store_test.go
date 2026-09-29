@@ -145,3 +145,20 @@ func TestApplyCorrelationSetsAndClears(t *testing.T) {
 		t.Fatal("absent fingerprint must clear Correlation")
 	}
 }
+
+func TestCloneWithoutDetails(t *testing.T) {
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.Details["Pod Logs Before Restart"] = "big payload"
+	a.Labels["team"] = "core"
+	cp := a.CloneWithoutDetails()
+	if cp.Details != nil {
+		t.Fatalf("Details = %v, want nil", cp.Details)
+	}
+	if len(a.Details) != 1 {
+		t.Fatalf("the receiver's Details must be left alone, got %v", a.Details)
+	}
+	cp.Labels["team"] = "changed"
+	if a.Labels["team"] != "core" {
+		t.Fatalf("the copy shares Labels with the receiver")
+	}
+}

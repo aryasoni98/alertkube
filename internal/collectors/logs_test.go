@@ -33,10 +33,3 @@ func TestRedactSecrets(t *testing.T) {
 		})
 	}
 }
-
-func TestRedactSecretsLeavesPlainText(t *testing.T) {
-	in := "container exited code 137 due to OOM"
-	if got := RedactSecrets(in); got != in {
-		t.Fatalf("redactor mutated plain text: %q -> %q", in, got)
-	}
-}

@@ -6,9 +6,10 @@ import (
 )
 
 // DefaultStateConfigMap is the persisted-state ConfigMap name used when the
-// config does not name one. Exported because ApplyShardScope compares against
-// it to tell "operator did not choose a name" from "operator chose this exact
-// name", which decides whether the name may be rewritten or must be validated.
+// config does not name one. Exported because ApplyShardScope treats a name
+// equal to it as not chosen and rewrites it per shard. applyEnvDefaults has
+// already filled an empty name with it, so an explicit `configMapName:
+// alertkube-state` cannot be told apart and is rewritten too.
 const DefaultStateConfigMap = "alertkube-state"
 
 // ApplyShardScope binds the persisted-state ConfigMap to this replica's shard.
@@ -23,9 +24,10 @@ const DefaultStateConfigMap = "alertkube-state"
 //
 // Two cases:
 //
-//   - Name left at the default: rewrite it to "<default>-<index>", so enabling
-//     sharding is safe without also having to remember this.
-//   - Name set explicitly: refuse unless it carries this replica's shard index
+//   - Name equal to the default, whether omitted or written out: rewrite it
+//     to "<default>-<index>", so enabling sharding is safe without also
+//     having to remember this.
+//   - Any other name: refuse unless it carries this replica's shard index
 //     as a suffix. Silently rewriting an operator's chosen name would be worse
 //     (it would not match the RBAC/NetworkPolicy they wrote around it), and
 //     silently accepting it reintroduces the clobbering.

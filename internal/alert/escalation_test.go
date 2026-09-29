@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+func TestEscalationMarksTriggerPersistence(t *testing.T) {
+	s := NewStore(time.Minute, time.Hour, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.StartsAt = time.Now().Add(-10 * time.Minute)
+	s.ShouldSend(a)
+	before := s.Generation()
+	if got := s.Overdue(time.Minute, "rule", nil); len(got) != 1 || s.Generation() == before {
+		t.Fatal("new escalation must trigger a snapshot save")
+	}
+	before = s.Generation()
+	if got := s.Overdue(time.Minute, "rule", nil); len(got) != 0 || s.Generation() != before {
+		t.Fatal("unchanged escalation must not trigger another save")
+	}
+	restored := NewStore(time.Minute, time.Hour, nil)
+	restored.Restore(s.Export())
+	if got := restored.Overdue(time.Minute, "rule", nil); len(got) != 0 {
+		t.Fatal("saved escalation must not repeat after restart")
+	}
+}
+
 // TestEscalationMarksClearedOnResolve verifies the O(1) drop: once an alert
 // resolves, its escalation marks are gone, so a re-fired same-fingerprint alert
 // can escalate again under the same rule.
@@ -58,6 +78,18 @@ func TestEscalationMarksClearedOnForget(t *testing.T) {
 	}
 }
 
+func TestFailedDeliveryClearsEscalationMarks(t *testing.T) {
+	s := NewStore(time.Hour, time.Hour, nil)
+	a := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
+	a.StartsAt = time.Now().Add(-time.Hour)
+	s.ShouldSend(a)
+	s.Overdue(time.Minute, "rule", nil)
+	s.MarkFailed(a.Fingerprint)
+	if !s.ShouldSend(a) || len(s.Overdue(time.Minute, "rule", nil)) != 1 {
+		t.Fatal("a retried incident inherited escalation marks from a failed delivery")
+	}
+}
+
 // TestRegexCacheCap ensures the matcher cache stops growing past its cap so a
 // flood of distinct patterns cannot grow memory without bound. It still matches
 // correctly (the cap only stops memoization, not matching).
@@ -68,7 +100,7 @@ func TestRegexCacheCap(t *testing.T) {
 	regexCacheMu.Unlock()
 
 	a := New(KindPod, "flood-ns", "p", "R", SeverityInfo)
-	for i := 0; i < regexCacheMax+500; i++ {
+	for i := range regexCacheMax + 500 {
 		// Each pattern is distinct and valid; none equals the namespace, so each
 		// goes through the regex path.
 		pattern := fmt.Sprintf("ns-%d-.*", i)

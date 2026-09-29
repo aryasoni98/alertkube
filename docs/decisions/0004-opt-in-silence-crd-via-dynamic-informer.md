@@ -1,6 +1,6 @@
 # 0004. Opt-in Silence CRD via a dynamic informer (no controller-runtime)
 
-- **Status:** Accepted
+- **Status:** Accepted. The consequence that the console config tab and metrics make the effective set observable is wrong: no API route, console view or metric lists CRD silences. Use `kubectl get silences -A`; the controller logs each Silence it ignores. Unlike config-file silences, a Silence stops applying 30 days after creation, and a namespaced one only mutes its own namespace.
 - **Date:** 2026-06-27
 - **Deciders:** maintainers
 
@@ -51,8 +51,8 @@ routinely add/remove out-of-band.
 
 ### Negative / trade-offs
 
-- Unstructured access (`unstructured.NestedStringMap`) instead of a typed Go
-  struct; mitigated by a small `parseSilence` with validation + warnings.
+- The informer still lists unstructured objects. `parseSilence` converts each
+  one with `DefaultUnstructuredConverter` into `v1alpha1.Silence`.
 - A second place silences can come from. Documented; the console config tab and
   metrics make the effective set observable.
 - Cluster-admin must install a CRD (a one-time `enabled=true`).

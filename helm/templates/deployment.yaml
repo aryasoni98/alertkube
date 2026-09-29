@@ -8,7 +8,7 @@ spec:
   {{- fail "replicaCount > 1 requires leaderElection.enabled=true, otherwise every replica fires duplicate alerts" }}
   {{- end }}
   {{- /*
-    Fail closed on read-auth: /api/v1/alerts and the console data endpoints expose
+    Fail closed on read-auth: /api/v1/alerts and other read endpoints expose
     active alert contents (and the alerting topology). With no read token AND no
     NetworkPolicy, the metrics port is an open introspection surface. Require an
     explicit opt-out (api.allowUnauthenticatedRead=true) so an unguarded install
@@ -17,7 +17,27 @@ spec:
   */}}
   {{- $hasToken := or .Values.api.token .Values.api.tokenSecretKeyRef.name }}
   {{- if and (not $hasToken) (not .Values.networkPolicy.enabled) (not .Values.api.allowUnauthenticatedRead) }}
-  {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept an open /api/v1/alerts and console" }}
+  {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept open read endpoints" }}
+  {{- end }}
+  {{- /*
+    A cluster-scoped Silence CRD cannot be watched from one namespace. With a
+    watch namespace the controller lists /namespaces/<ns>/silences, which does
+    not exist for a cluster-scoped resource, and a Role cannot grant it. The
+    watch would retry forever and no CRD silence would ever apply. The watch
+    namespace comes from rbac.scope=namespace (WATCH_NAMESPACE below) or from a
+    user-supplied WATCH_NAMESPACE / --watch-namespace.
+  */}}
+  {{- if and .Values.crds.silences.enabled .Values.crds.silences.clusterScoped }}
+  {{- $watchNamespace := eq (.Values.rbac.scope | default "cluster") "namespace" }}
+  {{- range .Values.extraEnv }}
+  {{- if and (eq (toString .name) "WATCH_NAMESPACE") (or .value .valueFrom) }}{{ $watchNamespace = true }}{{ end }}
+  {{- end }}
+  {{- range .Values.extraArgs }}
+  {{- if regexMatch "^--?watch-namespace(=.+)?$" (toString .) }}{{ $watchNamespace = true }}{{ end }}
+  {{- end }}
+  {{- if $watchNamespace }}
+  {{- fail "crds.silences.clusterScoped requires rbac.scope=cluster and no WATCH_NAMESPACE or --watch-namespace: a cluster-scoped Silence CRD cannot be watched from one namespace" }}
+  {{- end }}
   {{- end }}
   replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
@@ -54,7 +74,7 @@ spec:
       # stays on, but pinning it makes the blast radius of a container
       # compromise auditable (CWE-250). Override to false only if you inject
       # credentials another way.
-      automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default true }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       # Bounds graceful shutdown: the controller drains in-flight pod
       # enrichment, finishes sink sends (up to the per-sink timeout), and
       # saves final state. Must exceed that worst case so SIGKILL does not

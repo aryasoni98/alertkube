@@ -2,21 +2,23 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/persist"
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/persist"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
-func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, silStore *silence.Store, persister persist.Store, disp *dispatcher, cfg *config.Config) {
-	defer wg.Done()
+// sweepInterval is the period of the sweep loop: TTL resolves, history
+// cleanup, the liveness heartbeat, silence pruning, escalations, and the
+// periodic state save all run once per tick.
+const sweepInterval = 30 * time.Second
+
+func runSweeper(ctx context.Context, store *alert.Store, silStore *silence.Store, persister persist.Store, disp *dispatcher, escalations []config.Escalation) {
 	// The sweeper is the controller's liveness heartbeat source: it runs only
 	// on the leader (or the sole process), touches the store's global mutex
 	// every tick, and so a stalled sweep (e.g. a store-lock deadlock) makes
@@ -42,7 +44,7 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, sil
 			// bounded; a prune bumps the silence generation, which triggers
 			// the save below.
 			silStore.PruneExpired(time.Now())
-			runEscalations(store, disp.enqueue, cfg)
+			runEscalations(store, disp.enqueue, escalations)
 			if persister == nil {
 				continue
 			}
@@ -76,19 +78,18 @@ func runSweeper(ctx context.Context, wg *sync.WaitGroup, store *alert.Store, sil
 // here would stall the sweep loop (and the resolve sweep behind it) when
 // several alerts escalate at once. Enqueue returns immediately; the pool
 // performs the fan-out.
-func runEscalations(store *alert.Store, enqueue enqueueFunc, cfg *config.Config) {
-	for i, esc := range cfg.Escalations {
+func runEscalations(store *alert.Store, enqueue enqueueFunc, escalations []config.Escalation) {
+	for _, esc := range escalations {
 		after := time.Duration(esc.AfterMinutes) * time.Minute
-		ruleKey := fmt.Sprintf("rule%d", i)
+		ruleKey := config.EscalationKey(esc)
 		for _, a := range store.Overdue(after, ruleKey, esc.Match) {
-			// Clone Labels before tagging: the copy still shares the map
-			// with the stored alert.
-			labels := make(map[string]string, len(a.Labels)+1)
-			for k, v := range a.Labels {
-				labels[k] = v
+			// Overdue returns an owned clone, so tagging it cannot touch the
+			// stored alert. Labels is nil for an alert restored from a
+			// snapshot with null labels; assigning into it would panic.
+			if a.Labels == nil {
+				a.Labels = map[string]string{}
 			}
-			labels["alertkube-escalated"] = "true"
-			a.Labels = labels
+			a.Labels["alertkube-escalated"] = "true"
 			a.Summary = "[ESCALATED - unresolved after " + after.String() + "] " + a.Summary
 			metrics.EscalationsTotal.Inc()
 			klog.Infof("escalating %s to %v (%s)", a, esc.Sinks, ruleKey)

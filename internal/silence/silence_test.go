@@ -89,3 +89,29 @@ func TestGeneration(t *testing.T) {
 		t.Fatal("Delete did not bump generation")
 	}
 }
+
+func TestStoreOwnsMatchers(t *testing.T) {
+	for _, boundary := range []string{"input", "added", "list", "active", "restore"} {
+		t.Run(boundary, func(t *testing.T) {
+			s := NewStore()
+			sil := Silence{ID: "silence", Matchers: map[string]string{"namespace": "prod"}, Until: time.Now().Add(time.Hour)}
+			added := s.Add(sil)
+			switch boundary {
+			case "input":
+				sil.Matchers["namespace"] = "changed"
+			case "added":
+				added.Matchers["namespace"] = "changed"
+			case "list":
+				s.List()[0].Matchers["namespace"] = "changed"
+			case "active":
+				s.Active(time.Now())[0].Matchers["namespace"] = "changed"
+			case "restore":
+				s.Replace([]Silence{sil})
+				sil.Matchers["namespace"] = "changed"
+			}
+			if got := s.List()[0].Matchers["namespace"]; got != "prod" {
+				t.Fatalf("%s aliases store matchers: %q", boundary, got)
+			}
+		})
+	}
+}

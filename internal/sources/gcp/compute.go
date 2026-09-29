@@ -6,18 +6,14 @@ import (
 
 	compute "google.golang.org/api/compute/v1"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceGCE = "gcp-compute"
 
-// gceLister lists Compute Engine instances across all zones of one project.
-// The real adapter drains the aggregated-list pages; tests provide a fake.
-type gceLister interface {
-	List(ctx context.Context, project string) ([]*compute.Instance, error)
-}
-
+// apiGCELister lists Compute Engine instances across all zones of one project
+// by draining the aggregated-list pages; tests provide a fake.
 type apiGCELister struct {
 	svc *compute.Service
 }
@@ -36,12 +32,10 @@ func (l *apiGCELister) List(ctx context.Context, project string) ([]*compute.Ins
 	return out, nil
 }
 
-// gceSource alerts on Compute Engine instance health across every configured
-// project's zones.
-type gceSource = projectSource[*compute.Instance, gceLister]
-
-func newGCESource(projects []string, lister gceLister) *gceSource {
-	return newProjectSource(sourceGCE, projects, lister, evaluateGCEInstance)
+// newGCESource alerts on Compute Engine instance health across every
+// configured project's zones.
+func newGCESource(projects []string, list func(ctx context.Context, project string) ([]*compute.Instance, error)) sources.Source {
+	return sources.NewListSource(sourceGCE, perProject(projects, list), evaluateGCEInstance)
 }
 
 // evaluateGCEInstance alerts on instances in REPAIRING (critical). Other states

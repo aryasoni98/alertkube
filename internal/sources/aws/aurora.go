@@ -7,11 +7,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceAurora = "aws-aurora"
+
+// auroraAPI is the subset of the RDS client the Aurora cluster source uses.
+type auroraAPI interface {
+	DescribeDBClusters(context.Context, *rds.DescribeDBClustersInput, ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error)
+}
 
 type auroraRegion = regionClient[auroraAPI]
 
@@ -31,7 +36,7 @@ type auroraSource struct {
 func (s *auroraSource) Name() string { return sourceAurora }
 
 func (s *auroraSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceAurora, s.regions, emit, s.pollRegion)
 }
 
 func (s *auroraSource) pollRegion(ctx context.Context, rc auroraRegion, emit sources.Emit) {
