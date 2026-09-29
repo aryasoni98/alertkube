@@ -16,7 +16,7 @@ metadata:
   name: {{ include "alertkube.fullname" . }}
   labels: {{- include "alertkube.labels" . | nindent 4 }}
 rules:
-# persistentvolumes is omitted: only PVCs are watched (NewPVC), never the
+# persistentvolumes is omitted: only PVCs are watched (internal/watchers/pvc.go), never the
 # cluster-scoped PV objects. pods/log is granted separately below so it can
 # be dropped entirely when log collection is disabled.
 - apiGroups: [""]

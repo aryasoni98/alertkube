@@ -82,6 +82,13 @@ crds:
   silences:
     # -- Install the Silence CRD + RBAC and watch silences.alertkube.io.
     enabled: false
+    # -- Install the Silence CRD cluster-scoped. Namespaced (the default) pins
+    # each Silence to its own namespace so it cannot mute other namespaces.
+    # Requires rbac.scope=cluster and no WATCH_NAMESPACE or --watch-namespace;
+    # the chart refuses to render otherwise. CRD scope is immutable: changing
+    # this on an existing install means deleting the CRD, and with it every
+    # Silence object, before upgrading.
+    clusterScoped: false
 
 image:
   # -- Controller image repository.
@@ -96,8 +103,6 @@ image:
 slack:
   # -- Slack incoming webhook URL (inline; prefer `webhookUrlSecretKeyRef`).
   webhookUrl: ""
-  # -- Username shown on Slack webhook messages.
-  username: "alertkube"
   channels:
     # -- Channel for critical alerts (bot-token mode only).
     critical: "alerts-critical"
@@ -294,7 +299,8 @@ persistence:
 # in-cluster Kubernetes watchers. Credentials resolve via the standard AWS
 # chain; the recommended in-cluster setup is IRSA - annotate the
 # ServiceAccount with the IAM role ARN via serviceAccount.annotations.
-# pollSeconds must stay below behavior.resolveTTLSeconds.
+# pollSeconds must be below behavior.resolveTTLSeconds; keep twice pollSeconds
+# (the poll deadline) below it too, or startup logs a warning.
 #
 # EXPERIMENTAL (new in v0.3): cloud sources are validated against recorded SDK
 # responses, not yet against live AWS accounts at scale. Toggle per service.
@@ -305,7 +311,7 @@ aws:
   enabled: false
   # -- AWS regions to poll. Required when aws.enabled is true.
   regions: []
-  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  # -- Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too.
   pollSeconds: 60
   # -- Alert on EKS cluster discovery + control-plane health.
   eks: false
@@ -359,9 +365,9 @@ azure:
   enabled: false
   # -- Azure subscription IDs to poll. Required when azure.enabled is true.
   subscriptions: []
-  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  # -- Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too.
   pollSeconds: 60
-  # -- Alert on AKS cluster discovery + control-plane health.
+  # -- Alert on AKS cluster discovery + control-plane and node-pool health.
   aks: false
   # -- Ingest fired Azure Monitor alerts (Alerts Management): Fired pages, Resolved resolves.
   monitor: false
@@ -369,9 +375,9 @@ azure:
   vms: false
   # -- Alert on Azure Storage account primary-endpoint unavailability.
   storage: false
-  # -- Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible).
+  # -- Alert on Azure SQL databases in an unhealthy status (Suspect/Offline/Inaccessible/EmergencyMode/Shutdown).
   sql: false
-  # -- Alert on Azure Cache for Redis in a failed provisioning state.
+  # -- Alert on Azure Cache for Redis in a failed provisioning state (critical) or recovering from a scale failure (warning).
   redis: false
 
 # GCP cloud sources poll Google Cloud APIs for cloud-resource alerts.
@@ -387,9 +393,9 @@ gcp:
   enabled: false
   # -- GCP project IDs to poll. Required when gcp.enabled is true.
   projects: []
-  # -- Seconds between polls (must be below behavior.resolveTTLSeconds).
+  # -- Seconds between polls. Must be below behavior.resolveTTLSeconds; keep twice this (the poll deadline) below it too.
   pollSeconds: 60
-  # -- Alert on GKE cluster discovery + health.
+  # -- Alert on GKE cluster discovery + cluster and node-pool health.
   gke: false
   # -- Cloud Monitoring posture: alert when an alert policy is disabled (not a fired-incident feed).
   monitoring: false

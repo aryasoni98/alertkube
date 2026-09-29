@@ -19,6 +19,26 @@ spec:
   {{- if and (not $hasToken) (not .Values.networkPolicy.enabled) (not .Values.api.allowUnauthenticatedRead) }}
   {{- fail "read API is unauthenticated: set api.token (or api.tokenSecretKeyRef), enable networkPolicy.enabled=true, or explicitly set api.allowUnauthenticatedRead=true to accept open read endpoints" }}
   {{- end }}
+  {{- /*
+    A cluster-scoped Silence CRD cannot be watched from one namespace. With a
+    watch namespace the controller lists /namespaces/<ns>/silences, which does
+    not exist for a cluster-scoped resource, and a Role cannot grant it. The
+    watch would retry forever and no CRD silence would ever apply. The watch
+    namespace comes from rbac.scope=namespace (WATCH_NAMESPACE below) or from a
+    user-supplied WATCH_NAMESPACE / --watch-namespace.
+  */}}
+  {{- if and .Values.crds.silences.enabled .Values.crds.silences.clusterScoped }}
+  {{- $watchNamespace := eq (.Values.rbac.scope | default "cluster") "namespace" }}
+  {{- range .Values.extraEnv }}
+  {{- if and (eq (toString .name) "WATCH_NAMESPACE") (or .value .valueFrom) }}{{ $watchNamespace = true }}{{ end }}
+  {{- end }}
+  {{- range .Values.extraArgs }}
+  {{- if regexMatch "^--?watch-namespace(=.+)?$" (toString .) }}{{ $watchNamespace = true }}{{ end }}
+  {{- end }}
+  {{- if $watchNamespace }}
+  {{- fail "crds.silences.clusterScoped requires rbac.scope=cluster and no WATCH_NAMESPACE or --watch-namespace: a cluster-scoped Silence CRD cannot be watched from one namespace" }}
+  {{- end }}
+  {{- end }}
   replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
     {{- if .Values.leaderElection.enabled }}
