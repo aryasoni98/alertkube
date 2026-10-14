@@ -49,6 +49,11 @@ jobs:
           pip install -r requirements.txt
           mkdocs build --strict -d "${GITHUB_WORKSPACE}/web/manual"
 
+      - name: Version landing assets for this deployment
+        # A new page must load matching scripts even when visitors cached v1.
+        run: |
+          perl -i -pe 's{((?:src|href)="(?!https?://)[^"]+\.(?:css|jsx))(?:\?[^"]*)?"}{$1."?v=".$ENV{GITHUB_SHA}."\""}ge' web/*.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
