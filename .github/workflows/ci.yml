@@ -48,7 +48,7 @@ jobs:
 
       - name: Check vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
       - name: Coverage gate
@@ -128,7 +128,7 @@ jobs:
       - name: Build (no push, both release arches)
         # Exercise the arm64 cross-compile path on PRs so an arch-specific
         # build break surfaces here, not at release time.
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64

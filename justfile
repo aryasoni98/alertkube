@@ -4,8 +4,8 @@ go := "go"
 pkg := "./..."
 docs_dir := "docs"
 bin := "alertkube"
-golangci_lint_version := "v2.13.2"
-govulncheck_version := "v1.7.0"
+golangci_lint_version := "v2.14.0"
+govulncheck_version := "v1.9.0"
 
 default:
     @just --list
