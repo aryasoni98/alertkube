@@ -3,7 +3,7 @@
 # source of truth; these are a convenience.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         exclude: '^(.*\.svg|LICENSE-2.0\.txt)$'
@@ -45,6 +45,6 @@ repos:
         pass_filenames: false
 
   - repo: https://github.com/gruntwork-io/pre-commit
-    rev: v0.1.25
+    rev: v0.1.30
     hooks:
       - id: helmlint

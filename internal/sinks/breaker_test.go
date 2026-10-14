@@ -10,15 +10,15 @@ import (
 func TestBreakerOpensAfterThreshold(t *testing.T) {
 	b := newBreaker()
 	// Fewer than threshold failures keep it closed.
-	for i := 0; i < breakerThreshold-1; i++ {
+	for i := range breakerThreshold - 1 {
 		b.Record(false)
-		if !b.Allow() {
+		if ok, _ := b.Allow(); !ok {
 			t.Fatalf("breaker opened early after %d failures", i+1)
 		}
 	}
 	// The threshold-th failure trips it.
 	b.Record(false)
-	if b.Allow() {
+	if ok, _ := b.Allow(); ok {
 		t.Fatal("breaker should be open after reaching the failure threshold")
 	}
 	if !b.Open() {
@@ -28,13 +28,13 @@ func TestBreakerOpensAfterThreshold(t *testing.T) {
 
 func TestBreakerSuccessResetsFailures(t *testing.T) {
 	b := newBreaker()
-	for i := 0; i < breakerThreshold-1; i++ {
+	for range breakerThreshold - 1 {
 		b.Record(false)
 	}
 	b.Record(true) // success clears the run
-	for i := 0; i < breakerThreshold-1; i++ {
+	for i := range breakerThreshold - 1 {
 		b.Record(false)
-		if !b.Allow() {
+		if ok, _ := b.Allow(); !ok {
 			t.Fatalf("breaker opened too early after reset (failure %d)", i+1)
 		}
 	}
@@ -45,28 +45,31 @@ func TestBreakerHalfOpenRecovery(t *testing.T) {
 	now := time.Now()
 	b.now = func() time.Time { return now }
 
-	for i := 0; i < breakerThreshold; i++ {
+	for range breakerThreshold {
 		b.Record(false)
 	}
-	if b.Allow() {
+	if ok, _ := b.Allow(); ok {
 		t.Fatal("breaker should be open")
 	}
 	// Before cooldown: still closed to traffic.
 	now = now.Add(breakerCooldown - time.Second)
-	if b.Allow() {
+	if ok, _ := b.Allow(); ok {
 		t.Fatal("breaker must stay open until the cooldown elapses")
 	}
 	// After cooldown: exactly one probe is admitted (half-open).
 	now = now.Add(2 * time.Second)
-	if !b.Allow() {
+	if ok, probe := b.Allow(); !ok || !probe {
 		t.Fatal("breaker should admit one probe after cooldown")
 	}
-	if b.Allow() {
+	if !b.Open() {
+		t.Fatal("half-open breaker must report as open")
+	}
+	if ok, _ := b.Allow(); ok {
 		t.Fatal("breaker must hold back other sends while a probe is in flight")
 	}
 	// A successful probe closes the breaker.
 	b.Record(true)
-	if !b.Allow() {
+	if ok, _ := b.Allow(); !ok {
 		t.Fatal("breaker should be closed after a successful probe")
 	}
 }
@@ -75,15 +78,15 @@ func TestBreakerHalfOpenFailureReopens(t *testing.T) {
 	b := newBreaker()
 	now := time.Now()
 	b.now = func() time.Time { return now }
-	for i := 0; i < breakerThreshold; i++ {
+	for range breakerThreshold {
 		b.Record(false)
 	}
 	now = now.Add(breakerCooldown + time.Second)
-	if !b.Allow() {
+	if ok, _ := b.Allow(); !ok {
 		t.Fatal("probe should be admitted after cooldown")
 	}
 	b.Record(false) // probe fails -> re-open immediately
-	if b.Allow() {
+	if ok, _ := b.Allow(); ok {
 		t.Fatal("a failed probe must re-open the breaker")
 	}
 }
@@ -108,7 +111,7 @@ func TestDispatchShortCircuitsOpenBreaker(t *testing.T) {
 	tripped := s.sends.Load()
 
 	// Subsequent dispatches must short-circuit: the sink is not called again.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r.Dispatch(context.Background(), testAlert(), []string{"flaky"})
 	}
 	if got := s.sends.Load(); got != tripped {

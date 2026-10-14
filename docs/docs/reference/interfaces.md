@@ -1,8 +1,9 @@
 # Extension interfaces
 
 Every extension point AlertKube exposes, with the contract you must satisfy.
-All four use the same shape: **declare a narrow interface, register yourself in
-`init()`, get wired automatically.** No central list to edit.
+Sinks, watchers, and cloud providers declare a narrow contract and register in
+`init()`. Cloud services are wired by their provider; state backends use
+constructor wiring.
 
 | Extend with | Interface | Register via | File to add |
 | --- | --- | --- | --- |
@@ -36,13 +37,14 @@ type Sink interface {
   missing credential — no-op and increment `metrics.SinkNoop` instead, so a
   routed-but-unconfigured sink is visible rather than looking like an outage.
 - Read credentials from the environment **on every `Send`**, never cache them at
-  construction: that is what makes Secret rotation work without a restart.
+  construction. The chart supplies credentials through `secretKeyRef` env vars;
+  restart the pods after rotating an existing Secret so their environment updates.
 - `Supports` gates by severity before the rate limiter and breaker.
 
 **Minimal example**
 
 ```go
-func init() { Register("mysink", func(c SinkConfig) Sink { return NewMySink(c.Cluster) }) }
+func init() { Register("mysink", func(c SinkConfig) Sink { return newMySink(c.Cluster) }) }
 
 type mySink struct{ cluster string; httpClient *http.Client }
 
@@ -50,7 +52,7 @@ func (s *mySink) Name() string                      { return "mysink" }
 func (s *mySink) Supports(_ alert.Severity) bool    { return true }
 
 func (s *mySink) Send(ctx context.Context, a *alert.Alert) error {
-    url := os.Getenv("MYSINK_WEBHOOK_URL") // read per-send: honors rotation
+    url := os.Getenv("MYSINK_WEBHOOK_URL") // read the current process environment
     if url == "" {
         metrics.SinkNoop.WithLabelValues(s.Name()).Inc()
         return nil // not an error: unconfigured, not broken
@@ -64,8 +66,10 @@ Then add `"mysink"` to `config.KnownSinks`. A guard test
 unknown sink fails config validation, and a known-but-unregistered one is
 silently skipped by dispatch.
 
-Most HTTP sinks should embed `webhookSink` rather than implement this directly;
-it already handles credential lookup, retries, and body limits.
+Chat-webhook sinks whose only difference is the payload should reuse
+`chatWebhookSink` (a name, a credential env var and a payload renderer) rather
+than implement this directly; it already handles per-send credential lookup,
+the SSRF guard, and retries.
 
 ---
 
@@ -97,7 +101,7 @@ type Drainer interface { Drain(ctx context.Context) }
 **Registering**
 
 ```go
-func init() { Register(func(o Opts) Watcher { return NewMyWatcher(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newMyWatcher(o.Config) }) }
 ```
 
 Return an **untyped nil** to decline a scope — that is how the cluster-scoped
@@ -139,12 +143,13 @@ type Provider struct {
   **Name**. That is what makes a resolve target exactly one cloud resource.
 - `Build` returning an error is logged and the provider skipped — a cloud-auth
   problem must never take down the Kubernetes watchers.
-- Declare a narrow lister interface per service so it unit-tests against canned
-  responses without the SDK or live credentials.
+- Poll each service through a narrow lister (an interface or a list function)
+  so it unit-tests against canned responses without the SDK or live
+  credentials.
 
-Each cloud package has generic helpers that own the fan-out — `pollByRegion`
-(AWS), `pollBySubscription` (Azure), `pollByProject` / `projectSource` (GCP).
-Use them rather than re-implementing the loop.
+Shared helpers own the fan-out — `pollByRegion` (AWS) and
+`sources.NewListSource` over one `sources.Scoped` lister per subscription
+(Azure) or project (GCP). Use them rather than re-implementing the loop.
 
 ---
 
@@ -168,6 +173,14 @@ type Store interface {
   silently drops one snapshot. The ConfigMap backend uses `RetryOnConflict`.
 - `Save` may refuse an oversized snapshot with an error. Skipping one save is
   preferable to wedging every subsequent update.
+- `Save` may refuse to replace a stored snapshot whose `SavedAt` is later than
+  its own. This orders writers by export wall-clock time; it is not leader
+  fencing, so an outgoing leader whose final save is exported after its
+  successor's save still overwrites it. The refusal is an error wrapping
+  `persist.ErrStaleSnapshot`, not a `nil` return, so the caller keeps the
+  state unsaved and retries on its next save. The ConfigMap backend ignores a
+  stored `SavedAt` more than 2 minutes ahead of its own clock, so one skewed
+  clock cannot block every later save.
 - Implementations must be safe for concurrent use: the sweeper saves on its own
   goroutine while shutdown may issue a final save.
 

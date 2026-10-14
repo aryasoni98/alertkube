@@ -13,11 +13,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/env"
-	"github.com/aryasoni98/alertkube/internal/sinks"
-	"github.com/aryasoni98/alertkube/internal/watchers"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/env"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
+	"github.com/aryasoni98/alertkube/v2/internal/watchers"
 )
 
 // kubeconfigRetryBudget bounds how long buildClient retries transient

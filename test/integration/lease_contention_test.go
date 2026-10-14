@@ -5,7 +5,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,17 +12,6 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
-
-// leaseNameFor mirrors app.leaseName. It is duplicated rather than exported
-// because exporting an internal naming helper purely for a test widens the API
-// for no caller; the guard against drift is TestLeaseNamingMatchesController
-// below plus the unit test in internal/app.
-func leaseNameFor(index, total int) string {
-	if total <= 1 {
-		return "alertkube"
-	}
-	return fmt.Sprintf("alertkube-shard-%d", index)
-}
 
 func runElection(ctx context.Context, t *testing.T, ns, lease, id string, acquired chan<- string) {
 	t.Helper()
@@ -49,6 +37,9 @@ func runElection(ctx context.Context, t *testing.T, ns, lease, id string, acquir
 // "alertkube", so exactly one shard ran and the rest watched nothing - while
 // every pod reported Ready, because a leader-election follower is Ready by
 // design. With per-shard Leases all shards must lead simultaneously.
+//
+// Envtest only needs the Lease names to be distinct; the controller's real
+// naming (app.leaseName) is pinned by the unit tests in internal/app.
 func TestShardedLeasesAllowConcurrentLeadership(t *testing.T) {
 	const ns = "lease-sharded"
 	mustNamespace(t, ns)
@@ -57,8 +48,8 @@ func TestShardedLeasesAllowConcurrentLeadership(t *testing.T) {
 
 	const shards = 3
 	acquired := make(chan string, shards)
-	for i := 0; i < shards; i++ {
-		runElection(ctx, t, ns, leaseNameFor(i, shards), fmt.Sprintf("shard-%d", i), acquired)
+	for i := range shards {
+		runElection(ctx, t, ns, fmt.Sprintf("lease-%d", i), fmt.Sprintf("shard-%d", i), acquired)
 	}
 
 	leaders := map[string]bool{}
@@ -84,18 +75,13 @@ func TestSharedLeaseAdmitsOnlyOneLeader(t *testing.T) {
 	defer cancel()
 
 	acquired := make(chan string, 3)
-	for i := 0; i < 3; i++ {
-		// Every replica uses the unsharded name - the old behavior.
-		runElection(ctx, t, ns, leaseNameFor(i, 1), fmt.Sprintf("replica-%d", i), acquired)
+	for i := range 3 {
+		// Every replica uses the same name - the old behavior.
+		runElection(ctx, t, ns, "lease-shared", fmt.Sprintf("replica-%d", i), acquired)
 	}
 
-	var mu sync.Mutex
-	leaders := map[string]bool{}
 	select {
-	case id := <-acquired:
-		mu.Lock()
-		leaders[id] = true
-		mu.Unlock()
+	case <-acquired:
 	case <-time.After(15 * time.Second):
 		t.Fatal("no replica acquired the shared lease")
 	}
@@ -105,15 +91,5 @@ func TestSharedLeaseAdmitsOnlyOneLeader(t *testing.T) {
 	case id := <-acquired:
 		t.Fatalf("a second holder %q acquired the shared lease; leader election is not mutually exclusive", id)
 	case <-time.After(3 * time.Second):
-	}
-}
-
-// Guard against the duplicated naming above drifting from the controller's.
-func TestLeaseNamingMatchesController(t *testing.T) {
-	if got := leaseNameFor(0, 1); got != "alertkube" {
-		t.Fatalf("unsharded lease = %q, want %q", got, "alertkube")
-	}
-	if got := leaseNameFor(2, 3); got != "alertkube-shard-2" {
-		t.Fatalf("sharded lease = %q, want %q", got, "alertkube-shard-2")
 	}
 }

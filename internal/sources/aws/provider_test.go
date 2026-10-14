@@ -6,7 +6,7 @@ import (
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 // fakeSource is a minimal Source used to assert what the builders returned.

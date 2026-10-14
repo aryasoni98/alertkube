@@ -2,11 +2,13 @@ package rules
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 func collect() (Emit, *[]*alert.Alert) {
@@ -33,8 +35,15 @@ func TestCountRuleFiresAtThreshold(t *testing.T) {
 		t.Fatalf("rule should not fire below threshold, got %d", len(*got))
 	}
 	e.Observe(podAlert("prod", "p3", "CrashLoopBackOff"))
-	if len(*got) == 0 {
-		t.Fatal("rule should fire at threshold")
+	if len(*got) != 1 {
+		t.Fatalf("rule should fire at threshold, got %d", len(*got))
+	}
+	// Level-triggered: every observation while the count holds re-emits, so
+	// the store's mute window dedupes the page and the re-emit keeps the
+	// derived alert from TTL-resolving.
+	e.Observe(podAlert("prod", "p4", "CrashLoopBackOff"))
+	if len(*got) != 2 {
+		t.Fatalf("rule should re-emit while above threshold, got %d", len(*got))
 	}
 	d := (*got)[0]
 	if d.Kind != alert.KindDerived || d.Name != "storm" || d.Severity != alert.SeverityCritical {
@@ -82,8 +91,12 @@ func TestAllRuleFiresWhenAllGroupsActive(t *testing.T) {
 		t.Fatal("one active group should not fire a composite rule")
 	}
 	e.Observe(podAlert("prod", "p", "CrashLoopBackOff"))
-	if len(*got) == 0 {
-		t.Fatal("both groups active should fire the composite rule")
+	if len(*got) != 1 {
+		t.Fatalf("both groups active should fire the composite rule, got %d", len(*got))
+	}
+	e.Observe(podAlert("prod", "p2", "CrashLoopBackOff"))
+	if len(*got) != 2 {
+		t.Fatalf("composite rule should re-emit while every group is active, got %d", len(*got))
 	}
 }
 
@@ -105,8 +118,16 @@ func TestAbsentRuleHeartbeat(t *testing.T) {
 	}
 	now = now.Add(200 * time.Second) // 700s since start > 600s
 	e.evalAbsent()
-	if len(*got) == 0 {
-		t.Fatal("absent rule should fire after the window with no match")
+	if len(*got) != 1 {
+		t.Fatalf("absent rule should fire after the window with no match, got %d", len(*got))
+	}
+	// Every tick re-emits while the heartbeat stays missing. That keeps the
+	// derived alert active past resolveTTL and retries a page that was seeded
+	// during startup grace or rolled back after a failed delivery.
+	now = now.Add(absentTick)
+	e.evalAbsent()
+	if len(*got) != 2 {
+		t.Fatalf("absent rule should re-emit on every tick while absent, got %d", len(*got))
 	}
 
 	*got = nil
@@ -147,4 +168,29 @@ func TestRunReturnsWithoutAbsentRules(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Run should return immediately when no Absent rules are configured")
 	}
+}
+
+// TestRunKeepsEvaluatingAfterPanic pins per-tick recovery: an emit that panics
+// once must not stop Absent evaluation for the rest of the process.
+func TestRunKeepsEvaluatingAfterPanic(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		e := New([]config.Rule{{
+			Name:     "watchdog",
+			Severity: "critical",
+			Absent:   &config.RuleAbsent{Match: map[string]string{"name": "watchdog"}, ForSeconds: 10},
+		}}, func(*alert.Alert) {
+			if calls.Add(1) == 1 {
+				panic("emit boom")
+			}
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go e.Run(ctx)
+
+		time.Sleep(2*absentTick + absentTick/2) // the first tick panics, the second must still run
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("Absent evaluation must continue after a panicking tick, got %d emits", got)
+		}
+	})
 }

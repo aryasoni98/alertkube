@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // Self-registration for watchers, mirroring sinks.Register and

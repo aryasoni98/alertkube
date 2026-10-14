@@ -6,7 +6,7 @@ kind: Test
 metadata:
   name: imagepull-alert
 spec:
-  namespace: alertkube-e2e
+  namespace: alertkube-e2e-imagepull
   steps:
     - name: Create a pod with an unpullable image
       try:
@@ -34,7 +34,7 @@ spec:
               metadata:
                 name: badimage
               status:
-                (containerStatuses[0].state.waiting.reason): (contains('ImagePullBackOff ErrImagePull', @))
+                (contains(`["ImagePullBackOff", "ErrImagePull"]`, containerStatuses[0].state.waiting.reason)): true
     - name: Assert the controller emitted an image-pull alert
       try:
         - script:

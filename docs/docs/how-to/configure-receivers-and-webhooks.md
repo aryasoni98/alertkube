@@ -1,6 +1,7 @@
 # Configure Receiver and API Endpoints
 
-alertkube exposes two HTTP endpoints on `metricsAddr`:
+The receiver and alerts API use `metricsAddr`, or the separate `apiAddr` when
+configured:
 
 - **`POST /api/v1/receiver/alerts`** - Alertmanager webhook receiver (when enabled). Accepts Alertmanager webhook payloads and routes them through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth.
 - **`GET /api/v1/alerts`** - Read-only alerts API. JSON of active alerts plus recent history. Optional bearer auth.
@@ -31,12 +32,14 @@ If `receiver.enabled: true` and no token is configured, the controller refuses t
       --set receiver.token="your-secret-token-here"
     ```
 
-The token is read on every request, so Secret rotation does not require a restart. Alertmanager must send `Authorization: Bearer <token>`.
+Alertmanager must send `Authorization: Bearer <token>`. The handler loads its
+token when installed. After rotating an existing token Secret, restart the
+controller pods to update their environment and handlers.
 
 Point Alertmanager at alertkube:
 
 ```yaml
-# prometheus.yml or alertmanager.yml
+# In prometheus.yml:
 alerting:
   alertmanagers:
     - static_configs:
@@ -51,11 +54,17 @@ receivers:
       - url: 'http://alertkube.monitoring:9090/api/v1/receiver/alerts'
         send_resolved: true
         # If you set receiver.token:
-        headers:
-          Authorization: 'Bearer your-secret-token-here'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: 'your-secret-token-here'
 ```
 
+The webhook's authorization uses Alertmanager's
+[`http_config`](https://prometheus.io/docs/alerting/latest/configuration/#http_config).
 Receiver alerts use `kind: External`, so routing can treat them separately.
+
+When an Alertmanager alert carries a `fingerprint` made of letters, digits, `.`, `_`, `:`, or `-` (at most 128 characters), alertkube keeps it as `am-<fingerprint>`. The prefix stops an upstream id from occupying a fingerprint alertkube computed for a watched object. PagerDuty dedup keys and Opsgenie aliases for receiver alerts carry the prefix. Any other value is ignored, and the alert gets a locally computed fingerprint.
 
 ## Query `/api/v1/alerts`
 
@@ -72,46 +81,40 @@ curl -H "Authorization: Bearer your-secret-token-here" \
 
 Response shape:
 
+`Alert` has no `json` tags, so keys are the Go field names. `Details` is a
+map. There is no `lastFired` field; age is `StartsAt`.
+
 ```json
 {
   "active": [
     {
-      "fingerprint": "abc123def456",
-      "kind": "Pod",
-      "namespace": "default",
-      "name": "web-server-xyz",
-      "reason": "CrashLoopBackOff",
-      "severity": "warning",
-      "resolved": false,
-      "lastFired": "2026-06-20T12:34:56Z",
-      "labels": {
-        "node": "node-1",
-        "pod": "web-server-xyz"
-      },
-      "summary": "Pod default/web-server-xyz is CrashLoopBackOff",
-      "details": "Container logs and event details..."
+      "Fingerprint": "f0b03a99c75e3eac",
+      "Kind": "Pod",
+      "Namespace": "default",
+      "Name": "web-server-xyz",
+      "Severity": "warning",
+      "Reason": "CrashLoopBackOff",
+      "Summary": "Pod default/web-server-xyz is CrashLoopBackOff",
+      "Details": {"container": "app"},
+      "Labels": {"node": "node-1"},
+      "StartsAt": "2026-06-20T12:34:56Z",
+      "Resolved": false
     }
   ],
-  "recent": [
-    {
-      "fingerprint": "def789ghi012",
-      "kind": "Node",
-      "reason": "NodeNotReady",
-      ...
-    }
-  ]
+  "recent": []
 }
 ```
 
 - **`active`** - alerts currently firing (unresolved).
 - **`recent`** - recently resolved or muted alerts (historical window for correlation).
 
-Protect it with a bearer token or NetworkPolicy. When `api.token` is empty, the endpoint is unauthenticated.
+Protect it with a bearer token or NetworkPolicy. With no `ALERTKUBE_API_TOKEN`,
+the binary serves unauthenticated reads. The chart requires a token,
+NetworkPolicy, or explicit `api.allowUnauthenticatedRead: true`.
 
 === "Bearer token"
     ```yaml
-    # config.yaml
-    # OR helm values:
+    # Helm values (tokens are environment variables, not config.yaml keys):
     api:
       token: "your-api-token"
     ```
@@ -124,20 +127,23 @@ Protect it with a bearer token or NetworkPolicy. When `api.token` is empty, the 
 | --- | --- | --- | --- |
 | `receiver.enabled` | bool | `false` | Enable the Alertmanager webhook receiver on `POST /api/v1/receiver/alerts`. |
 | `receiver.allowAnonymous` | bool | `false` | Allow requests without a bearer token (only safe if the port is NetworkPolicy-locked). |
-| `api.token` | string | `""` | Optional bearer token for `/api/v1/alerts` (empty = unauthenticated). |
+| `api.token` (Helm only) | string | `""` | Supplies `ALERTKUBE_API_TOKEN` for read-API authentication. |
 
 Environment variables and Helm values:
 
 | Env var | Helm value | Key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token for the receiver. Read on every request. |
-| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token for `/api/v1/alerts`. Read on every request. |
+| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token for the receiver, loaded when the handler is installed. |
+| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Read-API token, loaded when handlers are installed. |
 
 ## Test an External Alert
 
 ```bash
-# 1. Install alertkube with receiver enabled and a token
+# 1. Reuse the alertkube-api Secret from the install tutorial.
+# Install alertkube with separate receiver and read-API credentials.
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set receiver.enabled=true \
   --set receiver.token="my-secure-token" \
   --set cluster=my-cluster \
@@ -167,7 +173,7 @@ curl -X POST http://localhost:9090/api/v1/receiver/alerts \
 
 # 4. Query the API
 curl -H "Authorization: Bearer my-api-token" \
-  http://localhost:9090/api/v1/alerts | jq '.active[] | select(.kind == "External")'
+  http://localhost:9090/api/v1/alerts | jq '.active[] | select(.Kind == "External")'
 ```
 
 ## See Also

@@ -8,24 +8,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeElastiCache struct {
-	pages []*elasticache.DescribeCacheClustersOutput
-	idx   int
-	err   error
+	pager[elasticache.DescribeCacheClustersOutput]
 }
 
-func (f *fakeElastiCache) DescribeCacheClusters(_ context.Context, _ *elasticache.DescribeCacheClustersInput, _ ...func(*elasticache.Options)) (*elasticache.DescribeCacheClustersOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeElastiCache) DescribeCacheClusters(_ context.Context, in *elasticache.DescribeCacheClustersInput, _ ...func(*elasticache.Options)) (*elasticache.DescribeCacheClustersOutput, error) {
+	return f.next(in.Marker)
 }
 
 func cacheCluster(id, status string) ectypes.CacheCluster {
@@ -85,10 +76,11 @@ func TestElastiCacheSourcePollPaginates(t *testing.T) {
 	page2 := &elasticache.DescribeCacheClustersOutput{
 		CacheClusters: []ectypes.CacheCluster{cacheCluster("c-good", "available")},
 	}
-	fake := &fakeElastiCache{pages: []*elasticache.DescribeCacheClustersOutput{page1, page2}}
+	fake := &fakeElastiCache{pager: pagerOf(page1, page2)}
 	src := &elastiCacheSource{regions: []ecRegion{{region: "us-west-2", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
+	wantTokens(t, fake.tokens, "", "more") // page 2 must be requested with page 1's token
 
 	if len(*got) != 2 {
 		t.Fatalf("expected 2 alerts across 2 pages, got %d", len(*got))

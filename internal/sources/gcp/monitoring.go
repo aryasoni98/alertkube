@@ -8,18 +8,14 @@ import (
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	"google.golang.org/api/iterator"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceGCPMonitoring = "gcp-monitoring"
 
-// policyLister lists Cloud Monitoring alert policies in one project. The real
-// adapter drains the API iterator; tests provide a fake.
-type policyLister interface {
-	List(ctx context.Context, project string) ([]*monitoringpb.AlertPolicy, error)
-}
-
+// apiPolicyLister lists Cloud Monitoring alert policies in one project by
+// draining the API iterator; tests provide a fake.
 type apiPolicyLister struct {
 	client *monitoring.AlertPolicyClient
 }
@@ -40,7 +36,7 @@ func (l *apiPolicyLister) List(ctx context.Context, project string) ([]*monitori
 	return out, nil
 }
 
-// gcpMonitoringSource surfaces Cloud Monitoring coverage posture: it alerts
+// newMonitoringSource surfaces Cloud Monitoring coverage posture: it alerts
 // (warning) when an alert policy is disabled and resolves when it is
 // re-enabled.
 //
@@ -48,10 +44,8 @@ func (l *apiPolicyLister) List(ctx context.Context, project string) ([]*monitori
 // AWS CloudWatch and Azure Monitor sources this is a posture signal ("is this
 // monitoring switched on?"), not a fired-alert feed. It is a deliberate,
 // documented limitation rather than a faked incident stream.
-type gcpMonitoringSource = projectSource[*monitoringpb.AlertPolicy, policyLister]
-
-func newMonitoringSource(projects []string, lister policyLister) *gcpMonitoringSource {
-	return newProjectSource(sourceGCPMonitoring, projects, lister, evaluateAlertPolicy)
+func newMonitoringSource(projects []string, list func(ctx context.Context, project string) ([]*monitoringpb.AlertPolicy, error)) sources.Source {
+	return sources.NewListSource(sourceGCPMonitoring, perProject(projects, list), evaluateAlertPolicy)
 }
 
 func evaluateAlertPolicy(project string, p *monitoringpb.AlertPolicy, emit sources.Emit) {

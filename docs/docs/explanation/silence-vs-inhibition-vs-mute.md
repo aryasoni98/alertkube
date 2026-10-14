@@ -1,8 +1,8 @@
 # Silence vs Inhibition vs Mute
 
-alertkube has four ways to hold back an alert. They are independent and answer different questions.
+alertkube has five ways to hold back an alert: the mute window, silences, annotation silences, maintenance windows and inhibitions. They are independent and answer different questions.
 
-## The three (really four) mechanisms
+## The mechanisms
 
 ### Mute Window
 
@@ -18,7 +18,9 @@ silences:
     until: "2026-06-15T00:00:00Z"
 ```
 
-Use silences for maintenance windows or known noisy scopes. `namespace` and `reason` are anchored regexes; other fields are exact matches.
+Use silences for one-off quiet periods or known noisy scopes. `namespace` and `reason` are anchored regexes; other fields are exact matches.
+
+The same kind of silence can also come from a Silence CR (with `--watch-silence-crd`) or from the runtime API (`POST /api/v1/silences`). All three use the same matcher rules.
 
 ### Annotation Silence
 
@@ -39,9 +41,24 @@ behavior:
 
 Config-file silences still apply when annotation silences are disabled.
 
+### Maintenance Window
+
+Recurring daily window in config, optionally limited to certain weekdays:
+
+```yaml
+maintenance:
+  - name: nightly-backup
+    matchers: {namespace: db-.*}
+    start: "01:00"
+    end: "03:00"
+    timezone: America/New_York
+```
+
+Use a maintenance window for planned work that repeats, such as backups or patching.
+
 ### Inhibition
 
-A source alert suppresses related target alerts while the source is active:
+A source alert suppresses related target alerts for `duration` after the source last fired:
 
 ```yaml
 inhibitions:
@@ -55,15 +72,15 @@ The `equal` fields scope the suppression. In the example, only pods on the faili
 
 ## Comparison at a glance
 
-| | Mute window | Silence | Annotation silence | Inhibition |
-|---|---|---|---|---|
-| **Question it answers** | Did I just send this? | Do I already know about this class of alert? | Did the workload owner ask for quiet? | Is this just a symptom of a bigger active alert? |
-| **Lives in** | Store | Router | Router | Router |
-| **Keyed / matched on** | Fingerprint (time since last send) | Label matchers + `until` time | `alert-silence-until` annotation + time | Source/target label matchers + `equal` keys |
-| **Source of truth** | `behavior.muteSeconds` | `silences` config | Workload annotation | `inhibitions` config |
-| **Scope** | One exact alert identity | All alerts matching the rule | One annotated object | Target alerts dependent on an active source |
-| **Trust level** | Built-in default | Operator | Workload author (disableable) | Operator |
-| **Suppressed metric reason** | (dedupe, not a Router suppression) | `silenced` | `silenced` | `inhibited` |
+| | Mute window | Silence | Annotation silence | Maintenance window | Inhibition |
+|---|---|---|---|---|---|
+| **Question it answers** | Did I just send this? | Do I already know about this class of alert? | Did the workload owner ask for quiet? | Is this planned, recurring work? | Is this just a symptom of a bigger active alert? |
+| **Lives in** | Store | Router | Router | Router | Router |
+| **Keyed / matched on** | Fingerprint (time since last send) | Label matchers + `until` time | `alert-silence-until` annotation + time | Label matchers + daily `start`/`end` time | Source/target label matchers + `equal` keys |
+| **Source of truth** | `behavior.muteSeconds` | `silences` config, Silence CRs, runtime API | Workload annotation | `maintenance` config | `inhibitions` config |
+| **Scope** | One exact alert identity | All alerts matching the rule | One annotated object | All alerts matching the window | Target alerts dependent on an active source |
+| **Trust level** | Built-in default | Operator | Workload author (disableable) | Operator | Operator |
+| **Suppressed metric reason** | `muted` | `silenced` | `silenced` | `maintenance` | `inhibited` |
 
 Each mechanism answers a different question; an alert can be held by any one of them.
 
@@ -74,13 +91,17 @@ Suppression order is fixed:
 1. **Mute window (Store).** Before the alert ever reaches the Router, the Store
    checks whether this fingerprint was sent inside the mute window. If so it is
    dropped here - the Router never sees it.
-2. **Silence (Router).** If the alert survives dedupe, the Router checks silences
-   (config and annotation) first.
-3. **Inhibition (Router).** If not silenced, the Router checks inhibitions.
-4. **Routing.** Only an alert that passed all three is matched against `routing`
-   rules to pick its sinks.
+2. **Silences (Router).** If the alert survives dedupe, the Router checks
+   silences in this order: the `alert-silence-until` annotation, config-file
+   silences, Silence CRs, then runtime silences from the API.
+3. **Maintenance windows (Router).** If not silenced, the Router checks
+   maintenance windows.
+4. **Inhibition (Router).** If no window is active, the Router checks
+   inhibitions.
+5. **Routing.** An alert that passed all four arms any inhibition it is the
+   source of, then is matched against `routing` rules to pick its sinks.
 
-Resolves bypass mute, silence, and inhibition so PagerDuty/Opsgenie incidents can close.
+Resolves bypass mute, silences, maintenance windows and inhibitions so PagerDuty/Opsgenie incidents can close.
 
 ## Example
 

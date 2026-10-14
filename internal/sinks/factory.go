@@ -1,7 +1,7 @@
 package sinks
 
 import (
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // SinkConfig carries the non-secret, process-wide wiring a sink factory needs

@@ -1,12 +1,14 @@
 package group
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 func podAlert(name string) *alert.Alert {
@@ -127,7 +129,7 @@ func TestMemberListCapped(t *testing.T) {
 	s := &sink{}
 	g := New(time.Hour, nil, s.flush)
 	g.Offer(podAlert("lead"))
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		g.Offer(podAlert("member"))
 	}
 	g.FlushAll()
@@ -137,5 +139,117 @@ func TestMemberListCapped(t *testing.T) {
 	}
 	if got := strings.Count(sum.Details["Grouped Resources"], "\n") + 1; got != 30 {
 		t.Fatalf("details list = %d lines, want 30", got)
+	}
+}
+
+func TestStormBoundsRetainedMembersAndPreservesSummary(t *testing.T) {
+	s := &sink{}
+	g := New(time.Hour, nil, s.flush)
+	first := podAlert("lead")
+	g.Offer(first)
+	for range 10000 {
+		g.Offer(podAlert("member"))
+	}
+	for _, b := range g.buckets {
+		if len(b.members) > memberDetailCap {
+			t.Errorf("storm retained %d member names; summary only needs %d", len(b.members), memberDetailCap)
+		}
+	}
+	// The delivery copy can change after Offer without changing this window.
+	first.Name = "changed"
+	first.Resolved = true
+	g.FlushAll()
+	sum := s.alerts()[0]
+	if !strings.Contains(sum.Summary, "10000 more") || !strings.Contains(sum.Summary, "+9990 more") || !strings.Contains(sum.Summary, "of ns/lead:") || sum.Resolved {
+		t.Fatalf("storm summary lost its count or identity: %q", sum.Summary)
+	}
+	if got := strings.Count(sum.Details["Grouped Resources"], "\n") + 1; got != memberDetailCap {
+		t.Fatalf("details list = %d, want %d", got, memberDetailCap)
+	}
+}
+
+// TestRunKeepsFlushingAfterPanic pins per-tick recovery: a flush callback that
+// panics once must not stop the ticker flushes or skip the shutdown FlushAll.
+func TestRunKeepsFlushingAfterPanic(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := &sink{}
+		var once sync.Once
+		g := New(500*time.Millisecond, nil, func(a *alert.Alert) {
+			once.Do(func() { panic("flush boom") })
+			s.flush(a)
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { g.Run(ctx); close(done) }()
+
+		g.Offer(podAlert("a-0"))
+		g.Offer(podAlert("a-1"))
+		time.Sleep(1500 * time.Millisecond) // the 1s tick flushes this window and panics
+		if got := len(s.alerts()); got != 0 {
+			t.Fatalf("the panicking flush must not deliver, got %d", got)
+		}
+
+		g.Offer(podAlert("b-0"))
+		g.Offer(podAlert("b-1"))
+		time.Sleep(2 * time.Second) // the 3s tick flushes the second window
+		if sums := s.alerts(); len(sums) != 1 || !strings.Contains(sums[0].Summary, "b-1") {
+			t.Fatalf("a later tick must still flush after a panic, got %v", sums)
+		}
+
+		g.Offer(podAlert("c-0"))
+		g.Offer(podAlert("c-1"))
+		cancel()
+		<-done
+		if sums := s.alerts(); len(sums) != 2 || !strings.Contains(sums[1].Summary, "c-1") {
+			t.Fatalf("cancel must still drain open windows after a tick panic, got %v", sums)
+		}
+	})
+}
+
+// A panic flushing one bucket must not lose the other buckets that closed in
+// the same tick or the same final drain: they are already removed from the
+// map, so a skipped summary is never sent.
+func TestFlushPanicInOneBucketStillFlushesTheOthers(t *testing.T) {
+	tests := []struct {
+		name  string
+		flush func(g *Grouper)
+	}{
+		{"expired in one tick", func(g *Grouper) {
+			recovered("flush", func() { g.flushExpired(time.Now().Add(time.Hour)) })
+		}},
+		{"final drain", func(g *Grouper) { recovered("final flush", g.FlushAll) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &sink{}
+			var once sync.Once
+			g := New(time.Minute, nil, func(a *alert.Alert) {
+				once.Do(func() { panic("flush boom") })
+				s.flush(a)
+			})
+			for _, ns := range []string{"ns-a", "ns-b"} {
+				g.Offer(alert.New(alert.KindPod, ns, "p-0", "CrashLoopBackOff", alert.SeverityCritical))
+				g.Offer(alert.New(alert.KindPod, ns, "p-1", "CrashLoopBackOff", alert.SeverityCritical))
+			}
+			tt.flush(g)
+			if got := len(s.alerts()); got != 1 {
+				t.Fatalf("the bucket after the panicking one must still flush, got %d summaries", got)
+			}
+		})
+	}
+}
+
+// TestRunRecoversPanicInShutdownFlush pins that a panic in the final drain is
+// logged, not propagated: it would otherwise crash the process before the
+// dispatch drain and the final state save.
+func TestRunRecoversPanicInShutdownFlush(t *testing.T) {
+	g := New(time.Hour, nil, func(*alert.Alert) { panic("flush boom") })
+	g.Offer(podAlert("p-0"))
+	g.Offer(podAlert("p-1"))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	g.Run(ctx) // must return normally
+	if !g.Offer(podAlert("p-2")) {
+		t.Fatal("after the drain Offer must pass through")
 	}
 }

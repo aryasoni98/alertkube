@@ -28,14 +28,10 @@ import (
 	"testing"
 
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
-var (
-	restCfg   *rest.Config
-	clientset kubernetes.Interface
-)
+var clientset kubernetes.Interface
 
 func TestMain(m *testing.M) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -48,7 +44,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "start envtest: %v\n", err)
 		os.Exit(1)
 	}
-	restCfg = cfg
 	clientset, err = kubernetes.NewForConfig(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "build clientset: %v\n", err)

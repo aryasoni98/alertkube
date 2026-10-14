@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sinks"
 )
 
 // The regression D10 exists for: a replayed FIRING alert used to carry no
@@ -13,12 +16,12 @@ import (
 // firing rolls dedupe back and retries on the next watch event. That made the
 // outbox reduce an alert's durability, which is the opposite of its purpose.
 func TestReplayedFiringRollsBackDedupeOnFailure(t *testing.T) {
-	s := &dispatchStub{name: "a", err: errors.New("down")}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a", err: errors.New("down")}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
-	var dead int32
-	d.SetDeadLetter(func(*alert.Alert) { dead++ })
+	var dead atomic.Int32
+	d.SetDeadLetter(func(*alert.Alert) { dead.Add(1) })
 
 	rolledBack := make(chan string, 1)
 	a := alert.New(alert.KindPod, "ns", "p", "Boom", alert.SeverityCritical)
@@ -38,18 +41,21 @@ func TestReplayedFiringRollsBackDedupeOnFailure(t *testing.T) {
 	case <-timeoutAfter():
 		t.Fatal("a failed replayed firing did not roll back dedupe; it will stay muted for the whole mute window")
 	}
+	// Drain the workers first so a late dead-letter cannot race the check.
+	d.Shutdown(context.Background())
+	if n := dead.Load(); n != 0 {
+		t.Fatalf("a failed replayed firing was dead-lettered %d times; it must only roll back dedupe", n)
+	}
 }
 
 // A replayed RESOLVE must keep the bounded resolve-retry path, not the dedupe
 // rollback: a resolve has no dedupe entry, and losing it dangles an incident.
 func TestReplayedResolveKeepsRetryPathNotRollback(t *testing.T) {
-	old := resolveRetryDelay
-	resolveRetryDelay = time.Millisecond
-	t.Cleanup(func() { resolveRetryDelay = old })
+	withRetryDelay(t, time.Millisecond)
 
-	s := &dispatchStub{name: "a", err: errors.New("down")}
-	d, _ := dispatcherWith(t, s, 2, 64)
-	defer d.Shutdown()
+	s := &testSink{name: "a", err: errors.New("down")}
+	d := dispatcherWith(t, s, 2, 64)
+	defer d.Shutdown(context.Background())
 
 	rolledBack := make(chan string, 1)
 	res := alert.New(alert.KindPod, "ns", "p", "Boom", alert.SeverityCritical)
@@ -70,3 +76,18 @@ func TestReplayedResolveKeepsRetryPathNotRollback(t *testing.T) {
 }
 
 func timeoutAfter() <-chan time.Time { return time.After(2 * time.Second) }
+
+func TestReplayedFireOnceDoesNotRollback(t *testing.T) {
+	for _, event := range []bool{true, false} {
+		d := newDispatcher(sinks.NewRegistry(), 1, 8)
+		a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+		a.Event = event
+		if !event {
+			a.Labels["alertkube-grouped"] = "true"
+		}
+		d.ReplayPending([]alert.PendingDelivery{{ID: 1, Alert: a, Route: []string{"a"}}}, nil, func(string) {})
+		if job := <-d.queues[0]; job.onFail != nil {
+			t.Errorf("fire-once replay (event=%v) gained a dedupe rollback instead of dead-lettering", event)
+		}
+	}
+}

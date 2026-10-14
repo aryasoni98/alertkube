@@ -20,9 +20,14 @@ Two layers live here:
    docker build -t alertkube:e2e .
    kind load docker-image alertkube:e2e
    helm upgrade --install alertkube ./helm \
+     --namespace alertkube --create-namespace \
      --set image.repository=alertkube --set image.tag=e2e \
      --set image.pullPolicy=Never --set cluster=e2e \
-     --set stdout.enabled=true
+     --set persistence.enabled=false \
+     --set behavior.startupGraceSeconds=0 \
+     --set api.allowUnauthenticatedRead=true \
+     --set-json 'routing=[{"match":{},"sinks":["stdout"]}]' \
+     --wait --timeout 180s
    chainsaw test test/e2e/chainsaw
    ```
 

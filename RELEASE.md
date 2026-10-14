@@ -51,6 +51,13 @@ Automated via [release-please](https://github.com/googleapis/release-please).
    signature, SBOM, and the Helm chart → `oci://ghcr.io/aryasoni98/charts`.
 5. **Artifact Hub** picks up the chart via `artifacthub-repo.yml`.
 
+Release and E2E jobs use GitHub-hosted Ubuntu runners, so publication and
+manual verification do not depend on a separately managed runner being online.
+A validation job checks the exact tagged revision (build, race tests, vet, lint,
+dependencies, vulnerabilities, version consistency, and rendered Helm
+configuration) before the image is published. Go and Helm are installed
+explicitly. Manually republishing an older tag never moves the `latest` image.
+
 Nothing is published by hand. If a step fails, fix forward — do not push tags
 locally.
 

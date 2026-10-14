@@ -93,22 +93,6 @@ if [[ -n "$SET_DATE" && ! "$SET_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
 fi
 
 # --- check helpers -----------------------------------------------------------
-expect_line() {
-  local file="$1"
-  local pattern="$2"
-  local label="$3"
-  local got
-  got="$(grep -E "$pattern" "$file" | head -1 || true)"
-  if [[ -z "$got" ]]; then
-    echo "FAIL $label: no match for /$pattern/ in ${file#"$ROOT"/}" >&2
-    return 1
-  fi
-  if ! grep -Eq "$pattern" "$file"; then
-    echo "FAIL $label: ${file#"$ROOT"/}" >&2
-    return 1
-  fi
-}
-
 expect_eq() {
   local label="$1"
   local want="$2"
@@ -124,14 +108,17 @@ run_check() {
 
   expect_eq "manifest" "$VERSION" "$(read_manifest)" || ok=1
 
-  local ak got_ak html chart_ver app_ver img_tag build_tag sec_rel
+  local got_ak metadata html chart_ver app_ver img_tag build_tag sec_rel
 
   got_ak="$(grep -oE 'const AK_VERSION = "v[0-9]+\.[0-9]+\.[0-9]+(-[^"]+)?"' \
     "$ROOT/web/ak-lib.jsx" | sed -E 's/.*"(v[^"]+)".*/\1/')"
   expect_eq "web/ak-lib.jsx AK_VERSION" "$VTAG" "$got_ak" || ok=1
 
-  html="$(grep -oE '"softwareVersion": "[0-9]+\.[0-9]+\.[0-9]+(-[^"]+)?"' \
-    "$ROOT/web/index.html" | sed -E 's/.*"([0-9.+-]+)".*/\1/')"
+  metadata="$(sed -n '/<script type="application\/ld+json">/,/<\/script>/p' "$ROOT/web/index.html" | sed '1d;$d')"
+  if ! html="$(jq -er '.softwareVersion' <<< "$metadata")"; then
+    echo "FAIL web/index.html: structured metadata must be valid JSON with softwareVersion" >&2
+    ok=1
+  fi
   expect_eq "web/index.html softwareVersion" "$VERSION" "$html" || ok=1
 
   chart_ver="$(grep -E '^version:' "$ROOT/helm/Chart.yaml" | awk '{print $2}')"
@@ -211,7 +198,7 @@ apply_sync() {
 
   perl -i -pe '
     my $v = $ENV{VERSION};
-    s/"softwareVersion": "[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)?", <!-- x-release-please-version -->/"softwareVersion": "$v", <!-- x-release-please-version -->/;
+    s/"softwareVersion": "[^"]+"/"softwareVersion": "$v"/;
     if ($ENV{SET_DATE}) {
       s/"datePublished": "[0-9]{4}-[0-9]{2}-[0-9]{2}"/"datePublished": "$ENV{SET_DATE}"/;
     }

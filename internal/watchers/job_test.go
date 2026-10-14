@@ -7,8 +7,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 func TestJobEvaluate(t *testing.T) {
@@ -57,10 +57,10 @@ func TestJobEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewJob(&config.Config{})
+			w := newJob(&config.Config{})
 
 			var got []*alert.Alert
-			w.evaluate(tc.job, func(a *alert.Alert) { got = append(got, a) })
+			w.eval(tc.job, func(a *alert.Alert) { got = append(got, a) })
 
 			if tc.wantNone {
 				if len(got) != 0 {

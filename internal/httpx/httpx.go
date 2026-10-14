@@ -21,13 +21,21 @@ import (
 
 // DefaultTimeout bounds every webhook POST in time. The 10s budget covers
 // dial + TLS + body upload and is well within Slack/Teams rate-limit hints.
-// Exported so sinks that must inject their own *http.Client (e.g. slack-go)
-// share the same per-request ceiling instead of redefining the constant.
+// Sinks that inject their own *http.Client (Slack bot-token mode) get it
+// through GuardedClient. It stays exported as the named bottom tier of the
+// timeout budget, which the breaker and pipeline tests order against.
 // This bounds one HTTP attempt; the surrounding per-sink and per-route
-// budgets are documented at dispatchTimeout in controller.go.
+// budgets are documented at the timeout budget in internal/app/pipeline.go.
 const DefaultTimeout = 10 * time.Second
 
-var defaultClient = &http.Client{Timeout: DefaultTimeout, Transport: guardedTransport()}
+var defaultClient = GuardedClient()
+
+// GuardedClient is an HTTP client with DefaultTimeout and the SSRF dial
+// guard. Sinks that inject their own client (Slack) must use this instead of
+// a bare http.Client, or a link-local webhook bypasses guardDest.
+func GuardedClient() *http.Client {
+	return &http.Client{Timeout: DefaultTimeout, Transport: guardedTransport()}
+}
 
 // guardedTransport clones the default transport and installs a dialer Control
 // hook that re-validates the IP actually being connected to. guardDest checks
@@ -67,11 +75,11 @@ type RetryPolicy struct {
 	MaxDelay    time.Duration // ceiling on backoff
 }
 
-// DefaultRetry is applied when PostJSON is called via the variadic overload
-// with no explicit policy. Three attempts with exponential backoff and full
-// jitter, capped at one second. The whole retry loop (attempts + backoff
-// sleeps) runs inside the caller's context, so the per-sink timeout caps it;
-// see the timeout budget at dispatchTimeout in controller.go.
+// DefaultRetry is the policy PostJSON uses and the one every production sink
+// passes. Three attempts with exponential backoff and full jitter, capped at
+// one second. The whole retry loop (attempts + backoff sleeps) runs inside the
+// caller's context, so the per-sink timeout caps it; see the timeout budget
+// in internal/app/pipeline.go.
 var DefaultRetry = RetryPolicy{MaxAttempts: 3, BaseDelay: 200 * time.Millisecond, MaxDelay: time.Second}
 
 // PostJSON marshals payload, POSTs it to url, and returns an error on
@@ -80,12 +88,7 @@ var DefaultRetry = RetryPolicy{MaxAttempts: 3, BaseDelay: 200 * time.Millisecond
 // exponential backoff bounded by DefaultRetry. A `Retry-After` header is
 // honored when present.
 func PostJSON(ctx context.Context, dest string, payload any) error {
-	return PostJSONWithRetry(ctx, dest, payload, DefaultRetry)
-}
-
-// PostJSONWithRetry is the explicit-policy form of PostJSON.
-func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy RetryPolicy) error {
-	return PostJSONWithHeaders(ctx, dest, payload, policy, nil)
+	return PostJSONWithHeaders(ctx, dest, payload, DefaultRetry, nil)
 }
 
 // HeaderFunc sets per-attempt request headers on the JSON POST. It receives
@@ -94,8 +97,8 @@ func PostJSONWithRetry(ctx context.Context, dest string, payload any, policy Ret
 // fresh within the receiver's replay window.
 type HeaderFunc func(req *http.Request, body []byte)
 
-// PostJSONWithHeaders is PostJSONWithRetry plus a hook to add per-request
-// headers (auth tokens, HMAC signatures). It owns the marshal + retry +
+// PostJSONWithHeaders is PostJSON with an explicit retry policy and a hook to
+// add per-request headers (auth tokens, HMAC signatures). It owns the marshal + retry +
 // status-handling loop so sinks that need custom headers do not re-implement
 // it. Empty dest is a no-op; header may be nil.
 func PostJSONWithHeaders(ctx context.Context, dest string, payload any, policy RetryPolicy, header HeaderFunc) error {
@@ -120,7 +123,7 @@ func PostJSONWithHeaders(ctx context.Context, dest string, payload any, policy R
 		}
 		resp, err := defaultClient.Do(req)
 		if err != nil {
-			return err
+			return &transportError{dest: dest, err: err}
 		}
 		// Drain + close so the connection can be reused.
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -128,20 +131,20 @@ func PostJSONWithHeaders(ctx context.Context, dest string, payload any, policy R
 		if resp.StatusCode < 400 {
 			return nil
 		}
-		return NewStatusError(resp.StatusCode, dest, resp.Header.Get("Retry-After"))
+		return newStatusError(resp.StatusCode, dest, resp.Header.Get("Retry-After"))
 	})
 }
 
 // Retry runs fn under the policy's exponential backoff until it succeeds,
 // returns a non-retriable error, or attempts are exhausted. fn owns request
 // construction so bodies are rebuilt per attempt. Sinks whose HTTP calls go
-// through third-party clients (Slack, PagerDuty) wrap their sends with this.
+// through third-party clients (Slack bot-token mode) wrap their sends with this.
 func Retry(ctx context.Context, policy RetryPolicy, fn func(ctx context.Context) error) error {
 	if policy.MaxAttempts < 1 {
 		policy.MaxAttempts = 1
 	}
 	var lastErr error
-	for attempt := 0; attempt < policy.MaxAttempts; attempt++ {
+	for attempt := range policy.MaxAttempts {
 		if attempt > 0 {
 			if err := sleepWithCtx(ctx, backoffDelay(policy, attempt, lastErr)); err != nil {
 				return err
@@ -152,25 +155,40 @@ func Retry(ctx context.Context, policy RetryPolicy, fn func(ctx context.Context)
 			return nil
 		}
 		lastErr = err
-		if !Retriable(err) {
+		if !retriable(err) {
 			return err
 		}
 	}
 	return fmt.Errorf("after %d attempts: %w", policy.MaxAttempts, lastErr)
 }
 
-// NewStatusError builds an HTTP-status failure carrying an optional
+// newStatusError builds an HTTP-status failure carrying an optional
 // Retry-After hint; Retry honors both when scheduling the next attempt.
 // rawURL is sanitized so webhook secrets never reach logs.
-func NewStatusError(status int, rawURL, retryAfterHeader string) error {
+func newStatusError(status int, rawURL, retryAfterHeader string) error {
 	return &statusError{status: status, url: sanitizeURL(rawURL), retryAfter: parseRetryAfter(retryAfterHeader)}
 }
 
-// Retriable reports whether err is worth retrying: retriable HTTP statuses
+// transportError is a dial or round-trip failure. Error renders only the
+// sanitized destination: the wrapped net/url error includes the raw URL,
+// which is where webhook secrets live. Unwrap keeps errors.Is(ctx.Canceled)
+// working so retriable stays false on cancellation.
+type transportError struct {
+	dest string
+	err  error
+}
+
+func (e *transportError) Error() string {
+	return "POST " + sanitizeURL(e.dest) + " failed"
+}
+
+func (e *transportError) Unwrap() error { return e.err }
+
+// retriable reports whether err is worth retrying: retriable HTTP statuses
 // (via statusError or any error exposing HTTPStatusCode, e.g. slack-go's
 // StatusCodeError) and transport errors qualify; context cancellation and
 // fatal 4xx do not.
-func Retriable(err error) bool {
+func retriable(err error) bool {
 	var se *statusError
 	if errors.As(err, &se) {
 		return isRetriableStatus(se.status)
@@ -200,20 +218,26 @@ func (e *statusError) Error() string {
 // forbid host-local and in-cluster webhook targets entirely.
 const strictEgressEnv = "ALERTKUBE_STRICT_WEBHOOK_EGRESS"
 
-// guardDest is a defense-in-depth SSRF check on operator-configured webhook
-// destinations (generic webhook, Opsgenie, Telegram). Link-local addresses
-// (169.254.0.0/16, fe80::/10) - which include the cloud metadata endpoint
-// 169.254.169.254 - are blocked unconditionally: no legitimate notification
-// endpoint lives there, and allowing them turns a settable webhook URL into
-// an SSRF that can read instance credentials. Loopback and private ranges are
-// additionally blocked when strictEgressEnv is set. The destinations come
-// from operator-controlled env/Secrets, so this guards against misconfig and
-// a compromised config source, not untrusted request input. DNS resolution
-// uses ctx so a slow resolver cannot hang the send beyond its sink timeout.
+// guardDest is a defense-in-depth SSRF check that PostJSON and
+// PostJSONWithHeaders run on every destination before sending - that is,
+// every HTTP sink including the Slack webhook; Slack bot-token mode gets only
+// the dial-time check via GuardedClient. It matters most for the
+// operator-configured URLs (Slack/chat webhooks, the generic webhook,
+// OPSGENIE_API_URL); fixed hosts such as PagerDuty and Telegram pass through
+// it harmlessly. Link-local addresses (169.254.0.0/16, fe80::/10) - which
+// include the cloud metadata endpoint 169.254.169.254 - are blocked
+// unconditionally: no legitimate notification endpoint lives there, and
+// allowing them turns a settable webhook URL into an SSRF that can read
+// instance credentials. Loopback and private ranges are additionally blocked
+// when strictEgressEnv is set. The destinations come from operator-controlled
+// env/Secrets, so this guards against misconfig and a compromised config
+// source, not untrusted request input. DNS resolution uses ctx so a slow
+// resolver cannot hang the send beyond its sink timeout.
 func guardDest(ctx context.Context, dest string) error {
 	u, err := url.Parse(dest)
 	if err != nil {
-		return fmt.Errorf("invalid destination URL: %w", err)
+		// The parse error quotes the raw URL. Do not wrap it.
+		return errors.New("invalid destination URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("destination scheme %q not allowed (http/https only)", u.Scheme)
@@ -297,7 +321,7 @@ func backoffDelay(p RetryPolicy, attempt int, lastErr error) time.Duration {
 	}
 	d := time.Duration(float64(base) * float64(int(1)<<uint(attempt-1)))
 	d = capDuration(d, p.MaxDelay)
-	jitter := time.Duration(rand.Int64N(int64(d/2 + 1)))
+	jitter := time.Duration(rand.Int64N(int64(d/2 + 1))) //nolint:gosec // backoff jitter, not a secret
 	return d/2 + jitter
 }
 

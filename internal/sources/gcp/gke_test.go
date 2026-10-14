@@ -2,12 +2,19 @@ package gcp
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	container "cloud.google.com/go/container/apiv1"
 	"cloud.google.com/go/container/apiv1/containerpb"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"google.golang.org/api/option"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 func collect() (sources.Emit, *[]*alert.Alert) {
@@ -15,16 +22,15 @@ func collect() (sources.Emit, *[]*alert.Alert) {
 	return func(a *alert.Alert) { got = append(got, a) }, &got
 }
 
-type fakeGKELister struct {
-	byProject map[string][]*containerpb.Cluster
-	err       error
-}
-
-func (f *fakeGKELister) List(_ context.Context, project string) ([]*containerpb.Cluster, error) {
-	if f.err != nil {
-		return nil, f.err
+// fakeLister serves canned per-project list results, or err for every
+// project - the same shape as a real adapter's List method value.
+func fakeLister[T any](byProject map[string][]T, err error) func(context.Context, string) ([]T, error) {
+	return func(_ context.Context, project string) ([]T, error) {
+		if err != nil {
+			return nil, err
+		}
+		return byProject[project], nil
 	}
-	return f.byProject[project], nil
 }
 
 func gkeCluster(name, location string, status containerpb.Cluster_Status) *containerpb.Cluster {
@@ -77,12 +83,12 @@ func TestEvaluateGKECluster(t *testing.T) {
 }
 
 func TestGKESourcePoll(t *testing.T) {
-	fake := &fakeGKELister{byProject: map[string][]*containerpb.Cluster{
+	fake := fakeLister(map[string][]*containerpb.Cluster{
 		"proj-1": {
 			gkeCluster("healthy", "us-central1", containerpb.Cluster_RUNNING),
 			gkeCluster("broken", "us-east1", containerpb.Cluster_ERROR),
 		},
-	}}
+	}, nil)
 	src := newGKESource([]string{"proj-1"}, fake)
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
@@ -103,5 +109,52 @@ func TestGKESourcePoll(t *testing.T) {
 		default:
 			t.Errorf("unexpected cluster %q", a.Name)
 		}
+	}
+}
+
+// TestAPIGKEListerKeepsPartialList drives the real Cluster Manager adapter
+// against a canned REST response. A list with missing zones must still return
+// the clusters it did get, so their alerts keep re-firing and resolving, and
+// record the gap as a poll error. Failing the whole project instead would let
+// every reachable cluster's alert TTL-resolve during a zonal outage.
+func TestAPIGKEListerKeepsPartialList(t *testing.T) {
+	const cluster = `{"name":"broken","location":"us-central1-a","status":"ERROR"}`
+	cases := []struct {
+		name     string
+		body     string
+		wantErrs float64
+	}{
+		{"complete list", `{"clusters":[` + cluster + `]}`, 0},
+		{"missing zones", `{"clusters":[` + cluster + `],"missingZones":["us-east1-b"]}`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/projects/proj-1/locations/-/clusters" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			client, err := container.NewClusterManagerRESTClient(context.Background(),
+				option.WithEndpoint(srv.URL), option.WithHTTPClient(srv.Client()))
+			if err != nil {
+				t.Fatalf("client: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			before := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues(sourceGKE))
+			emit, got := collect()
+			newGKESource([]string{"proj-1"}, (&apiGKELister{client: client}).List).Poll(context.Background(), emit)
+
+			if len(*got) != 1 || (*got)[0].Name != "broken" || (*got)[0].Resolved {
+				t.Fatalf("returned cluster must be evaluated as firing, got %d alerts: %+v", len(*got), *got)
+			}
+			if after := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues(sourceGKE)); after-before != tc.wantErrs {
+				t.Fatalf("CloudPollErrors[%s] delta = %v, want %v", sourceGKE, after-before, tc.wantErrs)
+			}
+		})
 	}
 }

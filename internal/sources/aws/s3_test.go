@@ -10,7 +10,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeS3 struct {
@@ -116,7 +116,7 @@ func TestS3SourcePoll(t *testing.T) {
 	byName := map[string]*alert.Alert{}
 	for _, a := range *got {
 		byName[a.Name] = a
-		if a.Kind != alert.KindS3Bucket || a.Namespace != s3Scope {
+		if a.Kind != alert.KindS3Bucket || a.Namespace != globalScope {
 			t.Errorf("bad identity for %s: kind=%s ns=%s", a.Name, a.Kind, a.Namespace)
 		}
 	}

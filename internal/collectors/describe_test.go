@@ -159,10 +159,7 @@ func TestPrintPod_CrashLoop(t *testing.T) {
 			}},
 		},
 	}
-	out, err := PrintPod(pod)
-	if err != nil {
-		t.Fatalf("PrintPod: %v", err)
-	}
+	out := PrintPod(pod)
 	if !strings.Contains(out, "web") || !strings.Contains(out, "CrashLoopBackOff") {
 		t.Fatalf("PrintPod missing fields: %q", out)
 	}
@@ -180,10 +177,7 @@ func TestPrintNode_NotReadyCordoned(t *testing.T) {
 			NodeInfo:   v1.NodeSystemInfo{KubeletVersion: "v1.31.0"},
 		},
 	}
-	out, err := PrintNode(node)
-	if err != nil {
-		t.Fatalf("PrintNode: %v", err)
-	}
+	out := PrintNode(node)
 	if !strings.Contains(out, "NotReady") || !strings.Contains(out, "SchedulingDisabled") {
 		t.Fatalf("PrintNode missing status: %q", out)
 	}
@@ -204,10 +198,7 @@ func TestDescribeContainerState_Terminated(t *testing.T) {
 			FinishedAt: metav1.NewTime(time.Now()),
 		}},
 	}
-	out, err := DescribeContainerState(st)
-	if err != nil {
-		t.Fatalf("DescribeContainerState: %v", err)
-	}
+	out := DescribeContainerState(st)
 	for _, want := range []string{"app", "Restart Count", "CrashLoopBackOff", "OOMKilled", "137"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("DescribeContainerState missing %q in %q", want, out)
@@ -223,10 +214,7 @@ func TestGetContainerResource(t *testing.T) {
 			Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("50m")},
 		},
 	}
-	out, err := GetContainerResource(c)
-	if err != nil {
-		t.Fatalf("GetContainerResource: %v", err)
-	}
+	out := GetContainerResource(c)
 	if !strings.Contains(out, "Limits") || !strings.Contains(out, "256Mi") {
 		t.Fatalf("limits missing: %q", out)
 	}
@@ -241,5 +229,125 @@ func TestPrintBoolAndTimestamp(t *testing.T) {
 	}
 	if got := translateTimestampSince(metav1.Time{}); got != "<unknown>" {
 		t.Fatalf("zero timestamp = %q, want <unknown>", got)
+	}
+}
+
+// TestRenderersGolden pins the exact bytes of every renderer: tabwriter
+// alignment, the two-space-per-level indent, and the terminal escaping of
+// ESC and CR in alert-derived text. Timestamps are either fixed or zero so
+// the relative-age columns render as "<unknown>".
+func TestRenderersGolden(t *testing.T) {
+	ts := metav1.NewTime(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+	cases := []struct {
+		name   string
+		render func() string
+		want   string
+	}{
+		{
+			name: "pod with escaped name",
+			render: func() string {
+				return PrintPod(&v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "web\x1b[31m"},
+					Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "web"}, {Name: "side"}}},
+					Status: v1.PodStatus{Phase: v1.PodRunning, ContainerStatuses: []v1.ContainerStatus{
+						{Name: "web", RestartCount: 7, State: v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}},
+						{Name: "side", Ready: true, State: v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: ts}}},
+					}},
+				})
+			},
+			want: "NAME       READY  STATUS            RESTARTS  AGE\nweb^[[31m  1/2    CrashLoopBackOff  7         <unknown>\n",
+		},
+		{
+			name: "node not ready and cordoned",
+			render: func() string {
+				return PrintNode(&v1.Node{
+					ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+					Spec:       v1.NodeSpec{Unschedulable: true},
+					Status: v1.NodeStatus{
+						Conditions: []v1.NodeCondition{
+							{Type: v1.NodeMemoryPressure, Status: v1.ConditionTrue},
+							{Type: v1.NodeReady, Status: v1.ConditionFalse},
+						},
+						NodeInfo: v1.NodeSystemInfo{KubeletVersion: "v1.31.0"},
+					},
+				})
+			},
+			want: "NAME    STATUS                       AGE        VERSION\nnode-1  NotReady,SchedulingDisabled  <unknown>  v1.31.0\n",
+		},
+		{
+			name: "node with duplicate ready conditions uses the last",
+			render: func() string {
+				return PrintNode(&v1.Node{
+					ObjectMeta: metav1.ObjectMeta{Name: "n3"},
+					Status: v1.NodeStatus{Conditions: []v1.NodeCondition{
+						{Type: v1.NodeReady, Status: v1.ConditionTrue},
+						{Type: v1.NodeReady, Status: v1.ConditionUnknown},
+					}},
+				})
+			},
+			want: "NAME  STATUS    AGE        VERSION\nn3    NotReady  <unknown>  \n",
+		},
+		{
+			name:   "node without ready condition",
+			render: func() string { return PrintNode(&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n2"}}) },
+			want:   "NAME  STATUS   AGE        VERSION\nn2    Unknown  <unknown>  \n",
+		},
+		{
+			name: "container running with terminated last state",
+			render: func() string {
+				return DescribeContainerState(v1.ContainerStatus{
+					Name: "app", RestartCount: 3,
+					State: v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: ts}},
+					LastTerminationState: v1.ContainerState{Terminated: &v1.ContainerStateTerminated{
+						Reason: "OOMKilled", Message: "100% used\r\nbye\x1b", ExitCode: 137, Signal: 9,
+						StartedAt: ts, FinishedAt: ts,
+					}},
+				})
+			},
+			want: "app:\n  Ready:          False\n  Restart Count:  3\n  State:          Running\n    Started:      Fri, 02 Jan 2026 03:04:05 +0000\n" +
+				"  Last State:     Terminated\n    Reason:       OOMKilled\n    Message:      100% used\\r\nbye^[\n    Exit Code:  137\n    Signal:     9\n" +
+				"    Started:    Fri, 02 Jan 2026 03:04:05 +0000\n    Finished:   Fri, 02 Jan 2026 03:04:05 +0000\n",
+		},
+		{
+			name: "container waiting",
+			render: func() string {
+				return DescribeContainerState(v1.ContainerStatus{
+					Name: "w", Ready: true,
+					State: v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+				})
+			},
+			want: "w:\n  Ready:          True\n  Restart Count:  0\n  State:          Waiting\n    Reason:       ImagePullBackOff\n",
+		},
+		{
+			name:   "container with empty state",
+			render: func() string { return DescribeContainerState(v1.ContainerStatus{Name: "d"}) },
+			want:   "d:\n  Ready:          False\n  Restart Count:  0\n  State:          Waiting\n",
+		},
+		{
+			name: "resources sorted by name",
+			render: func() string {
+				return GetContainerResource(v1.Container{Resources: v1.ResourceRequirements{
+					Limits: v1.ResourceList{v1.ResourceMemory: resource.MustParse("256Mi"), v1.ResourceCPU: resource.MustParse("1")},
+					Requests: v1.ResourceList{
+						v1.ResourceCPU:              resource.MustParse("50m"),
+						v1.ResourceEphemeralStorage: resource.MustParse("1Gi"),
+						v1.ResourceMemory:           resource.MustParse("64Mi"),
+					},
+				}})
+			},
+			want: "  Limits:\n    cpu:     1\n    memory:  256Mi\n  Requests:\n    cpu:                50m\n    ephemeral-storage:  1Gi\n    memory:             64Mi\n",
+		},
+		{
+			name:   "container without resources",
+			render: func() string { return GetContainerResource(v1.Container{}) },
+			want:   "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.render(); got != tc.want {
+				t.Fatalf("output mismatch:\n got=%q\nwant=%q", got, tc.want)
+			}
+		})
 	}
 }

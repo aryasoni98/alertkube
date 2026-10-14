@@ -4,7 +4,7 @@ import "testing"
 
 func TestValidateRules(t *testing.T) {
 	withRule := func(r Rule) *Config {
-		c := awsBaseConfig() // sets the mute/resolve/pvc fields Validate requires
+		c := validBaseConfig()
 		c.Rules = []Rule{r}
 		return c
 	}

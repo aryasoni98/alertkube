@@ -14,13 +14,17 @@ PagerDuty is keyed by fingerprint. Fires send `trigger`; resolves send `resolve`
 ## Configure PagerDuty
 
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.1 \
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set pagerduty.routingKey=R0UT1NGK3Y0000000000000000000000
 ```
 
-For real deployments, use `pagerduty.routingKeySecretKeyRef` instead of inline values. alertkube reads the key on every send, so Secret rotation works without restart.
+For real deployments, use `pagerduty.routingKeySecretKeyRef` instead of inline
+values. Restart the controller pods after rotating an existing Secret so their
+credential environment updates.
 
 ## Route Critical Alerts
 
@@ -38,20 +42,12 @@ Apply with `--values your-values.yaml` or an equivalent `--set-json`.
 
 ## Trigger a Critical Condition
 
-On a multi-node cluster, make a spare node unavailable:
+`CrashLoopBackOff` is critical by default. Create a test pod that exits
+immediately and wait for it to enter that state:
 
 ```bash
-kubectl cordon <node-name>
-kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+kubectl run pagerduty-test --image=busybox:1.37.0 --restart=Always -- /bin/false
 ```
-
-On a single-node cluster, promote a warning for testing:
-
-    ```yaml
-    severityOverrides:
-      - match: {kind: Pod, reason: CrashLoopBackOff}
-        severity: critical
-    ```
 
 ## Verify Open
 
@@ -60,12 +56,12 @@ Open your PagerDuty service. A triggered incident should appear, and the same al
 ## Resolve
 
 ```bash
-kubectl uncordon <node-name>
+kubectl delete pod pagerduty-test
 ```
 
-For the pod example, run `kubectl delete pod boom`.
-
-After `behavior.resolveTTLSeconds`, alertkube sends a resolve with the same fingerprint. PagerDuty and Opsgenie always receive individual resolves and never receive grouped summaries.
+Deleting the pod emits a resolve with the same fingerprint. Quiet standing
+conditions resolve after `behavior.resolveTTLSeconds`. PagerDuty and Opsgenie
+always receive individual resolves and never receive grouped summaries.
 
 ## Next steps
 

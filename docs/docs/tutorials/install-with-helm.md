@@ -17,9 +17,19 @@ helm version
 
 ## Install
 
+Create a Secret for read-API authentication in the namespace where you install
+the chart. Replace the example token with a random value:
+
 ```bash
-helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 1.2.1 \
+kubectl create secret generic alertkube-api \
+  --from-literal=token='replace-with-a-random-token'
+```
+
+```bash
+helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me \
   --set slack.channels.critical=alerts-critical \
   --set slack.channels.warning=alerts-warning \

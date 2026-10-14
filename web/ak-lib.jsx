@@ -6,12 +6,27 @@ const akFM = window.FramerMotion || {};
  * landing page (nav badge, hero pill, install snippets, footer tag).
  * AK_VERSION is bumped by release-please and `just sync-version` (see
  * scripts/sync-version.sh). Update AK_VERSION_DATE when cutting a release. */
-const AK_VERSION = "v1.2.1"; // x-release-please-version
-const AK_VERSION_DATE = "2026-08-08";
+const AK_VERSION = "v2.0.0"; // x-release-please-version
+const AK_VERSION_DATE = "2026-09-29";
 // Helm chart version carries no leading "v" (semver per Chart.yaml).
 const AK_CHART_VERSION = AK_VERSION.replace(/^v/, "");
 const AK_REPO = "https://github.com/aryasoni98/alertkube";
 const AK_RELEASE_URL = `${AK_REPO}/releases/tag/${AK_VERSION}`;
+
+/* ----------------------------- SINK CATALOG ----------------------------- */
+const AK_SINKS = [
+  { name: "Slack", pages: "all", tone: "info", transport: "Webhook or bot token", payload: "Block Kit - header, fields, summary, runbook", env: "SLACK_WEBHOOK_URL" },
+  { name: "PagerDuty", pages: "critical only", tone: "critical", transport: "Events API v2", payload: "Trigger / resolve, dedupKey = fingerprint", env: "PAGERDUTY_ROUTING_KEY" },
+  { name: "Microsoft Teams", short: "Teams", pages: "all", tone: "info", transport: "Power Automate webhook", payload: "Adaptive Card with FactSet + runbook button", env: "TEAMS_WEBHOOK_URL" },
+  { name: "Opsgenie", pages: "all", tone: "info", transport: "Alert API v2", payload: "Create / close, alias = fingerprint", env: "OPSGENIE_API_KEY" },
+  { name: "Discord", pages: "all", tone: "info", transport: "Channel webhook", payload: "Embed with severity color + runbook", env: "DISCORD_WEBHOOK_URL" },
+  { name: "Telegram", pages: "all", tone: "info", transport: "Bot API", payload: "HTML-escaped message", env: "TELEGRAM_BOT_TOKEN" },
+  { name: "Google Chat", pages: "all", tone: "info", transport: "Incoming webhook", payload: "Cards v2 with alert facts + runbook", env: "GOOGLECHAT_WEBHOOK_URL" },
+  { name: "Mattermost", pages: "all", tone: "info", transport: "Incoming webhook", payload: "Severity-colored attachment + runbook", env: "MATTERMOST_WEBHOOK_URL" },
+  { name: "Generic webhook", short: "Webhook", pages: "all", tone: "info", transport: "HTTP POST", payload: "Raw alert as JSON", env: "GENERIC_WEBHOOK_URL" },
+  { name: "stdout", pages: "all", tone: "info", transport: "klog", payload: "Single-line summary - local dev", env: "-" },
+];
+const AK_SINK_NAMES = AK_SINKS.map((sink) => sink.short || sink.name);
 
 /* ----------------------------- LOGO ----------------------------- */
 function AKLogo({ size = 28, withWord = true, white = false }) {

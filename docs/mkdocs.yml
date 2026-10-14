@@ -81,6 +81,7 @@ nav:
       - tutorials/first-alert-to-slack.md
       - tutorials/pagerduty-open-close.md
   - How-to guides:
+      - how-to/upgrade-to-v2.md
       - how-to/walk-through-config.md
       - how-to/configure-sinks.md
       - how-to/configure-receivers-and-webhooks.md

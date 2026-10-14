@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -13,11 +14,32 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
-	"k8s.io/kubectl/pkg/describe"
 )
 
+// Indent levels for prefixWriter; each level is two spaces, the kubectl
+// describe layout.
+const (
+	level0 = iota
+	level1
+	level2
+)
+
+// termEscaper neutralizes terminal control characters in alert-derived text
+// (ESC and CR), the same replacement kubectl's printers.WriteEscaped makes.
+var termEscaper = strings.NewReplacer("\x1b", "^[", "\r", "\\r")
+
+// prefixWriter is the subset of kubectl describe's PrefixWriter the
+// renderers need: indent by level, format, then escape. Keeping it local
+// avoids linking k8s.io/kubectl (and kustomize, cli-runtime, cobra) into the
+// controller for a two-space indent.
+type prefixWriter struct{ out io.Writer }
+
+func (w prefixWriter) write(level int, format string, a ...any) {
+	_, _ = termEscaper.WriteString(w.out, strings.Repeat("  ", level)+fmt.Sprintf(format, a...))
+}
+
 // PrintPod renders kubectl-style pod status table.
-func PrintPod(pod *v1.Pod) (string, error) {
+func PrintPod(pod *v1.Pod) string {
 	restarts := 0
 	totalContainers := len(pod.Spec.Containers)
 	readyContainers := 0
@@ -108,120 +130,108 @@ func PrintPod(pod *v1.Pod) (string, error) {
 		restartsStr = fmt.Sprintf("%d (%s ago)", restarts, translateTimestampSince(lastRestartDate))
 	}
 
-	return tabbedString(func(out io.Writer) error {
-		w := describe.NewPrefixWriter(out)
-		w.Write(describe.LEVEL_0, "NAME\tREADY\tSTATUS\tRESTARTS\tAGE\n")
-		w.Write(describe.LEVEL_0, "%s\t%d/%d\t%s\t%s\t%s\n", pod.Name, readyContainers, totalContainers, reason, restartsStr, translateTimestampSince(pod.CreationTimestamp))
-		return nil
+	return tabbedString(func(out io.Writer) {
+		w := prefixWriter{out}
+		w.write(level0, "NAME\tREADY\tSTATUS\tRESTARTS\tAGE\n")
+		w.write(level0, "%s\t%d/%d\t%s\t%s\t%s\n", pod.Name, readyContainers, totalContainers, reason, restartsStr, translateTimestampSince(pod.CreationTimestamp))
 	})
 }
 
-func PrintNode(obj *v1.Node) (string, error) {
-	conditionMap := make(map[v1.NodeConditionType]*v1.NodeCondition)
-	for i := range obj.Status.Conditions {
-		cond := obj.Status.Conditions[i]
-		conditionMap[cond.Type] = &cond
-	}
-	var status []string
-	for _, validCondition := range []v1.NodeConditionType{v1.NodeReady} {
-		if condition, ok := conditionMap[validCondition]; ok {
-			if condition.Status == v1.ConditionTrue {
-				status = append(status, string(condition.Type))
-			} else {
-				status = append(status, "Not"+string(condition.Type))
-			}
+func PrintNode(obj *v1.Node) string {
+	// Last Ready condition wins, as it did when conditions were keyed by type.
+	ready := "Unknown"
+	for _, cond := range obj.Status.Conditions {
+		if cond.Type != v1.NodeReady {
+			continue
+		}
+		if cond.Status == v1.ConditionTrue {
+			ready = string(cond.Type)
+		} else {
+			ready = "Not" + string(cond.Type)
 		}
 	}
-	if len(status) == 0 {
-		status = append(status, "Unknown")
-	}
+	status := []string{ready}
 	if obj.Spec.Unschedulable {
 		status = append(status, "SchedulingDisabled")
 	}
-	return tabbedString(func(out io.Writer) error {
-		w := describe.NewPrefixWriter(out)
-		w.Write(describe.LEVEL_0, "NAME\tSTATUS\tAGE\tVERSION\n")
-		w.Write(describe.LEVEL_0, "%s\t%s\t%s\t%s\n", obj.Name, strings.Join(status, ","), translateTimestampSince(obj.CreationTimestamp), obj.Status.NodeInfo.KubeletVersion)
-		return nil
+	return tabbedString(func(out io.Writer) {
+		w := prefixWriter{out}
+		w.write(level0, "NAME\tSTATUS\tAGE\tVERSION\n")
+		w.write(level0, "%s\t%s\t%s\t%s\n", obj.Name, strings.Join(status, ","), translateTimestampSince(obj.CreationTimestamp), obj.Status.NodeInfo.KubeletVersion)
 	})
 }
 
-func DescribeContainerState(status v1.ContainerStatus) (string, error) {
-	return tabbedString(func(out io.Writer) error {
-		w := describe.NewPrefixWriter(out)
-		w.Write(describe.LEVEL_0, "%v:\n", status.Name)
-		w.Write(describe.LEVEL_1, "Ready:\t%v\n", printBool(status.Ready))
-		w.Write(describe.LEVEL_1, "Restart Count:\t%d\n", status.RestartCount)
+func DescribeContainerState(status v1.ContainerStatus) string {
+	return tabbedString(func(out io.Writer) {
+		w := prefixWriter{out}
+		w.write(level0, "%v:\n", status.Name)
+		w.write(level1, "Ready:\t%v\n", printBool(status.Ready))
+		w.write(level1, "Restart Count:\t%d\n", status.RestartCount)
 		describeStatus("State", status.State, w)
 		if status.LastTerminationState.Terminated != nil {
 			describeStatus("Last State", status.LastTerminationState, w)
 		}
-		return nil
 	})
 }
 
-func describeStatus(stateName string, state v1.ContainerState, w describe.PrefixWriter) {
+func describeStatus(stateName string, state v1.ContainerState, w prefixWriter) {
 	switch {
 	case state.Running != nil:
-		w.Write(describe.LEVEL_1, "%s:\tRunning\n", stateName)
-		w.Write(describe.LEVEL_2, "Started:\t%v\n", state.Running.StartedAt.Format(time.RFC1123Z))
+		w.write(level1, "%s:\tRunning\n", stateName)
+		w.write(level2, "Started:\t%v\n", state.Running.StartedAt.Format(time.RFC1123Z))
 	case state.Waiting != nil:
-		w.Write(describe.LEVEL_1, "%s:\tWaiting\n", stateName)
+		w.write(level1, "%s:\tWaiting\n", stateName)
 		if state.Waiting.Reason != "" {
-			w.Write(describe.LEVEL_2, "Reason:\t%s\n", state.Waiting.Reason)
+			w.write(level2, "Reason:\t%s\n", state.Waiting.Reason)
 		}
 	case state.Terminated != nil:
-		w.Write(describe.LEVEL_1, "%s:\tTerminated\n", stateName)
+		w.write(level1, "%s:\tTerminated\n", stateName)
 		if state.Terminated.Reason != "" {
-			w.Write(describe.LEVEL_2, "Reason:\t%s\n", state.Terminated.Reason)
+			w.write(level2, "Reason:\t%s\n", state.Terminated.Reason)
 		}
 		if state.Terminated.Message != "" {
-			w.Write(describe.LEVEL_2, "Message:\t%s\n", state.Terminated.Message)
+			w.write(level2, "Message:\t%s\n", state.Terminated.Message)
 		}
-		w.Write(describe.LEVEL_2, "Exit Code:\t%d\n", state.Terminated.ExitCode)
+		w.write(level2, "Exit Code:\t%d\n", state.Terminated.ExitCode)
 		if state.Terminated.Signal > 0 {
-			w.Write(describe.LEVEL_2, "Signal:\t%d\n", state.Terminated.Signal)
+			w.write(level2, "Signal:\t%d\n", state.Terminated.Signal)
 		}
-		w.Write(describe.LEVEL_2, "Started:\t%s\n", state.Terminated.StartedAt.Format(time.RFC1123Z))
-		w.Write(describe.LEVEL_2, "Finished:\t%s\n", state.Terminated.FinishedAt.Format(time.RFC1123Z))
+		w.write(level2, "Started:\t%s\n", state.Terminated.StartedAt.Format(time.RFC1123Z))
+		w.write(level2, "Finished:\t%s\n", state.Terminated.FinishedAt.Format(time.RFC1123Z))
 	default:
-		w.Write(describe.LEVEL_1, "%s:\tWaiting\n", stateName)
+		w.write(level1, "%s:\tWaiting\n", stateName)
 	}
 }
 
-func GetContainerResource(container v1.Container) (string, error) {
-	return tabbedString(func(out io.Writer) error {
-		w := describe.NewPrefixWriter(out)
+func GetContainerResource(container v1.Container) string {
+	return tabbedString(func(out io.Writer) {
+		w := prefixWriter{out}
 		resources := container.Resources
 		if len(resources.Limits) > 0 {
-			w.Write(describe.LEVEL_1, "Limits:\n")
+			w.write(level1, "Limits:\n")
 		}
-		for _, name := range sortedResourceNames(resources.Limits) {
+		for _, name := range slices.Sorted(maps.Keys(resources.Limits)) {
 			quantity := resources.Limits[name]
-			w.Write(describe.LEVEL_2, "%s:\t%s\n", name, quantity.String())
+			w.write(level2, "%s:\t%s\n", name, quantity.String())
 		}
 		if len(resources.Requests) > 0 {
-			w.Write(describe.LEVEL_1, "Requests:\n")
+			w.write(level1, "Requests:\n")
 		}
-		for _, name := range sortedResourceNames(resources.Requests) {
+		for _, name := range slices.Sorted(maps.Keys(resources.Requests)) {
 			quantity := resources.Requests[name]
-			w.Write(describe.LEVEL_2, "%s:\t%s\n", name, quantity.String())
+			w.write(level2, "%s:\t%s\n", name, quantity.String())
 		}
-		return nil
 	})
 }
 
-func tabbedString(f func(out io.Writer) error) (string, error) {
-	out := new(tabwriter.Writer)
+// tabbedString renders f through a tabwriter into a string. Flushing onto a
+// bytes.Buffer cannot fail, so there is no error to return.
+func tabbedString(f func(out io.Writer)) string {
 	buf := &bytes.Buffer{}
-	out.Init(buf, 0, 8, 2, ' ', 0)
-	if err := f(out); err != nil {
-		return "", err
-	}
-	if err := out.Flush(); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+	out := tabwriter.NewWriter(buf, 0, 8, 2, ' ', 0)
+	f(out)
+	_ = out.Flush()
+	return buf.String()
 }
 
 func printBool(b bool) string {
@@ -245,13 +255,4 @@ func translateTimestampSince(timestamp metav1.Time) string {
 		return "<unknown>"
 	}
 	return duration.HumanDuration(time.Since(timestamp.Time))
-}
-
-func sortedResourceNames(list v1.ResourceList) []v1.ResourceName {
-	out := make([]v1.ResourceName, 0, len(list))
-	for r := range list {
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
 }

@@ -10,14 +10,20 @@ optional Prometheus Operator integration.
 
 ## Install
 
+Create `alertkube-api` with key `token` and `alertkube-slack` with key
+`webhookUrl` in the release namespace, then reference those Secrets:
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
   --version {{ .Version }} \
   --set cluster=my-cluster \
-  --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
+  --set slack.webhookUrlSecretKeyRef.name=alertkube-slack \
+  --set slack.webhookUrlSecretKeyRef.key=webhookUrl
 ```
 
-Or from a git checkout: `helm upgrade --install alertkube ./helm --set cluster=...`.
+From a git checkout, use `./helm` as the chart path and omit `--version`.
 
 ### Sinks
 
@@ -31,7 +37,10 @@ Set the credential for each sink you use (inline or via `*SecretKeyRef`):
 | Opsgenie | `opsgenie.apiKey` (+ `opsgenie.apiUrl` for EU) |
 | Discord | `discord.webhookUrl` |
 | Telegram | `telegram.botToken` + `telegram.chatId` |
+| Google Chat | `googlechat.webhookUrl` |
+| Mattermost | `mattermost.webhookUrl` |
 | Generic webhook | `genericWebhook.url` (+ `genericWebhook.signingSecret` for HMAC) |
+| stdout | No credential; route to the `stdout` sink for local testing |
 
 Routing, inhibitions, silences, severity overrides, and escalations are set under
 `routing:`, `inhibitions:`, `silences:`, `severityOverrides:`, `escalations:` and

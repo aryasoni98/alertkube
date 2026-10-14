@@ -88,10 +88,10 @@ characters and length-capped before logging (log-injection defence).
 ## Secret handling
 
 **Sink credentials are read from the environment on every `Send`,** never cached
-at construction. A rotated Secret takes effect on the next alert without a
-restart — and the credential is never copied into config, logs, or the
-`/api/v1/config` response. `SinkConfig` deliberately carries only non-secret
-process wiring.
+at construction. The chart uses `secretKeyRef` environment variables, so pods
+must restart after an existing Secret is rotated. The credential is never copied
+into config, logs, or the `/api/v1/config` response. `SinkConfig` deliberately
+carries only non-secret process wiring.
 
 **AlertKube does not read Kubernetes Secrets by default.** The one feature that
 can is the Secret-reference channel test, and it is triple-gated:
@@ -136,14 +136,13 @@ kept answering `202` would accept alerts into a store nothing will drain.
 | Resource | Verbs | Needed for | When |
 | --- | --- | --- | --- |
 | pods, nodes, deployments, statefulsets, daemonsets, jobs, cronjobs, hpa, pvc | get, list, watch | Core watching | Always |
-| events | list, watch | Alert enrichment | Always |
-| pods/log | get | Enrichment (previous container logs) | Always |
+| events | list | Alert enrichment | Always |
+| pods/log | get | Enrichment (previous container logs) | Unless `behavior.disableLogCollection` |
 | configmaps | get, create, update | State persistence | `persistence.enabled` |
 | leases (coordination.k8s.io) | get, create, update | Leader election | `leaderElection.enabled` |
 | silences.alertkube.io | get, list, watch | Silence CRD | `crds.silences.enabled` |
 | tokenreviews, subjectaccessreviews | create | RBAC auth mode | `api.authMode=rbac` |
 | secrets | get (own namespace) | Secret-reference channel test | `api.allowSecretRead` |
-| replicasets, services | get, list, watch | Correlation topology | Correlation (in progress) |
 
 `pods/log` is the widest grant in the default set — it can read application log
 output. Set `--watch-namespace` to scope the controller to a single namespace

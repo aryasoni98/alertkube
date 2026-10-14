@@ -11,6 +11,7 @@ package silence
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -30,8 +31,13 @@ type Silence struct {
 	CreatedAt time.Time         `json:"createdAt"`
 }
 
-// Active reports whether the silence still mutes at now.
-func (s Silence) Active(now time.Time) bool { return now.Before(s.Until) }
+// active reports whether the silence still mutes at now.
+func (s Silence) active(now time.Time) bool { return now.Before(s.Until) }
+
+func (s Silence) clone() Silence {
+	s.Matchers = maps.Clone(s.Matchers)
+	return s
+}
 
 // Store is a concurrency-safe set of runtime silences.
 type Store struct {
@@ -54,7 +60,7 @@ func (s *Store) Add(sil Silence) Silence {
 	if sil.CreatedAt.IsZero() {
 		sil.CreatedAt = time.Now()
 	}
-	s.items[sil.ID] = sil
+	s.items[sil.ID] = sil.clone()
 	s.gen++
 	s.mu.Unlock()
 	return sil
@@ -78,7 +84,7 @@ func (s *Store) List() []Silence {
 	s.mu.RLock()
 	out := make([]Silence, 0, len(s.items))
 	for _, v := range s.items {
-		out = append(out, v)
+		out = append(out, v.clone())
 	}
 	s.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
@@ -91,8 +97,8 @@ func (s *Store) Active(now time.Time) []Silence {
 	defer s.mu.RUnlock()
 	out := make([]Silence, 0, len(s.items))
 	for _, v := range s.items {
-		if v.Active(now) {
-			out = append(out, v)
+		if v.active(now) {
+			out = append(out, v.clone())
 		}
 	}
 	return out
@@ -104,7 +110,7 @@ func (s *Store) PruneExpired(now time.Time) int {
 	s.mu.Lock()
 	n := 0
 	for id, v := range s.items {
-		if !v.Active(now) {
+		if !v.active(now) {
 			delete(s.items, id)
 			n++
 		}
@@ -126,7 +132,7 @@ func (s *Store) Replace(items []Silence) {
 		if v.ID == "" {
 			continue
 		}
-		s.items[v.ID] = v
+		s.items[v.ID] = v.clone()
 	}
 	s.gen++
 	s.mu.Unlock()
@@ -140,13 +146,10 @@ func (s *Store) Generation() uint64 {
 	return s.gen
 }
 
-// newID returns a short random hex id. crypto/rand never fails on the platforms
-// the controller runs on; if it ever did, a time-derived fallback keeps Add
-// total rather than panicking the request path.
+// newID returns a short random hex id. crypto/rand.Read never returns an
+// error; it crashes the process if the system source fails.
 func newID() string {
 	var b [6]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "s" + hex.EncodeToString([]byte(time.Now().Format("150405.000000")))
-	}
+	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }

@@ -38,13 +38,6 @@ const tracerName = "github.com/aryasoni98/alertkube"
 // job.
 const initTimeout = 5 * time.Second
 
-// Enabled reports whether tracing was turned on. Callers do not need to check
-// it - the no-op tracer handles that - but it is useful for skipping expensive
-// attribute construction.
-func Enabled() bool { return enabled }
-
-var enabled bool
-
 // Tracer returns the tracer for the alert pipeline. Safe before Init: the
 // global provider defaults to a no-op, so an uninitialised call records
 // nothing rather than panicking.
@@ -79,9 +72,9 @@ func Init(ctx context.Context, serviceVersion string) func(context.Context) erro
 		sdktrace.WithResource(newResource(serviceVersion)),
 		// Parent-based sampling with an always-on root: an alert's trace starts
 		// here, and a half-sampled alert pipeline is worse than none - the
-		// missing span is indistinguishable from a dropped alert, which is
-		// exactly the confusion this is meant to remove. Operators who need
-		// less volume set OTEL_TRACES_SAMPLER.
+		// missing span is indistinguishable from a dropped alert. This option
+		// overwrites OTEL_TRACES_SAMPLER; volume is all-or-nothing via
+		// ALERTKUBE_TRACING_ENABLED.
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
 	)
 	otel.SetTracerProvider(tp)
@@ -90,7 +83,6 @@ func Init(ctx context.Context, serviceVersion string) func(context.Context) erro
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
 	))
-	enabled = true
 	klog.Infof("tracing enabled: exporting spans via OTLP (configure with OTEL_EXPORTER_OTLP_ENDPOINT)")
 	return tp.Shutdown
 }

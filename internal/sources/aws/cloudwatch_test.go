@@ -8,24 +8,39 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeCW struct {
-	pages []*cloudwatch.DescribeAlarmsOutput
-	idx   int
-	err   error
+	pager[cloudwatch.DescribeAlarmsOutput]
 }
 
-func (f *fakeCW) DescribeAlarms(_ context.Context, _ *cloudwatch.DescribeAlarmsInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.DescribeAlarmsOutput, error) {
-	if f.err != nil {
-		return nil, f.err
+func (f *fakeCW) DescribeAlarms(_ context.Context, in *cloudwatch.DescribeAlarmsInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.DescribeAlarmsOutput, error) {
+	page, err := f.next(in.NextToken)
+	if err != nil {
+		return nil, err
 	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
+	out := *page
+	if !alarmTypeRequested(in, cwtypes.AlarmTypeCompositeAlarm) {
+		out.CompositeAlarms = nil
 	}
-	return out, nil
+	if !alarmTypeRequested(in, cwtypes.AlarmTypeMetricAlarm) {
+		out.MetricAlarms = nil
+	}
+	return &out, nil
+}
+
+// An omitted AlarmTypes list returns only metric alarms.
+func alarmTypeRequested(in *cloudwatch.DescribeAlarmsInput, want cwtypes.AlarmType) bool {
+	if in == nil || len(in.AlarmTypes) == 0 {
+		return want == cwtypes.AlarmTypeMetricAlarm
+	}
+	for _, got := range in.AlarmTypes {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }
 
 func metricAlarm(name string, state cwtypes.StateValue) cwtypes.MetricAlarm {
@@ -90,10 +105,11 @@ func TestCloudWatchSourcePollPaginatedAndComposite(t *testing.T) {
 			{AlarmName: awssdk.String("svc-down"), StateValue: cwtypes.StateValueAlarm, StateReason: awssdk.String("children alarming")},
 		},
 	}
-	fake := &fakeCW{pages: []*cloudwatch.DescribeAlarmsOutput{page1, page2}}
+	fake := &fakeCW{pager: pagerOf(page1, page2)}
 	src := &cloudWatchSource{regions: []cwRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
+	wantTokens(t, fake.tokens, "", "more") // page 2 must be requested with page 1's token
 
 	if len(*got) != 3 {
 		t.Fatalf("expected 3 alerts across 2 pages, got %d", len(*got))

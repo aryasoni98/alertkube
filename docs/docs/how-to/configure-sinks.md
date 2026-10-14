@@ -1,6 +1,6 @@
 # Configure Alert Sinks
 
-alertkube can send alerts to `slack`, `pagerduty`, `teams`, `opsgenie`, `discord`, `telegram`, `webhook`, and `stdout`. Full credential names live in [Sink credentials & env vars](../reference/sink-credentials.md).
+alertkube can send alerts to `slack`, `pagerduty`, `teams`, `opsgenie`, `discord`, `telegram`, `googlechat`, `mattermost`, `webhook`, and `stdout`. Full credential names live in [Sink credentials & env vars](../reference/sink-credentials.md).
 
 ## Quick Setup
 
@@ -89,7 +89,9 @@ genericWebhook:
     key: genericWebhookUrl
 ```
 
-Credentials are read on every send, so Secret rotation takes effect without restarting alertkube.
+The chart loads Secret values into environment variables when a pod starts.
+After rotating an existing Secret, run `kubectl rollout restart deploy/alertkube`
+in the release namespace so normal delivery uses the new credentials.
 
 ## Route to Sinks
 

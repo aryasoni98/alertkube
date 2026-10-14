@@ -8,24 +8,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeNAT struct {
-	pages []*ec2.DescribeNatGatewaysOutput
-	idx   int
-	err   error
+	pager[ec2.DescribeNatGatewaysOutput]
 }
 
-func (f *fakeNAT) DescribeNatGateways(_ context.Context, _ *ec2.DescribeNatGatewaysInput, _ ...func(*ec2.Options)) (*ec2.DescribeNatGatewaysOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeNAT) DescribeNatGateways(_ context.Context, in *ec2.DescribeNatGatewaysInput, _ ...func(*ec2.Options)) (*ec2.DescribeNatGatewaysOutput, error) {
+	return f.next(in.NextToken)
 }
 
 func natGW(id string, state ec2types.NatGatewayState) ec2types.NatGateway {
@@ -78,12 +69,12 @@ func TestEvaluateNatGateway(t *testing.T) {
 }
 
 func TestNATSourcePoll(t *testing.T) {
-	fake := &fakeNAT{pages: []*ec2.DescribeNatGatewaysOutput{{
+	fake := &fakeNAT{pager: pagerOf(&ec2.DescribeNatGatewaysOutput{
 		NatGateways: []ec2types.NatGateway{
 			natGW("good", ec2types.NatGatewayStateAvailable),
 			natGW("bad", ec2types.NatGatewayStateFailed),
 		},
-	}}}
+	})}
 	src := &natSource{regions: []natRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

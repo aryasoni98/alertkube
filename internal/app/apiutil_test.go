@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestWriteAuthorizedFailsClosed(t *testing.T) {
@@ -55,5 +56,16 @@ func TestSanitizeField(t *testing.T) {
 	}
 	if got := sanitizeField("ok\x00bad"); got != "okbad" {
 		t.Fatalf("sanitizeField control byte = %q", got)
+	}
+	if got := sanitizeField(strings.Repeat("x", 199) + "€"); !utf8.ValidString(got) || len(got) > 200 {
+		t.Fatalf("sanitizeField must cut on a UTF-8 boundary: %q", got)
+	}
+}
+
+func TestReadBodyAcceptsExactLimit(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("1234"))
+	if body, ok := readBody(rec, req, 4); !ok || string(body) != "1234" {
+		t.Fatalf("exact limit: body=%q ok=%v status=%d", body, ok, rec.Code)
 	}
 }

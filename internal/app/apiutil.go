@@ -2,12 +2,14 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/authz"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/authz"
+	"github.com/aryasoni98/alertkube/v2/internal/textutil"
 )
 
 // Shared HTTP plumbing for the token-gated control-plane API (console.go).
@@ -16,8 +18,7 @@ import (
 // only its own logic.
 
 // Request body caps. The control-plane bodies are tiny; the cap keeps an
-// oversized POST from being buffered, and reading through io.LimitReader means
-// an over-long body is truncated rather than rejected mid-parse.
+// oversized POST from being buffered or silently accepted as a valid prefix.
 const (
 	// configBodyLimit bounds a candidate config posted to /api/config/validate.
 	configBodyLimit = 1 << 20
@@ -52,19 +53,24 @@ func writeVerdict(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// readBody reads at most limit bytes of req.Body. On failure it writes the 400
-// response and returns ok=false, so callers can bail with a bare return.
+// readBody rejects bodies over limit with 413 and other read failures with 400.
+// Callers must stop when ok is false, before parsing or applying any mutation.
 func readBody(w http.ResponseWriter, req *http.Request, limit int64) ([]byte, bool) {
-	body, err := io.ReadAll(io.LimitReader(req.Body, limit))
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, limit))
 	if err != nil {
-		httpErr(w, http.StatusBadRequest, "read body")
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			httpErr(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else {
+			httpErr(w, http.StatusBadRequest, "read body")
+		}
 		return nil, false
 	}
 	return body, true
 }
 
-// decodeJSON reads a capped body and unmarshals it into dst, writing the 400
-// response and returning false on a read or parse failure.
+// decodeJSON reads a capped body and unmarshals it into dst, writing an error
+// response and returning false on a read, size, or parse failure.
 func decodeJSON(w http.ResponseWriter, req *http.Request, limit int64, dst any) bool {
 	body, ok := readBody(w, req, limit)
 	if !ok {
@@ -118,8 +124,5 @@ func sanitizeField(s string) string {
 			return r
 		}
 	}, s)
-	if len(s) > 200 {
-		s = s[:200]
-	}
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(textutil.Head(s, 200))
 }

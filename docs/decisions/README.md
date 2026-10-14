@@ -24,3 +24,4 @@ We use a lightweight [MADR](https://adr.github.io/madr/)-style format. See
 | [0002](0002-mkdocs-material-for-docs-site.md) | MkDocs Material for the documentation site | Accepted |
 | [0003](0003-configmap-state-backend.md) | ConfigMap as the state-persistence backend (for now) | Accepted |
 | [0004](0004-opt-in-silence-crd-via-dynamic-informer.md) | Opt-in Silence CRD via a dynamic informer (no controller-runtime) | Accepted |
+| [0005](0005-config-immutable-for-process-lifetime.md) | Config is immutable for the process lifetime | Accepted |

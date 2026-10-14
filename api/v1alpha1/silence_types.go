@@ -38,12 +38,28 @@ type SilenceSpec struct {
 	//
 	// Matching semantics are shared with config-file silences: `namespace` and
 	// `reason` are treated as anchored regexes, every other key is exact-match.
+	// A `namespace` or `reason` that matches every alert, such as `.*`, makes
+	// the controller ignore the Silence.
+	//
+	// A namespaced Silence only mutes its own namespace. The controller sets an
+	// omitted `namespace` matcher to the object's namespace, and ignores the
+	// Silence when the matcher has any other value, a pattern included. Only a
+	// cluster-scoped Silence can match other namespaces. So a namespaced
+	// Silence never mutes alerts with no namespace or one that is not a
+	// Kubernetes namespace: Node alerts, cloud-source alerts (namespace is the
+	// region or account scope), and receiver alerts without a namespace label.
+	// Silence those with a cluster-scoped Silence or a config-file or
+	// runtime-API silence.
 	Matchers map[string]string `json:"matchers"`
 
 	// Until is the RFC3339 timestamp after which this silence stops applying.
 	// Required, and deliberately not optional: an unbounded silence is how
 	// alerting quietly dies, so expiry is part of the type rather than a
 	// convention.
+	//
+	// The controller applies a silence for at most 30 days after the object's
+	// creationTimestamp; a later until is capped there. Editing until cannot
+	// extend a silence past that point: recreate the object instead.
 	Until string `json:"until"`
 
 	// Comment is an optional human note describing why the silence exists.

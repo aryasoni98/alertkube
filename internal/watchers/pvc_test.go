@@ -7,8 +7,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 func makePVC(phase v1.PersistentVolumeClaimPhase, created time.Time) *v1.PersistentVolumeClaim {
@@ -56,10 +56,10 @@ func TestPVCEvaluate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := NewPVC(&config.Config{})
+			w := newPVC(config.Filters{}, 0)
 
 			var got []*alert.Alert
-			w.evaluate(tc.pvc, func(a *alert.Alert) { got = append(got, a) })
+			w.eval(tc.pvc, func(a *alert.Alert) { got = append(got, a) })
 
 			if tc.wantNone {
 				if len(got) != 0 {

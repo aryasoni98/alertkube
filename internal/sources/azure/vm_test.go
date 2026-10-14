@@ -6,17 +6,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
-
-type fakeVMLister struct {
-	vms []*armcompute.VirtualMachine
-	err error
-}
-
-func (f *fakeVMLister) List(context.Context) ([]*armcompute.VirtualMachine, error) {
-	return f.vms, f.err
-}
 
 func vm(name, location, provState string) *armcompute.VirtualMachine {
 	return &armcompute.VirtualMachine{
@@ -66,11 +57,11 @@ func TestEvaluateVM(t *testing.T) {
 }
 
 func TestAzureVMSourcePoll(t *testing.T) {
-	fake := &fakeVMLister{vms: []*armcompute.VirtualMachine{
+	items := []*armcompute.VirtualMachine{
 		vm("good", "eastus", "Succeeded"),
 		vm("bad", "westus", "Failed"),
-	}}
-	src := &azureVMSource{subs: []azureVMSubscription{{subscription: "sub-1", lister: fake}}}
+	}
+	src := newAzureVMSource(fakeLister("sub-1", items, nil))
 	emit, got := collect()
 	src.Poll(context.Background(), emit)
 	if len(*got) != 2 {

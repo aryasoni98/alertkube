@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
 
 // deadLetterCap bounds the in-memory dead-letter ring. Dead-lettering is rare

@@ -4,10 +4,10 @@
 # not throughput - only the leader evaluates. For horizontal scale see
 # sharded.yaml.
 #
-#   helm upgrade --install alertkube ./helm \
-#     --set-file config=examples/ha-leader-election.yaml \
-#     --set replicaCount=2 \
-#     --set leaderElection.enabled=true
+# Use as a Helm values overlay (`-f examples/ha-leader-election.yaml`), with
+# `--set replicaCount=2 --set leaderElection.enabled=true`. Supply sink
+# credentials and API authentication separately using the chart's Secret
+# references. The chart's namespace supplies POD_NAMESPACE.
 #
 # Followers report Ready by design: a follower is one lease transition away
 # from leading, and if it reported NotReady a RollingUpdate with

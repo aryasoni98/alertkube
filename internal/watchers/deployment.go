@@ -8,13 +8,13 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
-// NewDeployment fires when unavailableReplicas > 0 or progress fails.
-func NewDeployment(cfg *config.Config) *simple[*appsv1.Deployment] {
-	return newSimple("deployment", alert.KindDeployment, cfg,
+// newDeployment fires when unavailableReplicas > 0 or progress fails.
+func newDeployment(cfg *config.Config) *simple[*appsv1.Deployment] {
+	return newSimple("deployment", alert.KindDeployment, cfg.Filters,
 		func(f informers.SharedInformerFactory) cache.SharedIndexInformer {
 			return f.Apps().V1().Deployments().Informer()
 		},
@@ -22,6 +22,14 @@ func NewDeployment(cfg *config.Config) *simple[*appsv1.Deployment] {
 }
 
 func evaluateDeployment(dep *appsv1.Deployment, emit Emit) {
+	// Skip status written before the controller observed the current spec:
+	// its counts and conditions describe the previous generation. This only
+	// covers the window before the controller's first status write for the
+	// new generation; that write advances observedGeneration together with
+	// the recomputed counts, so a scale-up or rollout shortfall still alerts.
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return
+	}
 	if dep.Status.UnavailableReplicas > 0 {
 		var desired int32
 		if dep.Spec.Replicas != nil {
@@ -45,4 +53,4 @@ func evaluateDeployment(dep *appsv1.Deployment, emit Emit) {
 	}
 }
 
-func init() { Register(func(o Opts) Watcher { return NewDeployment(o.Config) }) }
+func init() { Register(func(o Opts) Watcher { return newDeployment(o.Config) }) }

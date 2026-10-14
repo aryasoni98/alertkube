@@ -1,21 +1,20 @@
 package sinks
 
 import (
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/templates"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
-// NewTeams posts Adaptive Cards to a Microsoft Teams webhook.
+func init() { Register("teams", func(SinkConfig) Sink { return newTeams() }) }
+
+// newTeams posts Adaptive Cards to a Microsoft Teams webhook.
 //
 // Payload is the `{type: message, attachments: [adaptive card]}` envelope
 // accepted by Power Automate Workflows webhooks - the replacement for
 // Office 365 connectors, which Microsoft retired. Legacy connector URLs
 // (while they still function) accept the same envelope.
 // Webhook URL is read on each Send so Secret rotation is honored.
-func init() { Register("teams", func(SinkConfig) Sink { return NewTeams() }) }
-
-func NewTeams() Sink {
-	return &webhookSink{name: "teams", credEnv: "TEAMS_WEBHOOK_URL", payload: teamsPayload}
+func newTeams() Sink {
+	return &chatWebhookSink{name: "teams", credEnv: envTeamsWebhookURL, payload: teamsPayload}
 }
 
 // teamsColor maps severity to Adaptive Card TextBlock colors.
@@ -30,11 +29,11 @@ func teamsPayload(a *alert.Alert) any {
 	// Adaptive Card FactSet values and TextBlocks render markdown; escape the
 	// alert-derived facts so injected markdown cannot render a phishing link.
 	facts := []map[string]string{
-		{"title": "Cluster", "value": escapeMarkdown(a.Cluster)},
+		{"title": "Cluster", "value": escapeMarkdown(orDash(a.Cluster))},
 		{"title": "Kind", "value": string(a.Kind)},
-		{"title": "Namespace", "value": escapeMarkdown(a.Namespace)},
-		{"title": "Name", "value": escapeMarkdown(a.Name)},
-		{"title": "Reason", "value": escapeMarkdown(a.Reason)},
+		{"title": "Namespace", "value": escapeMarkdown(orDash(a.Namespace))},
+		{"title": "Name", "value": escapeMarkdown(orDash(a.Name))},
+		{"title": "Reason", "value": escapeMarkdown(orDash(a.Reason))},
 		{"title": "Fingerprint", "value": a.Fingerprint},
 	}
 
@@ -65,9 +64,9 @@ func teamsPayload(a *alert.Alert) any {
 		"msteams": map[string]any{"width": "Full"},
 		"body":    body,
 	}
-	if runbook, ok := templates.Runbook(a); ok {
+	if runbookURL, ok := runbook(a); ok {
 		card["actions"] = []map[string]any{
-			{"type": "Action.OpenUrl", "title": "Runbook", "url": runbook},
+			{"type": "Action.OpenUrl", "title": "Runbook", "url": runbookURL},
 		}
 	}
 

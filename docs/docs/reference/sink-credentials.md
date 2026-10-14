@@ -5,14 +5,18 @@ environment variable(s) read by the controller, the corresponding Helm value
 path and default Secret key, and notes on mode-specific behavior.
 
 Routing rules may only reference a known sink name: `slack`, `pagerduty`,
-`teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`. An unknown
+`teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`, `googlechat`,
+`mattermost`. An unknown
 name in `routing`, `escalations`, or `sinkRates` fails config validation at
 load.
 
-!!! note "Credentials are read on every Send"
-    Each sink reads its credential from the environment (or mounted Secret) on
-    every dispatch, not once at startup. A Secret can be rotated and the new
-    value takes effect on the next alert without restarting the controller.
+!!! note "Restart pods after Secret rotation"
+    Each sink reads its credential from the process environment on every
+    dispatch. The chart populates that environment from `secretKeyRef` when a
+    pod starts; updating the Secret does not update a running pod's environment.
+    After rotation, run `kubectl rollout restart deploy/alertkube` in the release
+    namespace. An inline Helm credential update changes the chart's Secret
+    checksum and triggers a rollout automatically.
 
 ## Slack
 
@@ -20,18 +24,21 @@ Two modes. Bot-token mode takes precedence when `SLACK_BOT_TOKEN` is set.
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` / `slack.webhookUrlSecretKeyRef` | `slackWebhookUrl` | Incoming-webhook mode. Sets the `channel` field, honored only by **legacy** incoming webhooks; modern-app webhooks ignore it and post to the install-time channel. |
+| `SLACK_WEBHOOK_URL` | `slack.webhookUrl` / `slack.webhookUrlSecretKeyRef` | `slackWebhookUrl` | Incoming-webhook mode. Posts to the channel the webhook was created for; the per-severity channels are not sent. The `channel` field is sent only when a workload sets a valid `alert-slack-channel` annotation; **legacy** incoming webhooks honor it, while a modern-app webhook is bound to its install-time channel. |
 | `SLACK_BOT_TOKEN` | `slack.botToken` / `slack.botTokenSecretKeyRef` | `slackBotToken` | Bot-token mode (`chat.postMessage`). Takes precedence over the webhook URL. The only mode where per-severity channel routing works with a modern Slack app. Needs scope `chat:write` and the bot invited to each channel. |
 
 The sink reads only `SLACK_WEBHOOK_URL` and `SLACK_BOT_TOKEN` directly from
 the environment. At least one of the two must be set or the sink is inactive.
 
-Channel and username are supplied from config (rendered from Helm values),
-not read from the environment by the sink:
+The per-severity channels are supplied from config (rendered from Helm
+values), not read from the environment by the sink. AlertKube asks Slack to
+show the display name `alertkube`, which is not configurable. Legacy incoming
+webhooks, and bot tokens with the `chat:write.customize` scope, honor it;
+modern-app webhooks and bot tokens with only `chat:write` post under the Slack
+app's name.
 
 | Setting | Helm value | Config key | Env fallback (config layer) | Notes |
 | --- | --- | --- | --- | --- |
-| Username | `slack.username` | - | - | Display username (default `alertkube`). |
 | Critical channel | `slack.channels.critical` | `channels.critical` | `SLACK_CHANNEL_CRITICAL` | Default `alerts-critical`. |
 | Warning channel | `slack.channels.warning` | `channels.warning` | `SLACK_CHANNEL_WARNING`, then `SLACK_CHANNEL` | Default `alerts-warning`; `SLACK_CHANNEL` is the legacy single-channel fallback. |
 | Info channel | `slack.channels.info` | `channels.info` | `SLACK_CHANNEL_INFO` | Default `alerts-info`. |
@@ -94,7 +101,7 @@ The inbound Alertmanager webhook receiver (`POST /api/v1/receiver/alerts`, when 
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/receiver/alerts` when set. Read on every request, so tokens can be rotated without restart. |
+| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/receiver/alerts` when set. Loaded when the handler is installed; restart pods after Secret rotation. |
 
 ### Read-only alerts API token
 
@@ -102,7 +109,7 @@ The introspection endpoint (`GET /api/v1/alerts`, always available after control
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on `GET /api/v1/alerts` when set. When empty, the endpoint is unauthenticated; restrict it with NetworkPolicy. Read on every request. |
+| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on the read API when set. Loaded when handlers are installed; restart pods after Secret rotation. When empty, the endpoint is unauthenticated; the chart requires NetworkPolicy or explicit acceptance of unauthenticated reads. |
 
 ## Inline vs. Secret reference
 

@@ -4,10 +4,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
+
+func TestInhibitionsAreIsolatedByRuleAndEqualValues(t *testing.T) {
+	for _, targetNS := range []string{"ns", "ns|name:other"} {
+		t.Run(targetNS, func(t *testing.T) {
+			r := New(nil, []config.Inhibition{
+				{Source: map[string]string{"reason": "NodeNotReady"}, Target: map[string]string{"kind": "Pod"}, Equal: []string{"namespace"}},
+				{Source: map[string]string{"reason": "DatabaseDown"}, Target: map[string]string{"kind": "Deployment"}, Equal: []string{"namespace"}},
+			}, nil, []string{"stdout"})
+			r.ArmInhibitions(alert.New(alert.KindNode, "ns", "node", "NodeNotReady", alert.SeverityCritical))
+			if got := r.Route(alert.New(alert.KindDeployment, targetNS, "app", "Unavailable", alert.SeverityWarning)); len(got) == 0 {
+				t.Fatal("one rule armed another rule's inhibition")
+			}
+			if got := r.Route(alert.New(alert.KindPod, "ns", "p", "CrashLoopBackOff", alert.SeverityCritical)); got != nil {
+				t.Fatal("the matching rule must still inhibit its target")
+			}
+		})
+	}
+	r := New(nil, []config.Inhibition{{Source: map[string]string{"kind": "Node"}, Target: map[string]string{"kind": "Pod"}, Equal: []string{"namespace", "name"}}}, nil, []string{"stdout"})
+	r.ArmInhibitions(alert.New(alert.KindNode, "ns|name:x", "y", "NodeNotReady", alert.SeverityCritical))
+	if got := r.Route(alert.New(alert.KindPod, "ns", "x|name:y", "CrashLoopBackOff", alert.SeverityCritical)); len(got) == 0 {
+		t.Fatal("delimiter-containing equal values must not collide")
+	}
+}
 
 func TestRouteMatch(t *testing.T) {
 	r := New(
@@ -21,6 +44,45 @@ func TestRouteMatch(t *testing.T) {
 	got := r.Route(a)
 	if len(got) != 2 || got[0] != "slack" || got[1] != "pagerduty" {
 		t.Fatalf("critical should route to slack+pagerduty, got %v", got)
+	}
+}
+
+// TestMatcherValidationAgreesWithRouting pins that config validation and the
+// router compile namespace/reason patterns the same way. A pattern validation
+// accepts routes the alert it names; a pattern the router cannot compile would
+// leave the route silently unmatched, so validation must reject it.
+func TestMatcherValidationAgreesWithRouting(t *testing.T) {
+	cases := []struct {
+		name, key, pattern, value string
+		valid                     bool // config.SelectiveMatchers accepts the pattern
+		routed                    bool // an alert carrying value reaches the route
+	}{
+		{"alternation", "namespace", "prod|staging", "staging", true, true},
+		{"already anchored", "namespace", "^kube-.*$", "kube-system", true, true},
+		{"prefix regex", "namespace", "prod-.*", "prod-api", true, true},
+		{"prefix regex is anchored", "namespace", "prod-.*", "dev-prod-tools", true, false},
+		{"escaped trailing dollar", "reason", `Cost\$`, "Cost$", true, true},
+		{"unclosed group", "namespace", "prod-(a|b", "prod-a", false, false},
+		{"unclosed class", "reason", "OOM[", "OOMKilled", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			match := map[string]string{tc.key: tc.pattern}
+			if err := config.SelectiveMatchers("routing[0].match", match); (err == nil) != tc.valid {
+				t.Fatalf("SelectiveMatchers(%v) = %v, want valid=%v", match, err, tc.valid)
+			}
+			r := New([]config.Route{{Match: match, Sinks: []string{"pagerduty"}}}, nil, nil, []string{"stdout"})
+			a := alert.New(alert.KindPod, "ns", "p", "X", alert.SeverityCritical)
+			if tc.key == "namespace" {
+				a.Namespace = tc.value
+			} else {
+				a.Reason = tc.value
+			}
+			got := r.Route(a)
+			if routed := len(got) == 1 && got[0] == "pagerduty"; routed != tc.routed {
+				t.Fatalf("Route(%s=%q) with match %v = %v, want routed=%v", tc.key, tc.value, match, got, tc.routed)
+			}
+		})
 	}
 }
 
@@ -158,7 +220,7 @@ func TestArmInhibitionsRefreshesExpiry(t *testing.T) {
 
 	// Simulate muted re-fires keeping the inhibition alive past its
 	// original expiry.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		time.Sleep(25 * time.Millisecond)
 		r.ArmInhibitions(src)
 	}
@@ -218,10 +280,16 @@ func TestRouteMaintenanceWindowSuppresses(t *testing.T) {
 		[]config.Route{{Match: map[string]string{}, Sinks: []string{"slack"}}},
 		nil, nil, []string{"slack"},
 	)
-	// An always-on window (00:00-23:59) matching prod must drop prod alerts.
-	r.SetMaintenance([]config.MaintenanceWindow{
-		{Matchers: map[string]string{"namespace": "prod"}, Start: "00:00", End: "23:59"},
-	})
+	// A window spanning now-1h..now+1h UTC matching prod must drop prod alerts.
+	// A fixed 00:00-23:59 window is end-exclusive and so goes inactive for the
+	// 23:59 UTC minute; deriving the bounds from now keeps it active whenever
+	// the test runs (wrap-around past midnight is supported).
+	now := time.Now().UTC()
+	r.SetMaintenance([]config.MaintenanceWindow{{
+		Matchers: map[string]string{"namespace": "prod"},
+		Start:    now.Add(-time.Hour).Format("15:04"),
+		End:      now.Add(time.Hour).Format("15:04"),
+	}})
 
 	prod := alert.New(alert.KindPod, "prod", "p", "X", alert.SeverityCritical)
 	if got := r.Route(prod); got != nil {

@@ -2,13 +2,14 @@ package sinks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
 
 	"golang.org/x/time/rate"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 // stubSink is a controllable Sink implementation for Dispatch tests.
@@ -161,6 +162,18 @@ func TestNamesSorted(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("Names[%d] = %q, want %q (must be sorted)", i, got[i], want[i])
 		}
+	}
+}
+
+// TestNamesEmptyEncodesAsArray pins the non-nil result the console encodes:
+// an empty registry must list [] rather than null.
+func TestNamesEmptyEncodesAsArray(t *testing.T) {
+	b, err := json.Marshal(NewRegistry().Names())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "[]" {
+		t.Fatalf("empty Names encodes as %s, want []", b)
 	}
 }
 

@@ -15,23 +15,36 @@
 // Count and All are evaluated synchronously on each Observe; Absent is
 // evaluated by Run's ticker. Derived alerts (kind Derived) are never fed back
 // into the engine, so a rule cannot trigger itself.
+//
+// A rule re-emits its derived alert on every evaluation while its condition
+// holds, not only on the rising edge. The mute window dedupes the page, and
+// each muted re-emit Touches the store record. Emitting only on the rising
+// edge would lose a page that was seeded during startup grace or rolled back
+// after a failed delivery. An evaluation is each absentTick for Absent, but
+// for Count and All it is each observed alert, and the pipeline observes only
+// alerts that are not muted. So a Count or All alert TTL-resolves once no new
+// alert is observed within resolveTTL, even if the window still holds enough
+// matches, and is re-emitted on the next observed alert.
 package rules
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"k8s.io/klog/v2"
+
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 // absentTick is how often Absent (heartbeat) rules are re-evaluated.
 const absentTick = 30 * time.Second
 
 // derivedReason is the reason on every derived alert; the rule name is the
-// alert Name, so the fingerprint sha256(Derived||name|DerivedRule) is stable
-// per rule and the mute window debounces re-fires.
+// alert Name, so the fingerprint ComputeFingerprint(Derived, "", name,
+// DerivedRule) is stable per rule and the mute window debounces re-fires.
 const derivedReason = "DerivedRule"
 
 // Emit publishes an alert into the controller pipeline (same shape as
@@ -130,9 +143,21 @@ func (e *Engine) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			e.evalAbsent()
+			e.tick()
 		}
 	}
+}
+
+// tick runs one Absent evaluation. A panic in it is logged with its stack
+// and recovered here, so one bad tick cannot stop every heartbeat rule for
+// the rest of the process.
+func (e *Engine) tick() {
+	defer func() {
+		if r := recover(); r != nil {
+			klog.Errorf("rules absent evaluation panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	e.evalAbsent()
 }
 
 func (e *Engine) hasAbsent() bool {

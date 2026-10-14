@@ -11,7 +11,6 @@ const AK_ARCH_STEPS = [
   ["Group", "storm folding before notification"],
   ["Dispatch", "sink registry sends with retries"],
 ];
-const AK_ARCH_SINKS = ["Slack", "Discord", "PagerDuty", "Opsgenie", "Teams", "Telegram", "Webhook", "stdout"];
 const AK_ARCH_STATE = ["ConfigMap state snapshot", "ConfigMap config", "Secret sink credentials", "Prometheus metrics"];
 const AK_ARCH_SECURITY = [
   { icon: "shield", text: "Least-privilege read-only RBAC for watches" },
@@ -100,7 +99,7 @@ function AKArchitecture() {
                   Sinks and storage
                 </div>
                 <div className="ak-arch-sinks">
-                  {AK_ARCH_SINKS.map((sink, i) => (
+                  {AK_SINK_NAMES.map((sink, i) => (
                     <span key={sink} className="ak-arch-sink" style={{ "--i": i }}>{sink}</span>
                   ))}
                 </div>
@@ -272,24 +271,13 @@ function AKMetricsBand() {
 }
 
 /* ----------------------------- SINKS ----------------------------- */
-const AK_SINKS = [
-  { n: "Slack", pages: "all", tone: "info", transport: "Webhook or bot token", payload: "Block Kit - header, fields, summary, runbook", env: "SLACK_WEBHOOK_URL" },
-  { n: "PagerDuty", pages: "critical only", tone: "critical", transport: "Events API v2", payload: "Trigger / resolve, dedupKey = fingerprint", env: "PAGERDUTY_ROUTING_KEY" },
-  { n: "Microsoft Teams", pages: "all", tone: "info", transport: "Power Automate webhook", payload: "Adaptive Card with FactSet + runbook button", env: "TEAMS_WEBHOOK_URL" },
-  { n: "Opsgenie", pages: "all", tone: "info", transport: "Alert API v2", payload: "Create / close, alias = fingerprint", env: "OPSGENIE_API_KEY" },
-  { n: "Discord", pages: "all", tone: "info", transport: "Channel webhook", payload: "Embed with severity color + runbook", env: "DISCORD_WEBHOOK_URL" },
-  { n: "Telegram", pages: "all", tone: "info", transport: "Bot API", payload: "HTML-escaped message", env: "TELEGRAM_BOT_TOKEN" },
-  { n: "Generic webhook", pages: "all", tone: "info", transport: "HTTP POST", payload: "Raw alert as JSON", env: "GENERIC_WEBHOOK_URL" },
-  { n: "stdout", pages: "all", tone: "info", transport: "klog", payload: "Single-line summary - local dev", env: "-" },
-];
-
 function AKSinks() {
   return (
     <section id="sinks" className="wk-section" data-screen-label="Sinks">
       <div className="wk-wrap">
         <AKHead
           eyebrow="Sinks"
-          title="Eight sinks. One interface."
+          title={`${AK_SINKS.length} sinks. One interface.`}
           sub="Every sink implements Name / Send / Supports. Add a new one in about thirty lines; register it at boot."
         />
         <Reveal>
@@ -306,8 +294,8 @@ function AKSinks() {
               </thead>
               <tbody>
                 {AK_SINKS.map((s) => (
-                  <tr key={s.n}>
-                    <td>{s.n}</td>
+                  <tr key={s.name}>
+                    <td>{s.name}</td>
                     <td>
                       <span className="ak-tag" style={s.tone === "critical" ? { color: "var(--ak-critical)", background: "var(--ak-critical-wash)", borderColor: "transparent" } : {}}>
                         <AKDot tone={s.tone} size={6} />

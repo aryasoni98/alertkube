@@ -15,9 +15,9 @@ chosen backend and when to move off it.
 
 ## Considered options
 
-- **A. ConfigMap snapshot** (current). One object, JSON blob of active alerts +
-  mute history. `Details` are stripped to stay small; a `maxSnapshotBytes`
-  (~900 KiB) guard refuses to write oversized snapshots.
+- **A. ConfigMap snapshot** (current). One object. The live format is gzip
+  (`snapshot.json.gz`). `Details` are stripped. `maxSnapshotBytes` (~900 KiB)
+  applies to the **compressed** bytes.
 - **B. A CRD-backed status object.** Requires shipping CRDs (see ADR-0001).
 - **C. External store** (Redis, etcd, a SQL db). Operational dependency the
   project currently avoids - alertkube should run with just a Kubernetes API
@@ -47,8 +47,8 @@ and is trivially inspectable with `kubectl`.
 
 ### Follow-ups / triggers to revisit
 
-- **Trigger:** snapshot size sustained above **512 KiB** in any real deployment.
-  At that point, evaluate Option B (CRD/status) or Option C (external store) and
-  supersede this ADR.
+- **Trigger:** compressed snapshot size sustained above **900 KiB** (the write
+  is skipped). Gzip typically shrinks the JSON 5–9×, so that cap is several
+  mebibytes of raw state. At that point, evaluate Option C and supersede this ADR.
 - **Action:** document the measured snapshot size at N active alerts (the
   ConfigMap size audit, Phase 1.3.3 of the roadmap) so the trigger is observable.

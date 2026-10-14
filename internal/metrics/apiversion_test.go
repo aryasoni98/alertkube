@@ -84,14 +84,3 @@ func TestPostToV1AlertsRedirectsToReceiverNotSilentlyRead(t *testing.T) {
 		t.Fatalf("Location = %q, want %q", got, want)
 	}
 }
-
-// GET on the same path must still serve the alert view (503 until a handler is
-// installed, which is the uninstalled-slot contract).
-func TestGetV1AlertsServesTheReadSlot(t *testing.T) {
-	mux := buildMux()
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/alerts", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("got %d, want 503 (route present, handler not installed)", rec.Code)
-	}
-}

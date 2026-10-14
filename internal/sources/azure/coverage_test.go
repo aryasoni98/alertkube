@@ -5,40 +5,35 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/alertsmanagement/armalertsmanagement"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v6"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/aryasoni98/alertkube/internal/metrics"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
-// TestSourceNames pins the Name() of every Azure source so a rename that would
-// break metric labels / docs is caught.
+// TestSourceNames pins the Name() of every Azure source to its literal value.
+// The names are CloudPollErrors label values, so a rename that would break
+// dashboards and docs is caught.
 func TestSourceNames(t *testing.T) {
 	cases := []struct {
 		got, want string
 	}{
-		{(&aksSource{}).Name(), sourceAKS},
-		{(&azureMonitorSource{}).Name(), sourceAzureMonitor},
-		{(&azureVMSource{}).Name(), sourceAzureVM},
-		{(&azureStorageSource{}).Name(), sourceAzureStorage},
-		{(&azureSQLSource{}).Name(), sourceAzureSQL},
-		{(&azureRedisSource{}).Name(), sourceAzureRedis},
+		{newAKSSource(nil).Name(), "azure-aks"},
+		{newAzureMonitorSource(nil).Name(), "azure-monitor"},
+		{newAzureVMSource(nil).Name(), "azure-vm"},
+		{newAzureStorageSource(nil).Name(), "azure-storage"},
+		{newAzureSQLSource(nil).Name(), "azure-sql"},
+		{newAzureRedisSource(nil).Name(), "azure-redis"},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
 			t.Errorf("source name %q != %q", c.got, c.want)
 		}
-	}
-}
-
-// TestPollErrIncrementsMetric asserts a poll failure is observable on the shared
-// metric and never panics.
-func TestPollErrIncrementsMetric(t *testing.T) {
-	const src = "azure-test-pollerr"
-	before := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues(src))
-	pollErr(src, "sub-1", errors.New("AuthorizationFailed"))
-	if after := testutil.ToFloat64(metrics.CloudPollErrors.WithLabelValues(src)); after != before+1 {
-		t.Fatalf("CloudPollErrors not incremented: before=%v after=%v", before, after)
 	}
 }
 
@@ -59,12 +54,12 @@ func TestStrVal(t *testing.T) {
 func TestSourcesRecordListErrors(t *testing.T) {
 	boom := errors.New("ListFailed")
 	subs := []sources.Source{
-		&aksSource{subs: []aksSubscription{{subscription: "s", lister: &fakeAKSLister{err: boom}}}},
-		&azureMonitorSource{subs: []azureMonitorSubscription{{subscription: "s", lister: &fakeAlertsLister{err: boom}}}},
-		&azureVMSource{subs: []azureVMSubscription{{subscription: "s", lister: &fakeVMLister{err: boom}}}},
-		&azureStorageSource{subs: []azureStorageSubscription{{subscription: "s", lister: &fakeStorageLister{err: boom}}}},
-		&azureSQLSource{subs: []azureSQLSubscription{{subscription: "s", lister: &fakeSQLLister{err: boom}}}},
-		&azureRedisSource{subs: []azureRedisSubscription{{subscription: "s", lister: &fakeRedisLister{err: boom}}}},
+		newAKSSource(fakeLister[*armcontainerservice.ManagedCluster]("s", nil, boom)),
+		newAzureMonitorSource(fakeLister[*armalertsmanagement.Alert]("s", nil, boom)),
+		newAzureVMSource(fakeLister[*armcompute.VirtualMachine]("s", nil, boom)),
+		newAzureStorageSource(fakeLister[*armstorage.Account]("s", nil, boom)),
+		newAzureSQLSource(fakeLister[sqlDatabase]("s", nil, boom)),
+		newAzureRedisSource(fakeLister[*armredis.ResourceInfo]("s", nil, boom)),
 	}
 	for _, s := range subs {
 		t.Run(s.Name(), func(t *testing.T) {

@@ -7,11 +7,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceRDS = "aws-rds"
+
+// rdsAPI is the subset of the RDS client the DB-instance health source uses.
+type rdsAPI interface {
+	DescribeDBInstances(context.Context, *rds.DescribeDBInstancesInput, ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
+}
 
 type rdsRegion = regionClient[rdsAPI]
 
@@ -30,7 +35,7 @@ type rdsSource struct {
 func (s *rdsSource) Name() string { return sourceRDS }
 
 func (s *rdsSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollByRegion(ctx, s.regions, emit, s.pollRegion)
+	pollByRegion(ctx, sourceRDS, s.regions, emit, s.pollRegion)
 }
 
 func (s *rdsSource) pollRegion(ctx context.Context, rc rdsRegion, emit sources.Emit) {

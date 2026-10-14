@@ -104,6 +104,10 @@ data:
 {{ toYaml .Values.inhibitions | indent 6 }}
     silences:
 {{ toYaml .Values.silences | indent 6 }}
+    {{- with .Values.maintenance }}
+    maintenance:
+{{ toYaml . | indent 6 }}
+    {{- end }}
     {{- with .Values.rules }}
     rules:
 {{ toYaml . | indent 6 }}

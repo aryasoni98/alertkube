@@ -1,14 +1,15 @@
 # 0001. Use client-go directly instead of controller-runtime
 
-- **Status:** Accepted
+- **Status:** Accepted. The "no CRD" claim is superseded by [ADR-0004](0004-opt-in-silence-crd-via-dynamic-informer.md). The client-go choice still holds.
 - **Date:** 2026-06-15
 - **Deciders:** maintainers
 
 ## Context and problem statement
 
 alertkube observes Kubernetes resources and emits alerts. It does **not**
-reconcile desired state into a resource - there is no CRD, no spec/status loop,
-no finalizers. Its configuration is a ConfigMap, not a custom resource. The
+reconcile desired state into a resource: there is no spec/status loop and no
+finalizers. Configuration is still a ConfigMap. An opt-in Silence CRD exists
+and is watched with a dynamic informer (ADR-0004), not controller-runtime. The
 question: should alertkube be built on `sigs.k8s.io/controller-runtime` (the
 Kubebuilder/Operator-SDK foundation) or use `k8s.io/client-go` informers
 directly, as it does today?
@@ -51,8 +52,8 @@ fire-and-forget, event-to-alert pipeline.
 
 ### Follow-ups / triggers to revisit
 
-- **Trigger:** a decision to expose routing/silences/inhibitions as CRDs (see the
-  CRD sketch in this directory, future ADR). At that point, re-evaluate
-  controller-runtime + Kubebuilder. This ADR would be superseded.
+- **Trigger (fired for silences):** ADR-0004 added an opt-in Silence CRD and
+  kept the dynamic informer. Re-evaluate controller-runtime if routing or
+  inhibitions also become CRDs, or if a spec/status loop is required.
 - **Trigger:** sustained need for richer caching/work-queue semantics that
   client-go makes awkward.

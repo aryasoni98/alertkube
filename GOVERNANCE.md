@@ -31,8 +31,8 @@ and sign off their commits per the [DCO](#developer-certificate-of-origin-dco).
 
 A contributor with a sustained track record who is trusted to review pull
 requests in one or more areas (e.g. `area/watchers`, `area/sinks`,
-`area/helm`). Reviewers are listed in [`MAINTAINERS.md`](MAINTAINERS.md) and
-referenced from [`.github/CODEOWNERS`](.github/CODEOWNERS). Reviewer approval is
+`area/helm`). Area review assignments are recorded in
+[`.github/CODEOWNERS`](.github/CODEOWNERS). Reviewer approval is
 advisory; a maintainer merges.
 
 ### Maintainer
@@ -40,7 +40,7 @@ advisory; a maintainer merges.
 A contributor with write access who is responsible for the health of the project:
 reviewing and merging pull requests, cutting releases, triaging issues,
 shepherding the roadmap, and upholding governance and the Code of Conduct. The
-current maintainers are listed in [`MAINTAINERS.md`](MAINTAINERS.md).
+code ownership and review routing are recorded in [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
 ## Contribution ladder
 
@@ -61,7 +61,7 @@ Contributor  ──►  Reviewer  ──►  Maintainer
 
 - **Adding** a maintainer follows the Reviewer → Maintainer process above.
 - **Stepping down:** a maintainer may resign at any time by opening a pull
-  request that updates `MAINTAINERS.md` and `.github/CODEOWNERS`.
+  request that updates their entries in `.github/CODEOWNERS`.
 - **Removing:** an inactive maintainer (no substantive activity for ~6 months) or
   one in serious violation of the Code of Conduct may be removed by a
   supermajority vote of the *other* maintainers. Removal for inactivity is not a
@@ -93,8 +93,8 @@ way to drive a substantial change.
 
 ## Releases
 
-Any maintainer may cut a release. The process is documented in
-[`MAINTAINERS.md`](MAINTAINERS.md#releasing). Releases are tagged `vX.Y.Z`,
+Any maintainer may cut a release. The release PR process is defined in
+[`.github/workflows/release-please.yml`](.github/workflows/release-please.yml). Releases are tagged `vX.Y.Z`,
 trigger the signed multi-arch image + Helm chart pipeline, and are recorded in
 [`CHANGELOG.md`](CHANGELOG.md). The project follows
 [Semantic Versioning](https://semver.org/).
@@ -103,7 +103,7 @@ trigger the signed multi-arch image + Helm chart pipeline, and are recorded in
 
 All commits must be signed off (`git commit -s`), certifying agreement with the
 [Developer Certificate of Origin](https://developercertificate.org/). This is
-enforced by a CI check. See [`CONTRIBUTING.md`](CONTRIBUTING.md#developer-certificate-of-origin-dco).
+enforced by a CI check. See [`CONTRIBUTING.md`](CONTRIBUTING.md#dco).
 
 ## Code of Conduct
 

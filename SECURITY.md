@@ -25,4 +25,4 @@ You can expect an acknowledgement within 72 hours and a status update within 7 d
 
 alertkube holds credentials for external services (Slack webhook URLs, PagerDuty routing keys, Teams webhook URLs, generic webhook signing secrets). Reports involving credential exposure - in logs, metrics, alert payloads, or error messages - are treated as high severity. Webhook URLs are sanitized from logs by design (`internal/httpx`); regressions there are in scope.
 
-The controller runs with read-only cluster RBAC. Any path that could be abused to escalate beyond the documented RBAC scope is in scope.
+The chart grants read access for watched resources, plus write on leases (leader election), events (enrichment), and the state ConfigMap (persistence). There is no delete on leases. Any path that could be abused to escalate beyond that RBAC is in scope.

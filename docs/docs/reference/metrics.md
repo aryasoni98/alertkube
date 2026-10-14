@@ -9,7 +9,7 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
 | `alertkube_alerts_total` | counter | `kind`, `severity`, `reason` | Alerts emitted, by resource kind, severity, and reason. |
-| `alertkube_alerts_suppressed_total` | counter | `reason` | Alerts suppressed, labelled by the suppression reason (dedupe mute, inhibition, silence, etc.). |
+| `alertkube_alerts_suppressed_total` | counter | `reason` | Alerts suppressed. `reason` is `grouped`, `foreign_shard`, `muted`, `startup`, `silenced`, `maintenance`, `inhibited`, `circuit_open`, or `ratelimited`. |
 | `alertkube_sink_send_seconds` | histogram | `sink`, `result` | Sink send latency, partitioned by sink name and outcome (`result`). |
 | `alertkube_sink_errors_total` | counter | `sink` | Sink send errors, by sink name. |
 | `alertkube_active_alerts` | gauge | - | Count of currently active (unresolved) alerts. |
@@ -28,11 +28,11 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `alertkube_outbox_replay_foreign_total` | counter | - | Outbox records dropped on startup because another shard owns them. A one-time bump after a shard rebalance (`ALERTKUBE_SHARD_TOTAL` rollout) is expected and correct - it is the mechanism that stops a moved object being double-paged. A continuously rising value means shard assignment is unstable. |
 | `alertkube_dispatch_enqueue_blocked_seconds` | histogram | - | Time an enqueue spent parked on a full dispatch queue. The queue exists so a slow sink cannot stall Kubernetes event processing; once it fills, the calling informer handler blocks and that decoupling is gone. `alertkube_dispatch_queue_full_total` says it happened, this says how bad it got. Sustained values above ~1s mean the worker pool is the bottleneck. |
 | `alertkube_dead_letter_total` | counter | - | Deliveries permanently abandoned with no retry path (exhausted resolve, or a failed fire-once event/summary/escalation). Inspect `GET /api/v1/deadletter`. |
-| `alertkube_cloud_poll_errors_total` | counter | `source` | Failed cloud-provider API calls, by source (e.g. `aws-eks`). |
-| `alertkube_cloud_poll_truncated_total` | counter | `source` | Cloud polls that hit a pagination cap and dropped remaining items (e.g. CloudTrail's per-event page limit). |
+| `alertkube_cloud_poll_errors_total` | counter | `source` | Failed cloud-provider API calls, by source (e.g. `aws-eks`). Also counts an AWS poll whose rate-limited describe calls or CloudTrail lookups could not all fit before the poll deadline (twice `pollSeconds`, see [config schema](config-schema.md#aws-azure-gcp)), and each AWS region the deadline left unpolled; resources and events after that point were not evaluated that poll. |
+| `alertkube_cloud_poll_truncated_total` | counter | `source` | Paginated cloud lists that stopped before their last page because the page token did not advance or the list reached the 1000-page runaway guard. Resources on the unfetched pages were not evaluated that poll. |
 | `alertkube_state_snapshot_bytes` | gauge | - | Size of the last (compressed) state snapshot serialized for persistence. Watch against the ConfigMap object limit. |
 | `alertkube_state_save_skipped_total` | counter | - | State saves skipped because the compressed snapshot exceeded the size guard. Non-zero means persisted state is going stale. |
-| `alertkube_runtime_mutations_total` | counter | `action` | Control-plane writes via the console API (silence create/delete, channel test), by action. |
+| `alertkube_runtime_mutations_total` | counter | `action` | Control API writes (silence create/delete, channel test), by action. |
 
 !!! note "`alertkube_sink_send_seconds` is a histogram"
     It exposes the standard Prometheus histogram series:
@@ -48,7 +48,7 @@ startup and served on the metrics address (`metricsAddr`, default `:9090`) at
 | `kind` | `Pod`, `Node`, `Deployment`, `PersistentVolumeClaim`, `Job`, `DaemonSet`, `StatefulSet`, `CronJob`, `HorizontalPodAutoscaler`, `External` (receiver-ingested). |
 | `severity` | `critical`, `warning`, `info`. |
 | `reason` | The watcher reason string (see [Watcher conditions](watcher-conditions.md)). |
-| `sink` | `slack`, `pagerduty`, `teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`. |
+| `sink` | `slack`, `pagerduty`, `teams`, `webhook`, `stdout`, `discord`, `telegram`, `opsgenie`, `googlechat`, `mattermost`. |
 
 ## HTTP endpoints
 
@@ -59,7 +59,7 @@ Served on `metricsAddr`. Server timeouts: 5s read-header, 10s read, 10s write,
 | --- | --- | --- |
 | `/metrics` | GET | Prometheus exposition of all `alertkube_*` metrics. |
 | `/healthz` | GET | Liveness. `200` normally; a **leader** whose sweep heartbeat has gone stale (e.g. a store-lock deadlock) returns `503` so the kubelet restarts the wedged pod. Followers and the initial-sync window stay `200`. |
-| `/readyz` | GET | Readiness. Returns `503` until informer caches have synced (`MarkReady`); used so the kubelet does not mark the pod Ready while the controller is blind. On leader-election followers, flipped back to not-ready when the lease is not held. |
+| `/readyz` | GET | Readiness. Returns `503` until informer caches have synced (`MarkReady`); used so the kubelet does not mark the pod Ready while the controller is blind. Leader-election followers return `200` by design (a NotReady follower would deadlock a `maxUnavailable: 0` rollout); a newly elected leader returns `503` until its caches sync. Identify the leader by the Lease `holderIdentity`. |
 | `/api/v1/alerts` | GET | JSON of active alerts plus recent history. Returns `503` until the handler is installed (after the controller and its store exist). |
 | `/api/v1/deadletter` | GET | JSON of recently dead-lettered deliveries (permanently abandoned). Token-gated (read token); returns `503` until installed. |
 | `/api/v1/receiver/alerts` | POST | Alertmanager webhook receiver (when `receiver.enabled`). Runs payloads through the same dedupe/grouping/routing/sink pipeline. Optional bearer auth via `ALERTKUBE_RECEIVER_TOKEN`. Returns `503` until the handler is installed. |
@@ -71,7 +71,7 @@ Served on `metricsAddr`. Server timeouts: 5s read-header, 10s read, 10s write,
     all. Until each handler is installed, its route returns `503`.
 
 !!! tip "Splitting the sensitive data plane onto its own port"
-    Set `apiAddr` (env `ALERTKUBE_API_ADDR`) to serve `/api/*`, the console, and
+    Set `apiAddr` (env `ALERTKUBE_API_ADDR`) to serve the control API and
     the receiver on a **separate** listener from `/metrics` + the probes, so the
     metrics/probe port can stay open for scraping while the data port is
     firewalled with a NetworkPolicy. Empty (default) co-locates everything on

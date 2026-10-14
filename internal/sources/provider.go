@@ -3,8 +3,19 @@ package sources
 import (
 	"context"
 
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
+
+// Bound is one provider resolved against a config. Build closes over that
+// provider's own section (AWS, Azure, or GCP), not the rest of Config.
+type Bound struct {
+	Enabled     bool
+	PollSeconds int
+	// Build constructs the enabled sources. A construction error is logged
+	// by the caller and the provider skipped, so a cloud-auth problem never
+	// takes down the Kubernetes watchers.
+	Build func(context.Context) ([]Source, error)
+}
 
 // Provider describes a cloud provider's source set (AWS, Azure, GCP, ...). Each
 // provider package registers one in its init via RegisterProvider, so wiring a
@@ -13,14 +24,8 @@ import (
 type Provider struct {
 	// Name identifies the provider in logs (e.g. "aws").
 	Name string
-	// Enabled reports whether the provider is turned on in config.
-	Enabled func(*config.Config) bool
-	// PollSeconds is the provider's configured poll interval.
-	PollSeconds func(*config.Config) int
-	// Build constructs the enabled sources for the provider. A construction
-	// error (bad credentials/config) is logged by the caller and the provider
-	// skipped, so a cloud-auth problem never takes down the Kubernetes watchers.
-	Build func(context.Context, *config.Config) ([]Source, error)
+	// Bind reads this provider's section out of cfg.
+	Bind func(*config.Config) Bound
 }
 
 // providers holds every registered cloud provider, populated by the provider

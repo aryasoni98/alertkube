@@ -1,6 +1,6 @@
 # Configure Inhibitions
 
-Use inhibitions to suppress symptom alerts while a cause alert is active.
+Use inhibitions to suppress symptom alerts while a cause alert keeps firing.
 
 ## Steps
 
@@ -34,7 +34,7 @@ Optional: add more cause/symptom pairs:
         duration: 15m
     ```
 
-`namespace` and `reason` are anchored regexes; other keys are exact. An empty `target` matches every alert.
+`namespace` and `reason` are anchored regexes; other keys are exact. `source` and `target` must each select specific alerts: validation rejects an empty map, an empty value on a label key, a pattern that does not compile, and a pattern such as `.*` that matches every alert. See [Match maps](../reference/config-schema.md#match-maps).
 
 ### How `equal` matching works
 
@@ -42,7 +42,7 @@ Optional: add more cause/symptom pairs:
 
 ### `duration` and source re-fires (re-arming)
 
-Muted source re-fires still re-arm the inhibition. You do not need `duration` to cover the whole outage; it only needs to exceed the expected gap between source re-fires.
+The inhibition holds for `duration` after the source last fired. Muted source re-fires still re-arm it, so you do not need `duration` to cover the whole outage; it only needs to exceed the expected gap between source re-fires. A source resolve does not lift it early: targets stay suppressed for up to `duration` after the cause clears.
 
 ```yaml
 inhibitions:
@@ -63,7 +63,7 @@ Use an inhibition when target alerts are symptoms of an active source alert. Use
     curl -s localhost:9090/metrics | grep 'alertkube_alerts_suppressed_total{reason="inhibited"}'
     ```
 
-3. Recover the node and confirm pod alerts resume once the inhibition arm window lapses (or the source clears).
+3. Recover the node and confirm pod alerts resume once `duration` has passed since the last `NodeNotReady` re-fire. The source resolving does not end the inhibition sooner.
 
 ## See Also
 

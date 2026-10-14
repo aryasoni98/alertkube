@@ -7,9 +7,9 @@ back to your config and an alert's fingerprint.
 
 alertkube watches Pods, Nodes, Deployments, StatefulSets, DaemonSets, Jobs,
 CronJobs, PersistentVolumeClaims, and HPAs; classifies each event as
-`critical` / `warning` / `info`; and routes it to one or more sinks - Slack,
-PagerDuty, Microsoft Teams, Opsgenie, Discord, Telegram, a generic webhook, or
-stdout.
+`critical` / `warning` / `info`; and routes it to one or more of ten sinks - Slack,
+PagerDuty, Microsoft Teams, Opsgenie, Discord, Telegram, Google Chat, Mattermost,
+a generic webhook, or stdout.
 
 ```mermaid
 flowchart LR
@@ -52,18 +52,23 @@ kinds of docs for four kinds of need:
 
 ## Quick links
 
-- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) - current `v1.2.1`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
+- [Latest release & changelog](https://github.com/aryasoni98/alertkube/releases/latest) - current `v2.0.0`; see [CHANGELOG.md](https://github.com/aryasoni98/alertkube/blob/master/CHANGELOG.md) for full history
 - [Architecture](architecture.md) - how the pipeline fits together
 - [GitHub repository](https://github.com/aryasoni98/alertkube)
 - [Operations guide](https://github.com/aryasoni98/alertkube/blob/master/docs/OPERATIONS.md)
-- [Troubleshooting](https://github.com/aryasoni98/alertkube/blob/master/docs/TROUBLESHOOTING.md)
+- [Troubleshooting](how-to/troubleshoot-with-metrics.md)
 - [Contributing](https://github.com/aryasoni98/alertkube/blob/master/CONTRIBUTING.md)
 
 ## Install in one command
 
+First create the `alertkube-api` Secret with a `token` key as shown in the
+[install tutorial](tutorials/install-with-helm.md).
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 

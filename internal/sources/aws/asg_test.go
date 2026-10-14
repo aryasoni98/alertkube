@@ -8,24 +8,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	astypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
 )
 
 type fakeASG struct {
-	pages []*autoscaling.DescribeAutoScalingGroupsOutput
-	idx   int
-	err   error
+	pager[autoscaling.DescribeAutoScalingGroupsOutput]
 }
 
-func (f *fakeASG) DescribeAutoScalingGroups(_ context.Context, _ *autoscaling.DescribeAutoScalingGroupsInput, _ ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.pages[f.idx]
-	if f.idx < len(f.pages)-1 {
-		f.idx++
-	}
-	return out, nil
+func (f *fakeASG) DescribeAutoScalingGroups(_ context.Context, in *autoscaling.DescribeAutoScalingGroupsInput, _ ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error) {
+	return f.next(in.NextToken)
 }
 
 func asgInstance(health string, state astypes.LifecycleState) astypes.Instance {
@@ -84,12 +75,12 @@ func TestEvaluateASG(t *testing.T) {
 }
 
 func TestASGSourcePoll(t *testing.T) {
-	fake := &fakeASG{pages: []*autoscaling.DescribeAutoScalingGroupsOutput{{
+	fake := &fakeASG{pager: pagerOf(&autoscaling.DescribeAutoScalingGroupsOutput{
 		AutoScalingGroups: []astypes.AutoScalingGroup{
 			asg("good", 1, asgInstance("Healthy", astypes.LifecycleStateInService)),
 			asg("bad", 1, asgInstance("Unhealthy", astypes.LifecycleStateInService)),
 		},
-	}}}
+	})}
 	src := &asgSource{regions: []asgRegion{{region: "us-east-1", client: fake}}}
 	emit, got := collect()
 	src.Poll(context.Background(), emit)

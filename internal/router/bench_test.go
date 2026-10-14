@@ -3,8 +3,8 @@ package router
 import (
 	"testing"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/config"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/config"
 )
 
 var benchSinks []string
@@ -32,7 +32,7 @@ func BenchmarkRoute(b *testing.B) {
 	a.NodeName = "node-1"
 
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		benchSinks = r.Route(a)
 	}
 }
@@ -47,7 +47,7 @@ func BenchmarkRoute_Silenced(b *testing.B) {
 	a := alert.New(alert.KindPod, "kube-system", "coredns-0", "CrashLoopBackOff", alert.SeverityWarning)
 
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		benchSinks = r.Route(a)
 	}
 }

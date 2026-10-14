@@ -1,14 +1,19 @@
 package alert
 
 import (
+	"maps"
+	"slices"
 	"time"
 
-	"github.com/aryasoni98/alertkube/internal/silence"
+	"github.com/aryasoni98/alertkube/v2/internal/silence"
 )
 
-// SnapshotVersion identifies the serialized state schema. Bump when the
-// Snapshot or Alert wire shape changes incompatibly; Restore ignores
-// snapshots from a future version instead of guessing.
+// SnapshotVersion identifies the Snapshot and Alert wire shape, not alert
+// identity. Bump it only when that shape changes incompatibly (a field removed,
+// renamed or retyped). Additive omitempty fields do not bump it, and neither
+// does a ComputeFingerprint change: fingerprints are opaque strings, so old
+// entries restore and resolve when their TTL lapses. A snapshot from a future
+// version is refused whole, so a needless bump costs every rollback its state.
 const SnapshotVersion = 1
 
 // Snapshot is the durable form of the controller's state: the active alert set
@@ -27,6 +32,9 @@ type Snapshot struct {
 	// an enqueued-but-undelivered alert survives a restart / leader failover.
 	// Additive + omitempty, so an older build simply restores none.
 	Pending []PendingDelivery `json:"pending,omitempty"`
+	// Escalated records which escalation keys have already fired for a
+	// fingerprint. Additive and omitempty so an older snapshot restores none.
+	Escalated map[string][]string `json:"escalated,omitempty"`
 }
 
 // PendingDelivery is one durable outbox entry: an alert (enrichment Details
@@ -49,30 +57,37 @@ func (s *Store) Export() *Snapshot {
 		Version:  SnapshotVersion,
 		SavedAt:  time.Now(),
 		Active:   make([]*Alert, 0, len(s.active)),
-		LastSent: make(map[string]time.Time, len(s.lastSent)),
-	}
-	for fp, t := range s.lastSent {
-		snap.LastSent[fp] = t
+		LastSent: maps.Clone(s.lastSent),
 	}
 	for _, a := range s.active {
-		cp := *a
-		cp.Details = nil
+		cp := a.CloneWithoutDetails()
 		// Correlation is derived and recomputed each interval; it must never be
 		// persisted (keeps the snapshot wire shape stable and bounds its size).
 		cp.Correlation = nil
-		snap.Active = append(snap.Active, &cp)
+		snap.Active = append(snap.Active, cp)
+	}
+	if len(s.escalated) > 0 {
+		snap.Escalated = make(map[string][]string, len(s.escalated))
+		for fp, marks := range s.escalated {
+			snap.Escalated[fp] = slices.Collect(maps.Keys(marks))
+		}
 	}
 	return snap
 }
 
-// Restore merges a snapshot into the store. Entries already present win
-// (live state is fresher than the snapshot). Alerts whose EndsAt passed
-// while the controller was down are restored as-is; the next sweep
-// resolves them, which is exactly the catch-up behavior we want.
-func (s *Store) Restore(snap *Snapshot) {
+// Restore merges a snapshot into the store and returns how many of its active
+// alerts were admitted. Entries already present win (live state is fresher
+// than the snapshot). Alerts whose EndsAt passed while the controller was down
+// are restored as-is; the next sweep resolves them, which is exactly the
+// catch-up behavior we want. An alert with no EndsAt gets a fresh resolve TTL,
+// and escalation marks are kept only for fingerprints that end up active. A
+// future-version snapshot is ignored here too, as defense in depth behind the
+// caller's whole-snapshot gate.
+func (s *Store) Restore(snap *Snapshot) int {
 	if snap == nil || snap.Version > SnapshotVersion {
-		return
+		return 0
 	}
+	accepted := 0
 	now := time.Now()
 	s.mu.Lock()
 	for fp, t := range snap.LastSent {
@@ -94,11 +109,34 @@ func (s *Store) Restore(snap *Snapshot) {
 		// Reject snapshot entries with unknown enums: a poisoned snapshot
 		// must not inject arbitrary alerts that the sweep would later emit
 		// as synthetic resolves.
-		if !a.Severity.Valid() || !a.Kind.Valid() {
+		if !a.Severity.Valid() || !a.Kind.valid() {
 			continue
 		}
 		if _, ok := s.active[a.Fingerprint]; !ok {
-			s.active[a.Fingerprint] = a
+			cp := a.Clone()
+			// SweepResolved skips a zero EndsAt, so without a deadline the
+			// alert would stay active, and its incident open, forever.
+			if cp.EndsAt.IsZero() {
+				cp.EndsAt = now.Add(s.resolveTTL)
+			}
+			s.active[a.Fingerprint] = cp
+			accepted++
+		}
+	}
+	for fp, keys := range snap.Escalated {
+		// Only a resolve or Forget of an active fingerprint drops its marks,
+		// so a mark without its alert would never be pruned and Export would
+		// re-persist it on every save.
+		if _, ok := s.active[fp]; !ok {
+			continue
+		}
+		marks := s.escalated[fp]
+		if marks == nil {
+			marks = map[string]bool{}
+			s.escalated[fp] = marks
+		}
+		for _, k := range keys {
+			marks[k] = true
 		}
 	}
 	s.gen++
@@ -107,6 +145,7 @@ func (s *Store) Restore(snap *Snapshot) {
 	if fn != nil {
 		fn(size)
 	}
+	return accepted
 }
 
 // Generation returns a counter that increments on every state mutation.

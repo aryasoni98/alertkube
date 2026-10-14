@@ -6,8 +6,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/sources"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/sources"
 )
 
 const sourceAzureSQL = "azure-sql"
@@ -22,21 +22,17 @@ type sqlDatabase struct {
 	status   string
 }
 
-// sqlLister lists every SQL database across all servers in one subscription.
-// The real adapter drains both pagers; tests provide a fake returning a slice.
-type sqlLister interface {
-	List(ctx context.Context) ([]sqlDatabase, error)
-}
-
-// armSQLLister drains the servers pager, then the databases pager per server,
-// resolving each server's resource group from its ARM resource ID.
+// armSQLLister lists every SQL database across all servers in one
+// subscription: it drains the servers pager, then the databases pager per
+// server, resolving each server's resource group from its ARM resource ID.
+// Tests provide a fake returning a slice.
 type armSQLLister struct {
 	servers   *armsql.ServersClient
 	databases *armsql.DatabasesClient
 }
 
 func (l *armSQLLister) List(ctx context.Context) ([]sqlDatabase, error) {
-	servers, err := drainPager(ctx, l.servers.NewListPager(nil),
+	servers, err := drainPager(ctx, sourceAzureSQL, l.servers.NewListPager(nil),
 		func(r armsql.ServersClientListResponse) []*armsql.Server { return r.Value })
 	if err != nil {
 		return nil, err
@@ -51,10 +47,11 @@ func (l *armSQLLister) List(ctx context.Context) ([]sqlDatabase, error) {
 			continue
 		}
 		loc := strVal(srv.Location)
-		serverDBs, err := drainPager(ctx, l.databases.NewListByServerPager(rg, *srv.Name, nil),
+		serverDBs, err := drainPager(ctx, sourceAzureSQL, l.databases.NewListByServerPager(rg, *srv.Name, nil),
 			func(r armsql.DatabasesClientListByServerResponse) []*armsql.Database { return r.Value })
 		if err != nil {
-			return nil, err
+			pollErr(sourceAzureSQL, *srv.Name, err)
+			continue
 		}
 		for _, db := range serverDBs {
 			if db == nil || db.Name == nil {
@@ -82,22 +79,14 @@ func resourceGroupFromID(id string) string {
 	return ""
 }
 
-type azureSQLSubscription = subLister[sqlLister]
-
-// azureSQLSource alerts on Azure SQL databases in an unhealthy status - the
+// newAzureSQLSource alerts on Azure SQL databases in an unhealthy status - the
 // Azure analog of the AWS RDS source. Suspect / Offline / Inaccessible /
 // EmergencyMode / Shutdown are critical; Online plus transient states
 // (Restoring, Recovering, Resuming, Scaling, Pausing, Creating, Copying) and the
 // deliberately-Paused serverless state resolve, so routine operations and
 // by-design auto-pause never page.
-type azureSQLSource struct {
-	subs []azureSQLSubscription
-}
-
-func (s *azureSQLSource) Name() string { return sourceAzureSQL }
-
-func (s *azureSQLSource) Poll(ctx context.Context, emit sources.Emit) {
-	pollBySubscription(ctx, sourceAzureSQL, s.subs, emit, evaluateSQLDatabase)
+func newAzureSQLSource(subs []sources.Scoped[sqlDatabase]) sources.Source {
+	return sources.NewListSource(sourceAzureSQL, subs, evaluateSQLDatabase)
 }
 
 func evaluateSQLDatabase(subscription string, db sqlDatabase, emit sources.Emit) {

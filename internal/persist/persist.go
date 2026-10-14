@@ -8,8 +8,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,8 +19,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
-	"github.com/aryasoni98/alertkube/internal/alert"
-	"github.com/aryasoni98/alertkube/internal/metrics"
+	"github.com/aryasoni98/alertkube/v2/internal/alert"
+	"github.com/aryasoni98/alertkube/v2/internal/metrics"
 )
 
 // dataKey is the legacy ConfigMap key that held the uncompressed JSON snapshot
@@ -36,6 +38,21 @@ const gzKey = "snapshot.json.gz"
 // STORED (compressed) size. A snapshot past this is not saved; losing one save
 // beats wedging every subsequent update with apiserver rejections.
 const maxSnapshotBytes = 900 * 1024
+
+// maxSavedAtSkew bounds how far ahead of this pod's clock a stored SavedAt may
+// be and still block a save. SavedAt is a pod wall clock, so a small lead is
+// ordinary skew between the outgoing and incoming leader. A stamp further
+// ahead is treated as poisoned (a badly skewed clock or a hand-edited object)
+// and overwritten; honoring it would block every save until this clock
+// caught up.
+const maxSavedAtSkew = 2 * time.Minute
+
+// ErrStaleSnapshot reports that Save declined to replace a stored snapshot
+// whose SavedAt is newer than the one being saved. It is an error, not a
+// success, so the caller keeps the state unsaved and retries: the next export
+// carries a fresh SavedAt and goes through once this clock passes the stored
+// one.
+var ErrStaleSnapshot = errors.New("stale snapshot")
 
 // ConfigMapStore loads and saves alert.Snapshot blobs in a ConfigMap.
 type ConfigMapStore struct {
@@ -109,12 +126,13 @@ func gunzip(b []byte) ([]byte, error) {
 
 // Save writes the snapshot, creating the ConfigMap on first use.
 //
-// The read-modify-write is retried on conflict: during a leader handoff the
-// outgoing and incoming leaders can briefly both write, and a bare
-// Get-then-Update would let one silently clobber the other's snapshot
-// (last-write-wins). RetryOnConflict re-reads and re-applies on a 409; the
-// AlreadyExists case from a lost create race is funnelled into the same retry
-// so the second iteration finds the object and Updates it.
+// The read-modify-write is retried on conflict. A 409 re-reads the object,
+// but the bytes we write are still ours: retry is not a merge. If the object
+// already holds a later SavedAt, the write is refused with ErrStaleSnapshot.
+// This orders writers by export wall-clock time only: it is not leader
+// fencing, and an outgoing leader whose final save exports after its
+// successor's save still overwrites it. A stored SavedAt more than
+// maxSavedAtSkew ahead of this clock does not block the write.
 func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 	body, err := json.Marshal(snap)
 	if err != nil {
@@ -154,6 +172,12 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 		if err != nil {
 			return err
 		}
+		// Not retryable: the refusal reaches the caller, which keeps the state
+		// unsaved and tries again on its next save.
+		saved, ok := snapshotSavedAt(cm)
+		if ok && saved.After(snap.SavedAt) && !saved.After(time.Now().Add(maxSavedAtSkew)) {
+			return fmt.Errorf("%w: stored SavedAt %s is after this snapshot's %s", ErrStaleSnapshot, saved.Format(time.RFC3339Nano), snap.SavedAt.Format(time.RFC3339Nano))
+		}
 		if cm.BinaryData == nil {
 			cm.BinaryData = map[string][]byte{}
 		}
@@ -168,4 +192,28 @@ func (p *ConfigMapStore) Save(ctx context.Context, snap *alert.Snapshot) error {
 		return fmt.Errorf("save state configmap %s/%s: %w", p.namespace, p.name, err)
 	}
 	return nil
+}
+
+// snapshotSavedAt reads SavedAt from a stored gzip snapshot. A missing or
+// undecodable blob is not newer, so the caller proceeds with the write.
+//
+// Only the savedAt field is decoded: this runs on every Save attempt, and
+// decoding the whole snapshot would allocate every stored alert just to read
+// one timestamp.
+func snapshotSavedAt(cm *corev1.ConfigMap) (time.Time, bool) {
+	raw, ok := cm.BinaryData[gzKey]
+	if !ok {
+		return time.Time{}, false
+	}
+	body, err := gunzip(raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	var hdr struct {
+		SavedAt time.Time `json:"savedAt"`
+	}
+	if err := json.Unmarshal(body, &hdr); err != nil || hdr.SavedAt.IsZero() {
+		return time.Time{}, false
+	}
+	return hdr.SavedAt, true
 }
