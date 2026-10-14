@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/aryasoni98/alertkube/compare/v2.0.0...v2.0.1) (2026-10-14)
+
+
+### Fixed
+
+* **ci:** modernize release tooling and runner availability ([a7dd8f2](https://github.com/aryasoni98/alertkube/commit/a7dd8f2a64957b84c485bfb765cb76a17e8e1a69))
+* **web:** version asset caches for every deployment ([04bdbcd](https://github.com/aryasoni98/alertkube/commit/04bdbcd8fbb0dabec9bc15b032e66a3530197843))
+
+
+### Changed
+
+* remove unused topology and development helpers ([0108d5a](https://github.com/aryasoni98/alertkube/commit/0108d5a41a944d63342c80e6f46ac7f5a0f135e7))
+
 ## [Unreleased]
 
 ### Changed
