@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+* Update Go to 1.27.2, cloud SDKs, Kubernetes clients, Slack, Prometheus, and
+  OpenTelemetry dependencies; refresh pinned container bases and CI actions.
+* Run release and E2E jobs on hosted runners so an offline private runner does
+  not block publication; keep manual releases from moving the `latest` image.
+
+### Removed
+
+* Remove the unused topology prototype, store mutation helper, test-only
+  production accessors, and unused development controls from the landing page.
+  Reserved correlation API types and disabled configuration remain compatible.
+
 ## [2.0.0](https://github.com/aryasoni98/alertkube/compare/v1.2.1...v2.0.0) (2026-09-29)
 
 ### Upgrade
