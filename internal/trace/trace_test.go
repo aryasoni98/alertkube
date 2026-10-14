@@ -13,14 +13,14 @@ import (
 func TestDisabledByDefault(t *testing.T) {
 	t.Setenv("ALERTKUBE_TRACING_ENABLED", "")
 	shutdown := Init(context.Background(), "test")
-	if Enabled() {
-		t.Fatal("tracing must be off unless explicitly enabled")
-	}
 	if err := shutdown(context.Background()); err != nil {
 		t.Fatalf("no-op shutdown returned %v", err)
 	}
 	// The global no-op tracer must still be usable, so call sites need no guard.
 	_, span := Tracer().Start(context.Background(), "noop")
+	if span.IsRecording() {
+		t.Fatal("tracing must be off unless explicitly enabled")
+	}
 	span.End()
 }
 

@@ -29,8 +29,8 @@ mostly about closing that gap and paying down the debt it exposed.
 
 ## Next — v1.4: correlation and state backends
 
-- **Correlation engine graduation** — `internal/topology` exists but is not yet
-  wired into the controller. Ships when blast-radius correlation can answer
+- **Topology-aware correlation** — the unused topology prototype was removed.
+  Ships when blast-radius correlation can answer
   "what else broke because of this" without a per-alert graph walk on the hot
   path. See `docs/design/`.
 - **Additional state backends** — the ConfigMap backend caps out near

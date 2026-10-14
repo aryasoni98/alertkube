@@ -248,13 +248,6 @@ func (s *Store) CleanOldHistory() {
 	}
 }
 
-// ActiveCount returns the number of currently active alerts.
-func (s *Store) ActiveCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.active)
-}
-
 // recordRecentLocked appends a Details-stripped copy to the recent ring.
 // Caller holds s.mu. Clone (not *a) so the ring entry's Labels/Annotations
 // maps are independent of the live alert's - the /api/v1/alerts reader walks
@@ -275,19 +268,6 @@ func (s *Store) ActiveList() []*Alert {
 		out = append(out, a.Clone())
 	}
 	return out
-}
-
-// ApplyCorrelation sets each active alert's Correlation from corr (keyed by
-// fingerprint), clearing it on any active alert absent from corr so a recompute
-// that drops a linkage also drops the stale annotation. It deliberately does NOT
-// bump gen: correlation is derived, not persisted, so it must not trigger a
-// ConfigMap save every correlation interval.
-func (s *Store) ApplyCorrelation(corr map[string]*Correlation) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for fp, a := range s.active {
-		a.Correlation = corr[fp].clone() // nil (absent key) clears
-	}
 }
 
 // Recent returns copies of the recent fired/resolved ring, oldest first.

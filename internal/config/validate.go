@@ -464,7 +464,7 @@ func (c *Config) validateCorrelation() error {
 	if !c.Correlation.Enabled {
 		return nil
 	}
-	// The topology package exists; the engine that would consume it does not.
+	// No topology-aware correlation engine consumes these settings.
 	// Accepting enabled: true would boot a controller that silently ignores the knob.
 	return errors.New("correlation.enabled is not implemented (see docs/design/2026-07-10-correlation-engine-design.md); leave it false")
 }

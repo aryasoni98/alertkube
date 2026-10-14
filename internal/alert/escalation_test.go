@@ -47,7 +47,7 @@ func TestEscalationMarksClearedOnResolve(t *testing.T) {
 	// Resolve clears the marks (and the active entry).
 	time.Sleep(2 * time.Millisecond)
 	s.SweepResolved()
-	if s.ActiveCount() != 0 {
+	if len(s.ActiveList()) != 0 {
 		t.Fatalf("alert should have resolved out of the active set")
 	}
 	if n := len(s.escalated); n != 0 {

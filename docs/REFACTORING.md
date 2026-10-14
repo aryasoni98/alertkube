@@ -28,7 +28,7 @@ provide cloud adapters. Controller-runtime is an integration-test dependency.
 | `internal/persist`, `shard` | ConfigMap snapshots and deterministic object ownership; separate state and Lease names per shard. |
 | `api/v1alpha1`, `internal/crd` | Public Silence types and opt-in dynamic informer adapter. |
 | `internal/authz`, `metrics`, `trace` | Bearer/RBAC checks, Prometheus metrics, health/readiness, leader handler slots, optional OpenTelemetry. |
-| `internal/topology` | Tested topology query support; no production importer or active correlation engine. Retained as explicitly unfinished work. |
+| Topology-aware correlation | Unused `internal/topology` prototype and store mutation helper removed. Reserved API data types remain compatible; enabling the feature fails validation. |
 | `web` | Independent React 18 marketing site and changelog, loaded through pinned CDN scripts and Babel standalone; shared CSS/primitives and section components. No runtime controller UI or frontend package build. |
 | `helm`, `examples` | Deployment, Secrets, RBAC, probes, monitoring resources, optional CRD, and supported sample configurations. |
 | `docs`, `test`, `.github`, `scripts` | MkDocs manual, operational/design guidance, integration/E2E tests, CI/release workflows, and version/build helpers. |
@@ -192,8 +192,9 @@ zero defects or universal absence of duplication.
 
 ## 10. Remaining debt and recommendations
 
-- Complete or explicitly remove topology correlation in a separate compatibility
-  decision. It has tests and published data types but no production engine.
+- Topology-aware correlation remains deferred. Its unused implementation and
+  mutation helper were removed; reserved API types and disabled configuration
+  remain compatible with v2.0.0.
 - Delivery remains at-least-once. Partial sink success and delayed resolve retries
   can still require per-sink acknowledgements and stronger ordering guarantees.
 - ConfigMap capacity and wall-clock stale-snapshot checks are not distributed

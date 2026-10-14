@@ -85,7 +85,7 @@ type dispatcher struct {
 	// is slow can land after the RESOLVE picked up at t0+e by a free worker,
 	// leaving a stateful sink (PagerDuty/Opsgenie keys on fingerprint) holding
 	// an incident that never closes. Routing every delivery for one
-	// fingerprint to one worker (see queueFor) makes that reordering
+	// fingerprint to one worker (see queueIndex) makes that reordering
 	// impossible. The cost is head-of-line blocking within a bucket - one slow
 	// delivery stalls only the fingerprints that hash to its worker - which is
 	// why the worker count should be sized up rather than down.
@@ -167,15 +167,9 @@ func newDispatcher(reg *sinks.Registry, workers, queueSize int) *dispatcher {
 	}
 }
 
-// queueFor picks the worker queue that owns an alert's deliveries. Affinity is
-// by fingerprint, because that is what a stateful sink keys its incident on and
-// therefore what must never be reordered: a FIRE and its RESOLVE share one
-// fingerprint and so always land on the same worker, in enqueue order. Alerts
-// enqueued before a fingerprint was computed fall back to object identity,
-// which is stable for the same object across its lifetime.
-func (d *dispatcher) queueFor(a *alert.Alert) chan dispatchJob { return d.queues[d.queueIndex(a)] }
-
-// queueIndex is the index of the queue queueFor returns.
+// queueIndex assigns deliveries by fingerprint so a FIRE and its RESOLVE
+// share one worker and retain enqueue order. Missing fingerprints fall back
+// to the same object identity key used by shard ownership.
 func (d *dispatcher) queueIndex(a *alert.Alert) int {
 	key := a.Fingerprint
 	if key == "" {

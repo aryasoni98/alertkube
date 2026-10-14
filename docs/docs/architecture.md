@@ -159,7 +159,7 @@ sequenceDiagram
     Note over GR: absorbed into an open window → return
     GR->>D: enqueue(alert, route, onFail)
     D->>D: pendingAdd(id) → outbox
-    D->>D: queueFor(fp) → the one worker that owns this fingerprint
+    D->>D: queueIndex(fp) → the one worker that owns this fingerprint
     D->>SK: Dispatch fan-out (breaker-gated)
     alt delivered
         SK-->>D: 200

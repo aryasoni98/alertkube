@@ -44,7 +44,7 @@ func TestSweepResolvedEmits(t *testing.T) {
 	if !resolved[0].Resolved {
 		t.Fatalf("resolved alert must have Resolved=true")
 	}
-	if s.ActiveCount() != 0 {
+	if len(s.ActiveList()) != 0 {
 		t.Fatalf("active should be empty after sweep")
 	}
 }
@@ -83,8 +83,8 @@ func TestResolveObjectEmitsAndClears(t *testing.T) {
 			t.Fatalf("resolved the wrong object: %s", a.Name)
 		}
 	}
-	if s.ActiveCount() != 1 {
-		t.Fatalf("only the unrelated alert should remain active, got %d", s.ActiveCount())
+	if len(s.ActiveList()) != 1 {
+		t.Fatalf("only the unrelated alert should remain active, got %d", len(s.ActiveList()))
 	}
 }
 
@@ -107,8 +107,8 @@ func TestResolveObjectNoMatchNoOp(t *testing.T) {
 	if resolved != 0 {
 		t.Fatalf("resolving an object with no active alerts must emit nothing, got %d", resolved)
 	}
-	if s.ActiveCount() != 1 {
-		t.Fatalf("unrelated active alert must survive, got %d", s.ActiveCount())
+	if len(s.ActiveList()) != 1 {
+		t.Fatalf("unrelated active alert must survive, got %d", len(s.ActiveList()))
 	}
 }
 
@@ -119,30 +119,6 @@ func TestOnChangeFires(t *testing.T) {
 	s.ShouldSend(New(KindPod, "ns", "p", "X", SeverityInfo))
 	if seen != 1 {
 		t.Fatalf("onChange not invoked: got %d", seen)
-	}
-}
-
-func TestApplyCorrelationSetsAndClears(t *testing.T) {
-	s := NewStore(time.Minute, time.Minute, nil)
-	a := New(KindPod, "ns", "web-1", "CrashLoopBackOff", SeverityCritical)
-	s.ShouldSend(a) // enters active set
-	genBefore := s.Generation()
-
-	s.ApplyCorrelation(map[string]*Correlation{
-		a.Fingerprint: {GroupID: "g1", Role: RoleEffect, Confidence: 0.9},
-	})
-	got := s.ActiveList()
-	if len(got) != 1 || got[0].Correlation == nil || got[0].Correlation.GroupID != "g1" {
-		t.Fatalf("correlation not applied: %+v", got)
-	}
-	// Derived, not persisted: must NOT bump gen (else a ConfigMap save fires every interval).
-	if s.Generation() != genBefore {
-		t.Fatalf("ApplyCorrelation bumped gen %d->%d; correlation is not persisted", genBefore, s.Generation())
-	}
-	// A recompute that drops the linkage clears the stale annotation.
-	s.ApplyCorrelation(map[string]*Correlation{})
-	if s.ActiveList()[0].Correlation != nil {
-		t.Fatal("absent fingerprint must clear Correlation")
 	}
 }
 

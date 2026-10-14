@@ -143,8 +143,8 @@ func TestPipeline_EventDispatchedOnceNeverActive(t *testing.T) {
 	if pd.count() != 0 {
 		t.Fatalf("event must not reach the stateful pagerduty sink, got %d", pd.count())
 	}
-	if h.store.ActiveCount() != 0 {
-		t.Fatalf("event must never enter the active set, active=%d", h.store.ActiveCount())
+	if len(h.store.ActiveList()) != 0 {
+		t.Fatalf("event must never enter the active set, active=%d", len(h.store.ActiveList()))
 	}
 	// Duplicate event within the mute window is deduped.
 	dup := alert.New(alert.KindCloudTrailEvent, "us-east-1", "evt-1", "SecurityGroupChanged", alert.SeverityWarning)
@@ -179,8 +179,8 @@ func TestPipeline_GroupingFoldsStorm(t *testing.T) {
 	}
 	// Absorbed chat-only members are muted but never active: no sink got
 	// them individually, so none may receive a resolve for them.
-	if store.ActiveCount() != 1 {
-		t.Fatalf("absorbed chat-only alerts must not become active, active=%d", store.ActiveCount())
+	if len(store.ActiveList()) != 1 {
+		t.Fatalf("absorbed chat-only alerts must not become active, active=%d", len(store.ActiveList()))
 	}
 	if fp := alert.ComputeFingerprint(alert.KindPod, "ns", "pb", "CrashLoopBackOff"); !store.Muted(fp) {
 		t.Fatal("absorbed chat-only alert must enter the mute window")
@@ -255,8 +255,8 @@ func TestPipeline_GroupingRefireOfAbsorbedMembers(t *testing.T) {
 			if summaries[0].Name != "4-grouped" {
 				t.Fatalf("summary count must not grow with re-fires, got %s", summaries[0].Name)
 			}
-			if store.ActiveCount() != 1 {
-				t.Fatalf("absorbed chat-only alerts must not become active, active=%d", store.ActiveCount())
+			if len(store.ActiveList()) != 1 {
+				t.Fatalf("absorbed chat-only alerts must not become active, active=%d", len(store.ActiveList()))
 			}
 		})
 	}
@@ -289,8 +289,8 @@ func TestPipeline_AbsorbedFireReachesStatefulSink(t *testing.T) {
 	if pd.count() != 2 {
 		t.Fatalf("pagerduty should see both fires, got %d", pd.count())
 	}
-	if store.ActiveCount() != 2 {
-		t.Fatalf("both stateful fires must be tracked, active=%d", store.ActiveCount())
+	if len(store.ActiveList()) != 2 {
+		t.Fatalf("both stateful fires must be tracked, active=%d", len(store.ActiveList()))
 	}
 }
 

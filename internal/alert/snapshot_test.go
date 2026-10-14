@@ -34,8 +34,8 @@ func TestExportRestoreRoundTrip(t *testing.T) {
 	restored := NewStore(time.Minute, time.Minute, nil)
 	restored.SetOnChange(func(n int) { gauge = n })
 	restored.Restore(snap)
-	if restored.ActiveCount() != 1 || gauge != 1 {
-		t.Fatalf("restore: active=%d gauge=%d", restored.ActiveCount(), gauge)
+	if len(restored.ActiveList()) != 1 || gauge != 1 {
+		t.Fatalf("restore: active=%d gauge=%d", len(restored.ActiveList()), gauge)
 	}
 	// Mute history must survive: an immediate re-fire is muted.
 	refire := New(KindPod, "ns", "p", "CrashLoopBackOff", SeverityCritical)
@@ -64,7 +64,7 @@ func TestRestoreIgnoresFutureVersionAndNil(t *testing.T) {
 	s.Restore(nil)
 	s.Restore(&Snapshot{Version: SnapshotVersion + 1,
 		Active: []*Alert{New(KindPod, "ns", "p", "X", SeverityInfo)}})
-	if s.ActiveCount() != 0 {
+	if len(s.ActiveList()) != 0 {
 		t.Fatalf("future-version snapshot must be ignored")
 	}
 }
@@ -171,8 +171,8 @@ func TestRestoreEndsAt(t *testing.T) {
 			}
 			time.Sleep(5 * ttl)
 			s.SweepResolved()
-			if resolved != 1 || s.ActiveCount() != 0 {
-				t.Fatalf("sweep resolved %d with %d still active, want 1 and 0", resolved, s.ActiveCount())
+			if resolved != 1 || len(s.ActiveList()) != 0 {
+				t.Fatalf("sweep resolved %d with %d still active, want 1 and 0", resolved, len(s.ActiveList()))
 			}
 		})
 	}
@@ -200,10 +200,8 @@ func TestGenerationTracksMutations(t *testing.T) {
 func TestExportDropsCorrelation(t *testing.T) {
 	s := NewStore(time.Minute, time.Minute, nil)
 	a := New(KindPod, "ns", "web-1", "CrashLoopBackOff", SeverityCritical)
+	a.Correlation = &Correlation{GroupID: "g1", Role: RoleEffect, BlastRadius: []Ref{{Kind: "Node", Name: "n1"}}}
 	s.ShouldSend(a)
-	s.ApplyCorrelation(map[string]*Correlation{
-		a.Fingerprint: {GroupID: "g1", Role: RoleEffect, BlastRadius: []Ref{{Kind: "Node", Name: "n1"}}},
-	})
 	snap := s.Export()
 	if len(snap.Active) != 1 {
 		t.Fatalf("expected 1 active, got %d", len(snap.Active))

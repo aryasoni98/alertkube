@@ -76,7 +76,7 @@ func TestRestoreStateGatesWholeSnapshotOnVersion(t *testing.T) {
 			if restoreState(context.Background(), client, cfg.Persistence, store, silStore, disp, sharder) == nil {
 				t.Fatal("restoreState returned no persister with persistence enabled")
 			}
-			if got := store.ActiveCount(); got != tt.want {
+			if got := len(store.ActiveList()); got != tt.want {
 				t.Errorf("active alerts = %d, want %d", got, tt.want)
 			}
 			if got := len(silStore.List()); got != tt.want {

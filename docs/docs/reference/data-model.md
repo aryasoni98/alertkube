@@ -122,10 +122,10 @@ node would suppress pod alerts cluster-wide.
 
 ## Correlation
 
-Optional annotation describing an alert's blast radius. Produced by the
-correlation engine (`internal/topology`, in progress) and attached to active
-alerts without bumping the store generation — it is derived, so it is not worth
-a persistence write.
+Reserved annotation describing an alert's blast radius. The controller does
+not populate it: topology-aware correlation is not implemented, and enabling it
+fails validation. The data type remains for API compatibility; annotations are
+excluded from persisted snapshots.
 
 ## DeadLetterEntry
 

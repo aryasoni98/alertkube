@@ -75,7 +75,7 @@ func TestForgetDropsStateWithoutResolve(t *testing.T) {
 	a := New(KindExternal, "ns", "p", "X", SeverityWarning)
 	s.ShouldSend(a)
 	s.Forget(a.Fingerprint)
-	if s.ActiveCount() != 0 {
+	if len(s.ActiveList()) != 0 {
 		t.Fatalf("forget must drop the active entry")
 	}
 	time.Sleep(5 * time.Millisecond)
@@ -95,6 +95,8 @@ func TestStoreOwnsAcceptedAlerts(t *testing.T) {
 	a.Labels["team"] = "platform"
 	a.Annotations["owner"] = "oncall"
 	a.Details["logs"] = "original"
+	corr := &Correlation{GroupID: "g1", BlastRadius: []Ref{{Name: "node"}}}
+	a.Correlation = corr
 	s.ShouldSend(a)
 	endsAt := a.EndsAt
 	s.Touch(a.Fingerprint)
@@ -109,8 +111,6 @@ func TestStoreOwnsAcceptedAlerts(t *testing.T) {
 	if stored.Summary != "" || stored.Labels["team"] != "platform" || stored.Annotations["owner"] != "oncall" || stored.Details["logs"] != "original" {
 		t.Fatalf("store retained caller-owned data: %+v", stored)
 	}
-	corr := &Correlation{GroupID: "g1", BlastRadius: []Ref{{Name: "node"}}}
-	s.ApplyCorrelation(map[string]*Correlation{a.Fingerprint: corr})
 	corr.BlastRadius[0].Name = "changed"
 	if s.ActiveList()[0].Correlation.BlastRadius[0].Name != "node" {
 		t.Fatal("store retained caller-owned correlation")

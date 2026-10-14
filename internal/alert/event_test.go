@@ -21,8 +21,8 @@ func TestShouldSendEventDedupesWithoutActivating(t *testing.T) {
 	if s.ShouldSendEvent(eventAlert("evt-1")) {
 		t.Fatal("duplicate event within mute window must be suppressed")
 	}
-	if s.ActiveCount() != 0 {
-		t.Fatalf("event must never enter the active set, got %d", s.ActiveCount())
+	if len(s.ActiveList()) != 0 {
+		t.Fatalf("event must never enter the active set, got %d", len(s.ActiveList()))
 	}
 	if !s.ShouldSendEvent(eventAlert("evt-2")) {
 		t.Fatal("a distinct event id should send")
@@ -44,7 +44,7 @@ func TestShouldSendEventNeverResolves(t *testing.T) {
 	if resolves != 0 {
 		t.Fatalf("event alert must not produce a synthetic resolve, got %d", resolves)
 	}
-	if s.ActiveCount() != 0 {
-		t.Fatalf("event alert must not be active, got %d", s.ActiveCount())
+	if len(s.ActiveList()) != 0 {
+		t.Fatalf("event alert must not be active, got %d", len(s.ActiveList()))
 	}
 }

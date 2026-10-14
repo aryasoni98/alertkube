@@ -214,7 +214,7 @@ type RuleAbsent struct {
 
 // Correlation configures topology-aware alert correlation. Disabled by default.
 // validateCorrelation rejects enabled: true until an engine consumes
-// internal/topology. See docs/design/2026-07-10-correlation-engine-design.md.
+// these settings. See docs/design/2026-07-10-correlation-engine-design.md.
 type Correlation struct {
 	Enabled         bool `yaml:"enabled"`
 	IntervalSeconds int  `yaml:"intervalSeconds"`
