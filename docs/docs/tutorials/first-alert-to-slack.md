@@ -14,6 +14,8 @@ If `slack.webhookUrl` was set during install, skip to the pod test.
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 
@@ -22,6 +24,8 @@ Use bot-token mode for real per-severity channels. The bot needs `chat:write` an
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.botToken=xoxb-your-bot-token \
   --set slack.channels.critical=alerts-critical \
   --set slack.channels.warning=alerts-warning \
@@ -62,7 +66,9 @@ Delete the broken pod:
 kubectl delete pod boom
 ```
 
-After the fingerprint is quiet for `behavior.resolveTTLSeconds`, alertkube sends a resolved alert. For tests, the TTL can be lowered but must stay above 300 seconds.
+Deleting the firing pod emits a resolve immediately. If the pod simply stops
+firing without a delete, the sweeper resolves it after `behavior.resolveTTLSeconds`.
+For tests, the TTL can be lowered but must stay above 300 seconds.
 
 ## Next steps
 

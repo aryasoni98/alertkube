@@ -29,7 +29,9 @@ Releases are cut from `master` by a maintainer:
 
 1. `CHANGELOG.md` has an entry for the version.
 2. CI on the release commit is green, including the signed-off-by check.
-3. Tag `vX.Y.Z`. The release workflow builds the image, the Helm chart, and the SBOM.
+3. Merge the release-please release PR; it creates the `vX.Y.Z` tag. The release
+   workflow validates the tagged revision and publishes the image, Helm chart,
+   and SBOM. See [Release Process](RELEASE.md).
 4. Confirm the chart and image published under `ghcr.io/aryasoni98`.
 
 Do not force-push a release tag.

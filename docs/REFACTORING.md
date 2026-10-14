@@ -7,12 +7,18 @@ runtime paths, existing audit findings, build/release configuration, and baselin
 tests were examined before this review made source changes. Historical local
 `AUDIT.md` and `REFACTOR-PLAN.md` are leads, not current validation results.
 
+The counts, tool versions, and test results below record that September review.
+Later maintenance removes unused correlation helpers and updates dependencies,
+Go, and CI tooling; those changes remain under `Unreleased` in the changelog.
+The published v2.0.0 tag is unchanged. Current release and E2E jobs use
+GitHub-hosted Ubuntu runners; see [Release Process](../RELEASE.md).
+
 ## 1. Architecture summary
 
 AlertKube is a modular Go controller, not a web application framework. Its 245 Go
-files include 119 test files and 33,191 lines at review time. There are 29
-production packages, plus shared test utilities. Go 1.27.1 builds the executable;
-client-go owns Kubernetes informers and leader election. AWS, Azure, and GCP SDKs
+files include 119 test files and 33,191 lines at review time. There were 29
+production packages, plus shared test utilities. Go 1.27.1 built the executable
+at review time; client-go owns Kubernetes informers and leader election. AWS, Azure, and GCP SDKs
 provide cloud adapters. Controller-runtime is an integration-test dependency.
 
 | Directory | Responsibility and relationships |
@@ -101,9 +107,10 @@ No production dependency was added for these fixes.
 Version 2.0.0 is synchronized across the manifest, chart, image annotations,
 website, installation docs, and scripts. The site preserves its historical 1.2.1
 entry. The Go module and all local imports use the required `/v2` suffix, including
-the Docker linker flag that stamps the binary version. The release workflow validates the tagged revision before publication and
-uses the attached `self-hosted`, `Linux`, `X64` runner. Helm is installed explicitly
-and its registry login is scoped to the runner's temporary directory and logged
+the Docker linker flag that stamps the binary version. At review time, the
+release workflow validated the tagged revision before publication and used the
+attached `self-hosted`, `Linux`, `X64` runner. Helm was installed explicitly and
+its registry login was scoped to the runner's temporary directory and logged
 out afterwards. Local builds pass their tag into the binary version flag.
 
 ## 4. Files removed

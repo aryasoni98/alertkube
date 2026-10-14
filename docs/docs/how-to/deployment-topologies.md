@@ -15,8 +15,14 @@ leader-elected pair.
 
 ## Single replica
 
+These examples reuse the `alertkube-api` Secret from the
+[install tutorial](../tutorials/install-with-helm.md).
+
 ```bash
 helm upgrade --install alertkube ./helm \
+  --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set replicaCount=1 \
   --set persistence.enabled=true
 ```
@@ -32,6 +38,9 @@ cache sync — tens of seconds on a large cluster.
 
 ```bash
 helm upgrade --install alertkube ./helm \
+  --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set replicaCount=2 \
   --set leaderElection.enabled=true \
   --set persistence.enabled=true

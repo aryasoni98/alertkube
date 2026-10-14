@@ -23,3 +23,4 @@ turns out to be wrong, the correction belongs in an ADR or the manual.
 | [Correlation engine — design](2026-07-10-correlation-engine-design.md) | Deferred; unused prototype removed |
 | [Correlation engine — plan](2026-07-10-correlation-engine-plan.md) | Deferred |
 | [Remove embedded console UI](2026-08-07-remove-embedded-console-ui-design.md) | Shipped |
+| [Repository settings](REPO-SETTINGS-CHECKLIST.md) | Maintainer checklist |

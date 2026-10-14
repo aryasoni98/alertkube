@@ -61,9 +61,14 @@ kinds of docs for four kinds of need:
 
 ## Install in one command
 
+First create the `alertkube-api` Secret with a `token` key as shown in the
+[install tutorial](tutorials/install-with-helm.md).
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 

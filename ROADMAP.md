@@ -6,28 +6,29 @@ open-source roadmap are a promise nobody asked for.
 Anything here is open to discussion. If a theme matters to you, say so on the
 issue; adoption signal is how these get reordered.
 
-## Now — v1.3: make the HA story true
+## Shipped — v2.0.0: make the HA story true
 
 v1.2 shipped sharding and durable delivery. An architecture audit found the
-sharding implementation could not safely be run as documented, so v1.3 is
-mostly about closing that gap and paying down the debt it exposed.
+sharding implementation could not safely be run as documented. v2.0.0 closes
+that gap and includes the breaking changes described in the
+[upgrade guide](docs/docs/how-to/upgrade-to-v2.md).
 
 - **Sharding correctness** — shard-scoped leader Lease and state ConfigMap,
-  ownership-gated outbox replay. *(done, unreleased)*
+  ownership-gated outbox replay. *(shipped in v2.0.0)*
 - **Delivery ordering** — per-fingerprint worker affinity so a FIRE and its
-  RESOLVE cannot land out of order at a stateful sink. *(done, unreleased)*
-- **Importable module path** — `github.com/aryasoni98/alertkube`. *(done,
-  unreleased, breaking)*
+  RESOLVE cannot land out of order at a stateful sink. *(shipped in v2.0.0)*
+- **Importable module path** — `github.com/aryasoni98/alertkube/v2`.
+  *(shipped in v2.0.0, breaking)*
 - **Versioned HTTP API** — everything under `/api/v1/`, receiver moved off the
-  colliding path. *(done, unreleased, breaking)*
+  colliding path. *(shipped in v2.0.0, breaking)*
 - **`persist.Store` interface** — the seam a non-ConfigMap backend needs.
-  *(done, unreleased)*
+  *(shipped in v2.0.0)*
 - **OpenTelemetry tracing** — spans on enqueue and dispatch, opt-in via
-  `ALERTKUBE_TRACING_ENABLED`. *(done, unreleased)*
+  `ALERTKUBE_TRACING_ENABLED`. *(shipped in v2.0.0)*
 - **envtest integration tier** — real apiserver, real informer sync, real Lease
-  contention. *(done, unreleased)*
+  contention. *(shipped in v2.0.0)*
 
-## Next — v1.4: correlation and state backends
+## Next — correlation and state backends
 
 - **Topology-aware correlation** — the unused topology prototype was removed.
   Ships when blast-radius correlation can answer
@@ -42,7 +43,7 @@ mostly about closing that gap and paying down the debt it exposed.
 - **Sink plugin surface** — sinks self-register, but only in-tree. Worth
   exploring whether an out-of-tree sink is a goal or an anti-goal.
 
-## Later — v2.0 considerations
+## Later — future breaking changes
 
 Nothing is committed here. Candidates, only if the pain justifies a major:
 

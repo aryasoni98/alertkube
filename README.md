@@ -24,9 +24,14 @@ Delivery is **decoupled from the watch loop**: a bounded async worker pool fans 
 
 Latest release: [v2.0.0](https://github.com/aryasoni98/alertkube/releases/latest).
 
+Create an `alertkube-api` Secret with a `token` key in the release namespace.
+Use a random read-API token; see the [install tutorial](docs/docs/tutorials/install-with-helm.md).
+
 ```bash
 helm upgrade --install alertkube oci://ghcr.io/aryasoni98/charts/alertkube --version 2.0.0 \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 
@@ -35,6 +40,8 @@ From a checkout:
 ```bash
 helm upgrade --install alertkube ./helm \
   --set cluster=my-cluster \
+  --set api.tokenSecretKeyRef.name=alertkube-api \
+  --set api.tokenSecretKeyRef.key=token \
   --set slack.webhookUrl=https://hooks.slack.com/services/Change-Me
 ```
 
@@ -136,7 +143,14 @@ just build        # compile ./alertkube
 | HA & sharding | [Leader election & sharding](https://aryasoni98.github.io/alertkube/manual/how-to/ha-leader-election/) |
 | Metrics & debugging | [Troubleshoot with metrics](https://aryasoni98.github.io/alertkube/manual/how-to/troubleshoot-with-metrics/) |
 | Config reference | [Config schema](https://aryasoni98.github.io/alertkube/manual/reference/config-schema/) |
+| Helm chart values | [Chart reference](helm/README.md) |
 | ADRs | [docs/decisions/](docs/decisions/) |
+| Upgrade to v2 | [Migration guide](docs/docs/how-to/upgrade-to-v2.md) |
+| Operations | [SLOs, capacity, and runbooks](docs/OPERATIONS.md) |
+| Refactoring review | [Dated architecture audit and validation evidence](docs/REFACTORING.md) |
+| Releases & maintenance | [Release Process](RELEASE.md) · [Maintainers](MAINTAINERS.md) |
+| Planned work & designs | [Roadmap](ROADMAP.md) · [Design index](docs/design/) |
+| E2E tests | [Kind and Chainsaw setup](test/e2e/README.md) |
 | Good first issues | [docs/good-first-issues.md](docs/good-first-issues.md) |
 
 Preview the manual locally:

@@ -263,7 +263,7 @@ Work down this list; it is ordered by how often each is the cause.
 
 `/healthz` is not a static 200. The sweep loop bumps a heartbeat every 30 s, and
 liveness fails once a **leader's** heartbeat is older than
-`LivenessStaleWindow` (120 s, `internal/metrics/metrics.go`).
+`LivenessStaleWindow` (120 s, `internal/metrics/server.go`).
 
 A failing `/healthz` on a leader means the sweep loop is wedged — almost always
 blocked on the alert store's mutex. This is intentional: the kubelet restarts a

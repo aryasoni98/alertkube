@@ -1,8 +1,9 @@
 # Extension interfaces
 
 Every extension point AlertKube exposes, with the contract you must satisfy.
-All four use the same shape: **declare a narrow interface, register yourself in
-`init()`, get wired automatically.** No central list to edit.
+Sinks, watchers, and cloud providers declare a narrow contract and register in
+`init()`. Cloud services are wired by their provider; state backends use
+constructor wiring.
 
 | Extend with | Interface | Register via | File to add |
 | --- | --- | --- | --- |
@@ -36,7 +37,8 @@ type Sink interface {
   missing credential — no-op and increment `metrics.SinkNoop` instead, so a
   routed-but-unconfigured sink is visible rather than looking like an outage.
 - Read credentials from the environment **on every `Send`**, never cache them at
-  construction: that is what makes Secret rotation work without a restart.
+  construction. The chart supplies credentials through `secretKeyRef` env vars;
+  restart the pods after rotating an existing Secret so their environment updates.
 - `Supports` gates by severity before the rate limiter and breaker.
 
 **Minimal example**
@@ -50,7 +52,7 @@ func (s *mySink) Name() string                      { return "mysink" }
 func (s *mySink) Supports(_ alert.Severity) bool    { return true }
 
 func (s *mySink) Send(ctx context.Context, a *alert.Alert) error {
-    url := os.Getenv("MYSINK_WEBHOOK_URL") // read per-send: honors rotation
+    url := os.Getenv("MYSINK_WEBHOOK_URL") // read the current process environment
     if url == "" {
         metrics.SinkNoop.WithLabelValues(s.Name()).Inc()
         return nil // not an error: unconfigured, not broken

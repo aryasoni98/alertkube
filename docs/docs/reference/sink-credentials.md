@@ -10,10 +10,13 @@ Routing rules may only reference a known sink name: `slack`, `pagerduty`,
 name in `routing`, `escalations`, or `sinkRates` fails config validation at
 load.
 
-!!! note "Credentials are read on every Send"
-    Each sink reads its credential from the environment (or mounted Secret) on
-    every dispatch, not once at startup. A Secret can be rotated and the new
-    value takes effect on the next alert without restarting the controller.
+!!! note "Restart pods after Secret rotation"
+    Each sink reads its credential from the process environment on every
+    dispatch. The chart populates that environment from `secretKeyRef` when a
+    pod starts; updating the Secret does not update a running pod's environment.
+    After rotation, run `kubectl rollout restart deploy/alertkube` in the release
+    namespace. An inline Helm credential update changes the chart's Secret
+    checksum and triggers a rollout automatically.
 
 ## Slack
 
@@ -98,7 +101,7 @@ The inbound Alertmanager webhook receiver (`POST /api/v1/receiver/alerts`, when 
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/receiver/alerts` when set. Read on every request, so tokens can be rotated without restart. |
+| `ALERTKUBE_RECEIVER_TOKEN` | `receiver.token` / `receiver.tokenSecretKeyRef` | `receiverToken` | Bearer token required on `POST /api/v1/receiver/alerts` when set. Loaded when the handler is installed; restart pods after Secret rotation. |
 
 ### Read-only alerts API token
 
@@ -106,7 +109,7 @@ The introspection endpoint (`GET /api/v1/alerts`, always available after control
 
 | Env var | Helm value | Default Secret key | Notes |
 | --- | --- | --- | --- |
-| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on `GET /api/v1/alerts` when set. When empty, the endpoint is unauthenticated; restrict it with NetworkPolicy. Read on every request. |
+| `ALERTKUBE_API_TOKEN` | `api.token` / `api.tokenSecretKeyRef` | `apiToken` | Bearer token required on the read API when set. Loaded when handlers are installed; restart pods after Secret rotation. When empty, the endpoint is unauthenticated; the chart requires NetworkPolicy or explicit acceptance of unauthenticated reads. |
 
 ## Inline vs. Secret reference
 
