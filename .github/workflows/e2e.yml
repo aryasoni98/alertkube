@@ -51,7 +51,7 @@ jobs:
         run: docker build -t "${IMAGE}" .
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: ${{ env.CLUSTER }}
           kubeconfig: ${{ env.KUBECONFIG }}
@@ -123,7 +123,7 @@ jobs:
         run: docker build -t "${IMAGE}" .
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: ${{ env.CLUSTER }}
           kubeconfig: ${{ env.KUBECONFIG }}
@@ -189,7 +189,7 @@ jobs:
         run: docker build -t "${IMAGE}" .
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: ${{ env.CLUSTER }}
           kubeconfig: ${{ env.KUBECONFIG }}
