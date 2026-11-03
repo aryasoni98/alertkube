@@ -2,7 +2,7 @@
 # cross-compiles to the requested target, so multi-arch `docker buildx`
 # builds do not pay for QEMU emulation. TARGETOS/TARGETARCH are injected by
 # buildx; they default to the build host when building with plain `docker`.
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 # Cache the module download across builds so a go.sum change does not refetch
